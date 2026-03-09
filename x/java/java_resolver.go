@@ -139,9 +139,14 @@ func (j *SymbolResolver) resolveMethod(gc *core.GlobalContext, fc *core.FileCont
 		// 场景 A: 静态调用 (类名.method)
 		if entries := j.preciseResolve(gc, fc, receiver); len(entries) > 0 {
 			first := entries[0].Element
-			if first.Kind == model.Class || first.Kind == model.Interface {
+			switch first.Kind {
+			case model.Class:
 				container = first
 				isStaticCall = true
+			case model.Interface:
+				container = first
+			case model.Enum:
+				container = first
 			}
 		}
 

@@ -63,7 +63,7 @@ func (gc *GlobalContext) AddDefinition(def *DefinitionEntry) {
 		gc.qualifiedNameMap[defQN] = def
 
 		if def.Element.Kind == model.Method {
-			methodKey := def.ParentQN + def.Element.Name
+			methodKey := gc.resolver.BuildQualifiedName(def.ParentQN, def.Element.Name)
 			gc.methodMapWithNoParams[methodKey] = append(gc.methodMapWithNoParams[methodKey], def)
 		}
 	}
