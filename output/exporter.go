@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/CodMac/arch-lens/core"
-	"github.com/CodMac/arch-lens/model"
+	"github.com/CodMac/arch-lens-dep-analyer/core"
+	"github.com/CodMac/arch-lens-dep-analyer/model"
 )
 
 type OutType string
@@ -45,11 +45,9 @@ func (p *Exporter) ExportJsonL(gCtx *core.GlobalContext, rels []*model.Dependenc
 	elemWriter := NewJSONLWriter(elemFile)
 	elemCount := 0
 	// 导出 GlobalContext 中记录的所有定义
-	for _, entries := range gCtx.DefinitionsByQN {
-		for _, entry := range entries {
-			elemWriter.Write(entry.Element)
-			elemCount++
-		}
+	for _, entry := range gCtx.Definitions {
+		elemWriter.Write(entry.Element)
+		elemCount++
 	}
 
 	relWriter := NewJSONLWriter(relFile)
@@ -78,12 +76,10 @@ func (p *Exporter) ExportMermaidHTML(gCtx *core.GlobalContext, rels []*model.Dep
 	// 1. 绘制子图结构 (File -> Elements)
 	for _, fCtx := range gCtx.FileContexts {
 		fmt.Fprintf(f, "  subgraph %s [📄 %s]\n", safeID(fCtx.FilePath), fCtx.FilePath)
-		for _, entries := range fCtx.DefinitionsBySN {
-			for _, entry := range entries {
-				nodeID := safeID(entry.Element.QualifiedName)
-				fmt.Fprintf(f, "    %s%s\n", nodeID, getNodeShape(entry.Element))
-				elemCount++
-			}
+		for _, entry := range fCtx.Definitions {
+			nodeID := safeID(entry.Element.QualifiedName)
+			fmt.Fprintf(f, "    %s%s\n", nodeID, getNodeShape(entry.Element))
+			elemCount++
 		}
 		fmt.Fprintln(f, "  end")
 	}

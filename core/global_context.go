@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/CodMac/arch-lens/model"
+	"github.com/CodMac/arch-lens-dep-analyer/model"
 )
 
 type GlobalContext struct {

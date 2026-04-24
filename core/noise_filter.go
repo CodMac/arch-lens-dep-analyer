@@ -1,6 +1,6 @@
 package core
 
-import "github.com/CodMac/arch-lens/model"
+import "github.com/CodMac/arch-lens-dep-analyer/model"
 
 // FilterLevel 定义过滤的严苛程度
 type FilterLevel int

@@ -8,10 +8,10 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/CodMac/arch-lens/core"
-	"github.com/CodMac/arch-lens/model"
-	"github.com/CodMac/arch-lens/output"
-	_ "github.com/CodMac/arch-lens/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/core"
+	"github.com/CodMac/arch-lens-dep-analyer/model"
+	"github.com/CodMac/arch-lens-dep-analyer/output"
+	_ "github.com/CodMac/arch-lens-dep-analyer/x/java"
 )
 
 const (

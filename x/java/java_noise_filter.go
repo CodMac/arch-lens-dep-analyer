@@ -1,8 +1,8 @@
 package java
 
 import (
-	"github.com/CodMac/arch-lens/core"
-	"github.com/CodMac/arch-lens/model"
+	"github.com/CodMac/arch-lens-dep-analyer/core"
+	"github.com/CodMac/arch-lens-dep-analyer/model"
 )
 
 type NoiseFilter struct {

@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/CodMac/arch-lens"
-	"github.com/CodMac/arch-lens/core"
-	"github.com/CodMac/arch-lens/model"
-	_ "github.com/CodMac/arch-lens/x/java" // 确保注册了 Java 处理器
+	"github.com/CodMac/arch-lens-dep-analyer"
+	"github.com/CodMac/arch-lens-dep-analyer/core"
+	"github.com/CodMac/arch-lens-dep-analyer/model"
+	_ "github.com/CodMac/arch-lens-dep-analyer/x/java" // 确保注册了 Java 处理器
 )
 
 func TestFileProcessor_ProcessFiles(t *testing.T) {

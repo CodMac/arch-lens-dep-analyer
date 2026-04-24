@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CodMac/arch-lens/core"
-	"github.com/CodMac/arch-lens/model"
-	"github.com/CodMac/arch-lens/parser"
-	"github.com/CodMac/arch-lens/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/core"
+	"github.com/CodMac/arch-lens-dep-analyer/model"
+	"github.com/CodMac/arch-lens-dep-analyer/parser"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java"
 	"github.com/stretchr/testify/assert"
 )
 

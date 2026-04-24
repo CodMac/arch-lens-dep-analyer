@@ -4,11 +4,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/CodMac/arch-lens/core"
+	"github.com/CodMac/arch-lens-dep-analyer/core"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 
-	"github.com/CodMac/arch-lens/parser"
-	_ "github.com/CodMac/arch-lens/x/java" // 确保注册 Java 语言
+	"github.com/CodMac/arch-lens-dep-analyer/parser"
+	_ "github.com/CodMac/arch-lens-dep-analyer/x/java" // 确保注册 Java 语言
 )
 
 // getTestFilePath 辅助函数，用于获取测试文件路径

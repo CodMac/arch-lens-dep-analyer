@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/CodMac/arch-lens/core"
-	"github.com/CodMac/arch-lens/model"
+	"github.com/CodMac/arch-lens-dep-analyer/core"
+	"github.com/CodMac/arch-lens-dep-analyer/model"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
