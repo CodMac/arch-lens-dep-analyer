@@ -510,7 +510,7 @@ func (c *Collector) calculateComplexity(node *sitter.Node) int {
 		kind := n.Kind()
 		switch kind {
 		case "if_statement", "for_statement", "while_statement", "do_statement",
-			"catch_clause", "conditional_expression", "switch_label":
+			"catch_clause", "conditional_expression", "ternary_expression", "switch_label":
 			complexity++
 		case "binary_expression":
 			// 对于 binary_expression，我们需要检查运算符是否为 && 或 ||

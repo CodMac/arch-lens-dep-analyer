@@ -2224,3 +2224,51 @@ func contains(s []string, str string) bool {
 
 	return false
 }
+
+func TestJavaCollector_Metrics_Complexity(t *testing.T) {
+	filePath := getTestFilePath(filepath.Join("com", "example", "metrics", "ComplexityTest.java"))
+	rootNode, sourceBytes, err := getJavaParser(t).ParseFile(filePath, false, true)
+	if err != nil {
+		t.Fatalf("Failed to parse file: %v", err)
+	}
+
+	collector := java.NewJavaCollector()
+	fCtx, err := collector.CollectDefinitions(rootNode, filePath, sourceBytes)
+	if err != nil {
+		t.Fatalf("CollectDefinitions failed: %v", err)
+	}
+
+	testCases := []struct {
+		methodQN string
+		expected int
+	}{
+		{"com.example.metrics.ComplexityTest.simple()", 1},
+		{"com.example.metrics.ComplexityTest.medium(int)", 4},
+		{"com.example.metrics.ComplexityTest.complexSwitch(int)", 4},
+		{"com.example.metrics.ComplexityTest.withTryCatch()", 3},
+		{"com.example.metrics.ComplexityTest.ternary(int)", 2},
+		{"com.example.metrics.ComplexityTest.arrowSwitch(int)", 4},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.methodQN, func(t *testing.T) {
+			defs := findDefinitionsByQN(fCtx, tc.methodQN)
+			if len(defs) == 0 {
+				t.Fatalf("Method %s not found", tc.methodQN)
+			}
+
+			complexity := 0
+			if val, ok := defs[0].Element.Extra.Mores[java.MethodComplexity].(int); ok {
+				complexity = val
+			} else if val, ok := defs[0].Element.Extra.Mores[java.MethodComplexity].(float64); ok {
+				complexity = int(val)
+			} else {
+				t.Errorf("Complexity metric missing or invalid type for %s", tc.methodQN)
+			}
+
+			if complexity != tc.expected {
+				t.Errorf("Expected complexity %d, got %d", tc.expected, complexity)
+			}
+		})
+	}
+}
