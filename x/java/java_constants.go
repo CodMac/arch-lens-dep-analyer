@@ -16,6 +16,7 @@ const (
 	MethodIsDefault                = "java.method.is_default"          // 是否为接口中的默认方法 (default) -> bool
 	MethodIsImplicit               = "java.method.is_implicit"         // 是否为隐式方法 (如编译器自动生成的构造函数) -> bool
 	MethodIsAnnotation             = "java.method.is_annotation"       // 是否为注解类型中的元素方法 -> bool
+	MethodComplexity               = "java.method.metrics.complexity"  // 方法圈复杂度 -> int
 	MethodDefaultValue             = "java.method.default_value"       // 注解元素的默认值 -> string
 	MethodReturnType               = "java.method.return_type"         // 方法返回值的原始类型文本 -> string
 	MethodReturnTypeWithQN         = "java.method.return_type_with_qn" // 方法返回值类型QN -> string

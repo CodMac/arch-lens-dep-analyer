@@ -1,9 +1,10 @@
 package java
 
 import (
+	"strings"
+
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
-	"strings"
 )
 
 type Binder struct {

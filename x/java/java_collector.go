@@ -336,6 +336,7 @@ func (c *Collector) fillTypeMetadata(elem *model.CodeElement, node *sitter.Node,
 
 func (c *Collector) fillMethodMetadata(elem *model.CodeElement, node *sitter.Node, extra *model.Extra, mods []string, fCtx *core.FileContext) {
 	extra.Mores[MethodIsConstructor] = (node.Kind() == "constructor_declaration")
+	extra.Mores[MethodComplexity] = c.calculateComplexity(node)
 
 	typeParams := ""
 	if tpNode := node.ChildByFieldName("type_parameters"); tpNode != nil {
@@ -402,6 +403,7 @@ func (c *Collector) fillAnnotationMember(elem *model.CodeElement, node *sitter.N
 func (c *Collector) fillScopeBlockMetadata(elem *model.CodeElement, node *sitter.Node, extra *model.Extra) {
 	isStatic := (node.Kind() == "static_initializer")
 	extra.Mores[BlockIsStatic] = isStatic
+	extra.Mores[MethodComplexity] = c.calculateComplexity(node)
 	elem.Signature = "{...}"
 	if isStatic {
 		elem.Signature = "static {...}"
@@ -465,6 +467,7 @@ func (c *Collector) fillLambdaMetadata(elem *model.CodeElement, node *sitter.Nod
 		}
 	}
 	extra.Mores[LambdaParameters] = paramsStr
+	extra.Mores[MethodComplexity] = c.calculateComplexity(node)
 
 	// 2. 识别 Body 类型
 	// body 可能是 block 或 表达式
@@ -495,6 +498,36 @@ func (c *Collector) fillAnonymousClassMetadata(elem *model.CodeElement, node *si
 		extra.Mores[AnonymousClassType] = typeName
 		elem.Signature = "anonymous extends/implements " + typeName
 	}
+}
+
+func (c *Collector) calculateComplexity(node *sitter.Node) int {
+	complexity := 1
+	var traverse func(*sitter.Node)
+	traverse = func(n *sitter.Node) {
+		if n == nil {
+			return
+		}
+		kind := n.Kind()
+		switch kind {
+		case "if_statement", "for_statement", "while_statement", "do_statement",
+			"catch_clause", "conditional_expression", "switch_label":
+			complexity++
+		case "binary_expression":
+			// 对于 binary_expression，我们需要检查运算符是否为 && 或 ||
+			// 注意：tree-sitter-java 可能将 && 和 || 视为不同的子节点
+			for i := 0; i < int(n.ChildCount()); i++ {
+				child := n.Child(uint(i))
+				if child.Kind() == "&&" || child.Kind() == "||" {
+					complexity++
+				}
+			}
+		}
+		for i := 0; i < int(n.ChildCount()); i++ {
+			traverse(n.Child(uint(i)))
+		}
+	}
+	traverse(node)
+	return complexity
 }
 
 // =============================================================================
