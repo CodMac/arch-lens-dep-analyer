@@ -30,7 +30,7 @@ Arch-Lens 能够识别并提取以下维度的依赖关系，通过 `Mores` 字�
 
 ## 🏗 核心架构
 
-Arch-Lens 将分析逻辑抽象为五个标准阶段，支持高并发流水线作业：
+Arch-Lens-Dep-Analyer 将分析逻辑抽象为五个标准阶段，支持高并发流水线作业：
 
 1. **Collector**：提取原始定义与元数据。
 2. **Binder**：深度语义符号处理。
@@ -85,31 +85,31 @@ Arch-Lens 将分析逻辑抽象为五个标准阶段，支持高并发流水线�
 
 ### 编译 (Build)
 
-Arch-Lens 依赖 `tree-sitter` 动态库，编译前请确保环境已配置相关依赖：
+Arch-Lens-Dep-Analyer 依赖 `tree-sitter` 动态库，编译前请确保环境已配置相关依赖：
 
 ```bash
 # 克隆项目
-git clone https://github.com/CodMac/arch-lens.git
-cd arch-lens
+git clone https://github.com/CodMac/arch-lens-dep-analyer.git
+cd arch-lens-dep-analyer
 
 # 下载依赖
 go mod download
 
 # 编译 CLI 工具
-go build -o arch-lens cmd/main.go
+go build -o arch-lens-dep-analyer main.go
 
 ```
 
 ### 基础使用 (Usage)
 
-Arch-Lens 提供了强大的命令行接口，支持多种输出格式和过滤等级。
+Arch-Lens-Dep-Analyer 提供了强大的命令行接口，支持多种输出格式和过滤等级。
 
 #### 1. 基础 JSONL 导出
 
 分析指定目录，并将结果导出为可供后续处理的 `jsonl` 格式：
 
 ```bash
-./arch-lens -path ./my-project -lang java -level 1 -format jsonl -out-dir ./result
+./arch-lens-dep-analyer -path ./my-project -lang java -level 1 -format jsonl -out-dir ./result
 
 ```
 
@@ -118,7 +118,7 @@ Arch-Lens 提供了强大的命令行接口，支持多种输出格式和过滤�
 如果项目规模适中（默认限制 200 节点内），可以直接导出 HTML 格式的 Mermaid 拓扑图：
 
 ```bash
-./arch-lens -path ./my-project -format mermaid -out-dir ./visual
+./arch-lens-dep-analyer -path ./my-project -format mermaid -out-dir ./visual
 
 ```
 
