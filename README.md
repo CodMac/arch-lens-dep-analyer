@@ -96,6 +96,7 @@ cd arch-lens-dep-analyer
 go mod download
 
 # 编译 CLI 工具
+CGO_ENABLED=1
 go build -o arch-lens-dep-analyer main.go
 
 ```
