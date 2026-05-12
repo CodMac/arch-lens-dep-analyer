@@ -265,7 +265,9 @@ func (c *Collector) processMetadataForEntry(entry *core.DefinitionEntry, fCtx *c
 	mods, annos := c.extractModifiersAndAnnotations(node, *fCtx.SourceBytes)
 	elem.Doc, elem.Comment = c.extractComments(node, fCtx.SourceBytes)
 
-	extra := &model.Extra{Modifiers: mods, Annotations: annos, Mores: make(map[string]interface{})}
+	extra := &model.Extra{
+		Modifiers: mods, Annotations: annos, Mores: make(map[string]interface{}),
+	}
 	isStatic, isFinal := c.contains(mods, "static"), c.contains(mods, "final")
 
 	switch elem.Kind {
@@ -576,7 +578,9 @@ func (c *Collector) desugarDefaultConstructor(elem *model.CodeElement, node *sit
 		Location:      elem.Location,
 		Signature:     fmt.Sprintf("public %s()", consName),
 		Extra: &model.Extra{
-			Mores: map[string]interface{}{MethodIsConstructor: true, MethodIsImplicit: true},
+			Modifiers:   make([]string, 0),
+			Annotations: make([]string, 0),
+			Mores:       map[string]interface{}{MethodIsConstructor: true, MethodIsImplicit: true},
 		},
 		IsFormSugar: true,
 	}, elem.QualifiedName, node)
@@ -588,7 +592,11 @@ func (c *Collector) desugarEnumMethods(elem *model.CodeElement, node *sitter.Nod
 	fCtx.AddDefinition(&model.CodeElement{
 		Kind: model.Method, Name: "values", QualifiedName: vQN, Path: fCtx.FilePath, Location: elem.Location, IsFormSugar: true,
 		Signature: fmt.Sprintf("public static %s[] values()", elem.Name),
-		Extra:     &model.Extra{Mores: map[string]interface{}{MethodIsImplicit: true}},
+		Extra: &model.Extra{
+			Modifiers:   make([]string, 0),
+			Annotations: make([]string, 0),
+			Mores:       map[string]interface{}{MethodIsImplicit: true},
+		},
 	}, elem.QualifiedName, node)
 
 	// valueOf(String)
@@ -596,7 +604,11 @@ func (c *Collector) desugarEnumMethods(elem *model.CodeElement, node *sitter.Nod
 	fCtx.AddDefinition(&model.CodeElement{
 		Kind: model.Method, Name: "valueOf", QualifiedName: voQN, Path: fCtx.FilePath, Location: elem.Location, IsFormSugar: true,
 		Signature: fmt.Sprintf("public static %s valueOf(String name)", elem.Name),
-		Extra:     &model.Extra{Mores: map[string]interface{}{MethodIsImplicit: true}},
+		Extra: &model.Extra{
+			Modifiers:   make([]string, 0),
+			Annotations: make([]string, 0),
+			Mores:       map[string]interface{}{MethodIsImplicit: true},
+		},
 	}, elem.QualifiedName, node)
 }
 
@@ -637,7 +649,11 @@ func (c *Collector) desugarRecordMembers(elem *model.CodeElement, node *sitter.N
 			fCtx.AddDefinition(&model.CodeElement{
 				Kind: model.Method, Name: comp.name, QualifiedName: mQN, Path: fCtx.FilePath, Location: elem.Location, IsFormSugar: true,
 				Signature: fmt.Sprintf("public %s %s()", comp.vType, comp.name),
-				Extra:     &model.Extra{Mores: map[string]interface{}{MethodIsImplicit: true}},
+				Extra: &model.Extra{
+					Modifiers:   make([]string, 0),
+					Annotations: make([]string, 0),
+					Mores:       map[string]interface{}{MethodIsImplicit: true},
+				},
 			}, elem.QualifiedName, node)
 		}
 	}
@@ -653,7 +669,11 @@ func (c *Collector) desugarRecordMembers(elem *model.CodeElement, node *sitter.N
 		fCtx.AddDefinition(&model.CodeElement{
 			Kind: model.Method, Name: elem.Name, QualifiedName: cQN, Path: fCtx.FilePath, Location: elem.Location, IsFormSugar: true,
 			Signature: fmt.Sprintf("public %s(%s)", elem.Name, c.getNodeContent(paramList, *fCtx.SourceBytes)),
-			Extra:     &model.Extra{Mores: map[string]interface{}{MethodIsConstructor: true, MethodIsImplicit: true}},
+			Extra: &model.Extra{
+				Modifiers:   make([]string, 0),
+				Annotations: make([]string, 0),
+				Mores:       map[string]interface{}{MethodIsConstructor: true, MethodIsImplicit: true},
+			},
 		}, elem.QualifiedName, node)
 	}
 }
@@ -763,7 +783,8 @@ func (c *Collector) extractThrows(node *sitter.Node, src *[]byte) []string {
 }
 
 func (c *Collector) extractModifiersAndAnnotations(n *sitter.Node, src []byte) ([]string, []string) {
-	var mods, annos []string
+	var mods = make([]string, 0)
+	var annos = make([]string, 0)
 	if mNode := c.findNamedChildOfType(n, "modifiers"); mNode != nil {
 		for i := 0; i < int(mNode.ChildCount()); i++ {
 			child := mNode.Child(uint(i))

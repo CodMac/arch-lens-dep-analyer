@@ -27,6 +27,8 @@ func NewExporter(outputDir string, outputType OutType) *Exporter {
 }
 
 func (p *Exporter) ExportJsonL(gCtx *core.GlobalContext, rels []*model.DependencyRelation) (int, int, error) {
+	fmt.Fprintf(os.Stderr, "Export jsonl, entry-size: {} , rels-size: {}\n", len(gCtx.Definitions), len(rels))
+
 	elemPath := filepath.Join(p.outputDir, "element.jsonl")
 	relPath := filepath.Join(p.outputDir, "relation.jsonl")
 

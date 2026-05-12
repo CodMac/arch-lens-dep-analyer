@@ -471,6 +471,9 @@ func (j *SymbolResolver) checkVisibility(gc *core.GlobalContext, fc *core.FileCo
 	}
 
 	// 3. 显式修饰符判断
+	if target.Element.Extra == nil || target.Element.Extra.Modifiers == nil {
+		return false
+	}
 	mods := target.Element.Extra.Modifiers
 	if slices.Contains(mods, "public") {
 		return true

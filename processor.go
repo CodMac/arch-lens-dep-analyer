@@ -1,8 +1,11 @@
 package main
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
@@ -41,6 +44,7 @@ func (fp *FileProcessor) ProcessFiles(rootPath string, filePaths []string) ([]*m
 	var allRelations []*model.DependencyRelation
 
 	// --- 阶段 1: 并行收集 (Collector) ---
+	start := time.Now()
 	err = fp.runParallel(filePaths, func(path string, p parser.Parser) error {
 		root, source, err := p.ParseFile(path, fp.OutputAST, fp.FormatAST)
 		if err != nil {
@@ -64,15 +68,19 @@ func (fp *FileProcessor) ProcessFiles(rootPath string, filePaths []string) ([]*m
 	if err != nil {
 		return nil, nil, err
 	}
+	fmt.Fprintf(os.Stderr, "      > [Step 1/5] Collector (Parallel): %v\n", time.Since(start).Round(time.Millisecond))
 
 	// --- 阶段 2: 符号绑定 (Binder) ---
+	start = time.Now()
 	binder, err := core.GetBinder(fp.Language)
 	if err != nil {
 		return nil, nil, err
 	}
 	binder.BindSymbols(gc)
+	fmt.Fprintf(os.Stderr, "      > [Step 2/5] Symbol Binder: %v\n", time.Since(start).Round(time.Millisecond))
 
 	// --- 阶段 3: 并行提取依赖 (Extractor) ---
+	start = time.Now()
 	var mu sync.Mutex
 	err = fp.runParallel(filePaths, func(path string, p parser.Parser) error {
 		ext, err := core.GetExtractor(fp.Language)
@@ -89,7 +97,6 @@ func (fp *FileProcessor) ProcessFiles(rootPath string, filePaths []string) ([]*m
 		mu.Lock()
 		defer mu.Unlock()
 		for _, rel := range rels {
-			// 归一化位置信息
 			if rel.Location != nil && filepath.IsAbs(rel.Location.FilePath) {
 				if rPath, err := filepath.Rel(absRoot, rel.Location.FilePath); err == nil {
 					rel.Location.FilePath = rPath
@@ -102,17 +109,22 @@ func (fp *FileProcessor) ProcessFiles(rootPath string, filePaths []string) ([]*m
 	if err != nil {
 		return nil, nil, err
 	}
+	fmt.Fprintf(os.Stderr, "      > [Step 3/5] Extractor (Parallel): %v\n", time.Since(start).Round(time.Millisecond))
 
 	// --- 阶段 4: 拓扑链接 (Linker) ---
+	start = time.Now()
 	linker, err := core.GetLinker(fp.Language)
 	if err != nil {
 		return nil, nil, err
 	}
 	hierarchyRelations := linker.LinkHierarchy(gc)
 	allRelations = append(allRelations, hierarchyRelations...)
+	fmt.Fprintf(os.Stderr, "      > [Step 4/5] Hierarchy Linker: %v\n", time.Since(start).Round(time.Millisecond))
 
 	// --- 阶段 5: 噪音过滤 (Noise Filtering) ---
+	start = time.Now()
 	filteredRelations := fp.filterNoise(allRelations)
+	fmt.Fprintf(os.Stderr, "      > [Step 5/5] Noise Filter: %v\n", time.Since(start).Round(time.Millisecond))
 
 	return filteredRelations, gc, nil
 }
