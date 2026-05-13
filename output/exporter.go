@@ -1,10 +1,13 @@
 package output
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
@@ -27,39 +30,101 @@ func NewExporter(outputDir string, outputType OutType) *Exporter {
 }
 
 func (p *Exporter) ExportJsonL(gCtx *core.GlobalContext, rels []*model.DependencyRelation) (int, int, error) {
-	fmt.Fprintf(os.Stderr, "Export jsonl, entry-size: {} , rels-size: {}\n", len(gCtx.Definitions), len(rels))
+	fmt.Fprintf(os.Stderr, "Export jsonl, entry-size: %d , rels-size: %d\n", len(gCtx.Definitions), len(rels))
 
+	var wg sync.WaitGroup
+	var relCount int64
+	var elemCount int64
+	var finalErr error
+	var mu sync.Mutex
+
+	setErr := func(err error) {
+		mu.Lock()
+		if finalErr == nil {
+			finalErr = err
+		}
+		mu.Unlock()
+	}
+
+	// 1. 并行导出元素
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		count, err := p.exportElements(gCtx)
+		if err != nil {
+			setErr(err)
+			return
+		}
+		atomic.AddInt64(&elemCount, int64(count))
+	}()
+
+	// 2. 按关系类型分组
+	relsByType := make(map[model.DependencyType][]*model.DependencyRelation)
+	for _, rel := range rels {
+		relsByType[rel.Type] = append(relsByType[rel.Type], rel)
+	}
+
+	// 3. 并行导出每种类型的关系
+	for t, rs := range relsByType {
+		wg.Add(1)
+		go func(relType model.DependencyType, typeRels []*model.DependencyRelation) {
+			defer wg.Done()
+			count, err := p.exportRelationType(relType, typeRels)
+			if err != nil {
+				setErr(err)
+				return
+			}
+			atomic.AddInt64(&relCount, int64(count))
+		}(t, rs)
+	}
+
+	wg.Wait()
+	return int(elemCount), int(relCount), finalErr
+}
+
+func (p *Exporter) exportElements(gCtx *core.GlobalContext) (int, error) {
 	elemPath := filepath.Join(p.outputDir, "element.jsonl")
-	relPath := filepath.Join(p.outputDir, "relation.jsonl")
-
 	elemFile, err := os.Create(elemPath)
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 	defer elemFile.Close()
 
+	bw := bufio.NewWriter(elemFile)
+	defer bw.Flush()
+
+	elemWriter := NewJSONLWriter(bw)
+	count := 0
+	for _, entry := range gCtx.Definitions {
+		if err := elemWriter.Write(entry.Element); err != nil {
+			return count, err
+		}
+		count++
+	}
+	return count, nil
+}
+
+func (p *Exporter) exportRelationType(relType model.DependencyType, rels []*model.DependencyRelation) (int, error) {
+	fileName := fmt.Sprintf("relation_%s.jsonl", strings.ToLower(string(relType)))
+	relPath := filepath.Join(p.outputDir, fileName)
 	relFile, err := os.Create(relPath)
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 	defer relFile.Close()
 
-	elemWriter := NewJSONLWriter(elemFile)
-	elemCount := 0
-	// 导出 GlobalContext 中记录的所有定义
-	for _, entry := range gCtx.Definitions {
-		elemWriter.Write(entry.Element)
-		elemCount++
-	}
+	bw := bufio.NewWriter(relFile)
+	defer bw.Flush()
 
-	relWriter := NewJSONLWriter(relFile)
-	relCount := 0
+	relWriter := NewJSONLWriter(bw)
+	count := 0
 	for _, rel := range rels {
-		relWriter.Write(rel)
-		relCount++
+		if err := relWriter.Write(rel); err != nil {
+			return count, err
+		}
+		count++
 	}
-
-	return elemCount, relCount, nil
+	return count, nil
 }
 
 func (p *Exporter) ExportMermaidHTML(gCtx *core.GlobalContext, rels []*model.DependencyRelation) (int, int, error) {
@@ -71,19 +136,22 @@ func (p *Exporter) ExportMermaidHTML(gCtx *core.GlobalContext, rels []*model.Dep
 	}
 	defer f.Close()
 
-	fmt.Fprintln(f, `<!DOCTYPE html><html><head><meta charset="UTF-8"><script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script></head>
+	bw := bufio.NewWriter(f)
+	defer bw.Flush()
+
+	fmt.Fprintln(bw, `<!DOCTYPE html><html><head><meta charset="UTF-8"><script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script></head>
 <body><div class="mermaid">graph LR`)
 
 	elemCount := 0
 	// 1. 绘制子图结构 (File -> Elements)
 	for _, fCtx := range gCtx.FileContexts {
-		fmt.Fprintf(f, "  subgraph %s [📄 %s]\n", safeID(fCtx.FilePath), fCtx.FilePath)
+		fmt.Fprintf(bw, "  subgraph %s [📄 %s]\n", safeID(fCtx.FilePath), fCtx.FilePath)
 		for _, entry := range fCtx.Definitions {
 			nodeID := safeID(entry.Element.QualifiedName)
-			fmt.Fprintf(f, "    %s%s\n", nodeID, getNodeShape(entry.Element))
+			fmt.Fprintf(bw, "    %s%s\n", nodeID, getNodeShape(entry.Element))
 			elemCount++
 		}
-		fmt.Fprintln(f, "  end")
+		fmt.Fprintln(bw, "  end")
 	}
 
 	// 2. 绘制依赖线条
@@ -105,11 +173,11 @@ func (p *Exporter) ExportMermaidHTML(gCtx *core.GlobalContext, rels []*model.Dep
 			edgeStyle = "---" // 外部依赖用虚线或不同颜色区分
 		}
 
-		fmt.Fprintf(f, "  %s -- %s --> %s%s\n", srcID, rel.Type, tgtID, edgeStyle)
+		fmt.Fprintf(bw, "  %s -- %s --> %s%s\n", srcID, rel.Type, tgtID, edgeStyle)
 		relCount++
 	}
 
-	fmt.Fprintln(f, `</div><script>mermaid.initialize({startOnLoad:true, maxTextSize:1000000});</script></body></html>`)
+	fmt.Fprintln(bw, `</div><script>mermaid.initialize({startOnLoad:true, maxTextSize:1000000});</script></body></html>`)
 
 	return elemCount, relCount, nil
 }

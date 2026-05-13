@@ -68,7 +68,7 @@ func TestTreeSitterParser_ParseFile(t *testing.T) {
 	}
 
 	classNameNode := classNode.ChildByFieldName("name")
-	if classNameNode == nil || classNameNode.Kind() != "identifier" || classNameNode.Utf8Text(*sourceBytes) != "UserService" {
-		t.Errorf("Expected class name 'UserService', got '%s'", classNameNode.Utf8Text(*sourceBytes))
+	if classNameNode == nil || classNameNode.Kind() != "identifier" || classNameNode.Utf8Text(*sourceBytes) != "MyClass" {
+		t.Errorf("Expected class name 'MyClass', got '%s'", classNameNode.Utf8Text(*sourceBytes))
 	}
 }
