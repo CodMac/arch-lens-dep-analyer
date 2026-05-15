@@ -40,6 +40,7 @@ const (
 	LambdaParameters               = "java.lambda.parameters"          // Lambda 表达式的参数定义文本 -> string
 	LambdaBodyIsBlock              = "java.lambda.is_block"            // Lambda 主体是否为大括号包裹的代码块 -> bool
 	AnonymousClassType             = "java.anonymous_class.type"       // AnonymousClass 类型 -> string
+	FileLOC                        = "java.file.metrics.loc"           // 文件有效行数 -> int
 )
 
 // =============================================================================

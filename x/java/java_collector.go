@@ -2,6 +2,8 @@ package java
 
 import (
 	"fmt"
+	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
@@ -24,6 +26,9 @@ func NewJavaCollector() *Collector {
 func (c *Collector) CollectDefinitions(rootNode *sitter.Node, filePath string, sourceBytes *[]byte) (*core.FileContext, error) {
 	fCtx := core.NewFileContext(filePath, rootNode, sourceBytes)
 
+	// Step 0: 注册文件自身节点并计算指标
+	c.processFileElem(fCtx)
+
 	// Step 1: 基础声明 (Package & Imports)
 	c.processTopLevelDeclarations(fCtx)
 
@@ -41,6 +46,21 @@ func (c *Collector) CollectDefinitions(rootNode *sitter.Node, filePath string, s
 	c.applySyntacticSugar(fCtx)
 
 	return fCtx, nil
+}
+
+func (c *Collector) processFileElem(fCtx *core.FileContext) {
+	filePath := fCtx.FilePath
+
+	fileElem := &model.CodeElement{
+		Kind:          model.File,
+		Name:          filepath.Base(filePath),
+		QualifiedName: filePath,
+		Path:          filePath,
+		IsFormSource:  true,
+		Extra:         &model.Extra{Mores: make(map[string]interface{})},
+	}
+	fileElem.Extra.Mores["java.file.metrics.loc"] = c.calculateLOC(*fCtx.SourceBytes)
+	fCtx.AddDefinition(fileElem, "", fCtx.RootNode)
 }
 
 func (c *Collector) processTopLevelDeclarations(fCtx *core.FileContext) {
@@ -256,6 +276,10 @@ func (c *Collector) identifyBlockType(node *sitter.Node) (model.ElementKind, []s
 
 func (c *Collector) enrichMetadata(fCtx *core.FileContext) {
 	for _, entry := range fCtx.Definitions {
+		// 忽略文件节点，它的元数据在创建时已经手动填充了
+		if entry.Element.Kind == model.File {
+			continue
+		}
 		c.processMetadataForEntry(entry, fCtx)
 	}
 }
@@ -530,6 +554,24 @@ func (c *Collector) calculateComplexity(node *sitter.Node) int {
 	}
 	traverse(node)
 	return complexity
+}
+
+func (c *Collector) calculateLOC(source []byte) int {
+	// 1. 移除块注释
+	reBlock := regexp.MustCompile(`(?s)/\*.*?\*/`)
+	content := reBlock.ReplaceAll(source, []byte(""))
+
+	// 2. 按行切分并统计
+	lines := strings.Split(string(content), "\n")
+	loc := 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// 排除空行和单行注释
+		if trimmed != "" && !strings.HasPrefix(trimmed, "//") {
+			loc++
+		}
+	}
+	return loc
 }
 
 // =============================================================================
