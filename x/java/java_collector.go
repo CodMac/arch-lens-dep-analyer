@@ -27,7 +27,7 @@ func (c *Collector) CollectDefinitions(rootNode *sitter.Node, filePath string, s
 	fCtx := core.NewFileContext(filePath, rootNode, sourceBytes)
 
 	// Step 0: 注册文件自身节点并计算指标
-	c.processFileElem(fCtx)
+	c.initFileElem(fCtx)
 
 	// Step 1: 基础声明 (Package & Imports)
 	c.processTopLevelDeclarations(fCtx)
@@ -48,7 +48,7 @@ func (c *Collector) CollectDefinitions(rootNode *sitter.Node, filePath string, s
 	return fCtx, nil
 }
 
-func (c *Collector) processFileElem(fCtx *core.FileContext) {
+func (c *Collector) initFileElem(fCtx *core.FileContext) {
 	filePath := fCtx.FilePath
 
 	fileElem := &model.CodeElement{
@@ -57,9 +57,8 @@ func (c *Collector) processFileElem(fCtx *core.FileContext) {
 		QualifiedName: filePath,
 		Path:          filePath,
 		IsFormSource:  true,
-		Extra:         &model.Extra{Mores: make(map[string]interface{})},
 	}
-	fileElem.Extra.Mores["java.file.metrics.loc"] = c.calculateLOC(*fCtx.SourceBytes)
+
 	fCtx.AddDefinition(fileElem, "", fCtx.RootNode)
 }
 
@@ -276,10 +275,6 @@ func (c *Collector) identifyBlockType(node *sitter.Node) (model.ElementKind, []s
 
 func (c *Collector) enrichMetadata(fCtx *core.FileContext) {
 	for _, entry := range fCtx.Definitions {
-		// 忽略文件节点，它的元数据在创建时已经手动填充了
-		if entry.Element.Kind == model.File {
-			continue
-		}
 		c.processMetadataForEntry(entry, fCtx)
 	}
 }
@@ -295,14 +290,16 @@ func (c *Collector) processMetadataForEntry(entry *core.DefinitionEntry, fCtx *c
 	isStatic, isFinal := c.contains(mods, "static"), c.contains(mods, "final")
 
 	switch elem.Kind {
+	case model.File:
+		c.fillFileMetadata(elem, extra, fCtx)
+	case model.Class, model.Interface, model.KAnnotation:
+		c.fillTypeMetadata(elem, node, extra, mods, isFinal, fCtx)
 	case model.Method:
 		if node.Kind() == "annotation_type_element_declaration" {
 			c.fillAnnotationMember(elem, node, extra, fCtx)
 		} else {
 			c.fillMethodMetadata(elem, node, extra, mods, fCtx)
 		}
-	case model.Class, model.Interface, model.KAnnotation:
-		c.fillTypeMetadata(elem, node, extra, mods, isFinal, fCtx)
 	case model.Field:
 		c.fillFieldMetadata(elem, node, extra, mods, isStatic, isFinal, fCtx)
 	case model.Variable:
@@ -326,6 +323,10 @@ func (c *Collector) processMetadataForEntry(entry *core.DefinitionEntry, fCtx *c
 }
 
 // --- Metadata Fillers ---
+
+func (c *Collector) fillFileMetadata(elem *model.CodeElement, extra *model.Extra, fCtx *core.FileContext) {
+	extra.Mores[FileLOC] = c.calculateLOC(*fCtx.SourceBytes)
+}
 
 func (c *Collector) fillTypeMetadata(elem *model.CodeElement, node *sitter.Node, extra *model.Extra, mods []string, isFinal bool, fCtx *core.FileContext) {
 	extra.Mores[ClassIsAbstract], extra.Mores[ClassIsFinal] = c.contains(mods, "abstract"), isFinal
@@ -524,54 +525,6 @@ func (c *Collector) fillAnonymousClassMetadata(elem *model.CodeElement, node *si
 		extra.Mores[AnonymousClassType] = typeName
 		elem.Signature = "anonymous extends/implements " + typeName
 	}
-}
-
-func (c *Collector) calculateComplexity(node *sitter.Node) int {
-	complexity := 1
-	var traverse func(*sitter.Node)
-	traverse = func(n *sitter.Node) {
-		if n == nil {
-			return
-		}
-		kind := n.Kind()
-		switch kind {
-		case "if_statement", "for_statement", "while_statement", "do_statement",
-			"catch_clause", "conditional_expression", "ternary_expression", "switch_label":
-			complexity++
-		case "binary_expression":
-			// 对于 binary_expression，我们需要检查运算符是否为 && 或 ||
-			// 注意：tree-sitter-java 可能将 && 和 || 视为不同的子节点
-			for i := 0; i < int(n.ChildCount()); i++ {
-				child := n.Child(uint(i))
-				if child.Kind() == "&&" || child.Kind() == "||" {
-					complexity++
-				}
-			}
-		}
-		for i := 0; i < int(n.ChildCount()); i++ {
-			traverse(n.Child(uint(i)))
-		}
-	}
-	traverse(node)
-	return complexity
-}
-
-func (c *Collector) calculateLOC(source []byte) int {
-	// 1. 移除块注释
-	reBlock := regexp.MustCompile(`(?s)/\*.*?\*/`)
-	content := reBlock.ReplaceAll(source, []byte(""))
-
-	// 2. 按行切分并统计
-	lines := strings.Split(string(content), "\n")
-	loc := 0
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		// 排除空行和单行注释
-		if trimmed != "" && !strings.HasPrefix(trimmed, "//") {
-			loc++
-		}
-	}
-	return loc
 }
 
 // =============================================================================
@@ -774,6 +727,54 @@ func (c *Collector) handleImport(node *sitter.Node, fCtx *core.FileContext) {
 	fCtx.AddImport(alias, &core.ImportEntry{
 		Kind: entryKind, Alias: alias, RawImportPath: fullPath, IsWildcard: isWildcard, IsStatic: isStatic, Location: c.extractLocation(node, fCtx.FilePath),
 	})
+}
+
+func (c *Collector) calculateComplexity(node *sitter.Node) int {
+	complexity := 1
+	var traverse func(*sitter.Node)
+	traverse = func(n *sitter.Node) {
+		if n == nil {
+			return
+		}
+		kind := n.Kind()
+		switch kind {
+		case "if_statement", "for_statement", "while_statement", "do_statement",
+			"catch_clause", "conditional_expression", "ternary_expression", "switch_label":
+			complexity++
+		case "binary_expression":
+			// 对于 binary_expression，我们需要检查运算符是否为 && 或 ||
+			// 注意：tree-sitter-java 可能将 && 和 || 视为不同的子节点
+			for i := 0; i < int(n.ChildCount()); i++ {
+				child := n.Child(uint(i))
+				if child.Kind() == "&&" || child.Kind() == "||" {
+					complexity++
+				}
+			}
+		}
+		for i := 0; i < int(n.ChildCount()); i++ {
+			traverse(n.Child(uint(i)))
+		}
+	}
+	traverse(node)
+	return complexity
+}
+
+func (c *Collector) calculateLOC(source []byte) int {
+	// 1. 移除块注释
+	reBlock := regexp.MustCompile(`(?s)/\*.*?\*/`)
+	content := reBlock.ReplaceAll(source, []byte(""))
+
+	// 2. 按行切分并统计
+	lines := strings.Split(string(content), "\n")
+	loc := 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// 排除空行和单行注释
+		if trimmed != "" && !strings.HasPrefix(trimmed, "//") {
+			loc++
+		}
+	}
+	return loc
 }
 
 // --- Extraction Helpers ---

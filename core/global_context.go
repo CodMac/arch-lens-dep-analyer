@@ -1,7 +1,6 @@
 package core
 
 import (
-	"path/filepath"
 	"sync"
 
 	"github.com/CodMac/arch-lens-dep-analyer/model"
@@ -35,32 +34,10 @@ func (gc *GlobalContext) RegisterFileContext(fc *FileContext) {
 
 	gc.FileContexts[fc.FilePath] = fc
 
-	// 1. 优先从 fc.Definitions 中寻找已由 Collector 注册的 FILE 节点
-	var fileDef *DefinitionEntry
-	for _, def := range fc.Definitions {
-		if def.Element.Kind == model.File {
-			fileDef = def
-			break
-		}
-	}
-
-	// 2. 如果没找到（其他语言或旧逻辑），则创建一个基础的
-	if fileDef == nil {
-		fileElem := &model.CodeElement{
-			Kind:          model.File,
-			Name:          filepath.Base(fc.FilePath),
-			QualifiedName: fc.FilePath,
-			Path:          fc.FilePath,
-			IsFormSource:  true,
-		}
-		fileDef = &DefinitionEntry{Element: fileElem}
-	}
-	gc.AddDefinition(fileDef)
-
-	// 3. 委托 Resolver 处理包/命名空间注册 (Java 拆分, Go 不拆)
+	// 1. 委托 Resolver 处理包/命名空间注册 (Java 拆分, Go 不拆)
 	gc.resolver.RegisterPackage(gc, fc.PackageName)
 
-	// 4. 注册文件内定义 (AddDefinition 会自动忽略已存在的 QN，即忽略重复的 FILE 节点)
+	// 2. 注册文件内定义 (AddDefinition 会自动忽略已存在的 QN，即忽略重复的 FILE 节点)
 	for _, entry := range fc.Definitions {
 		gc.AddDefinition(entry)
 	}
