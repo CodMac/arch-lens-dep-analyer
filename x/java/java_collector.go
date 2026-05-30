@@ -325,6 +325,7 @@ func (c *Collector) processMetadataForEntry(entry *core.DefinitionEntry, fCtx *c
 // --- Metadata Fillers ---
 
 func (c *Collector) fillFileMetadata(elem *model.CodeElement, extra *model.Extra, fCtx *core.FileContext) {
+	extra.Mores[FileRawLOC] = c.calculateRawLOC(*fCtx.SourceBytes)
 	extra.Mores[FileLOC] = c.calculateLOC(*fCtx.SourceBytes)
 }
 
@@ -775,6 +776,13 @@ func (c *Collector) calculateLOC(source []byte) int {
 		}
 	}
 	return loc
+}
+
+func (c *Collector) calculateRawLOC(source []byte) int {
+	// 按行切分并统计
+	lines := strings.Split(string(source), "\n")
+
+	return len(lines)
 }
 
 // --- Extraction Helpers ---
