@@ -41,6 +41,7 @@ const (
 	LambdaBodyIsBlock              = "java.lambda.is_block"            // Lambda 主体是否为大括号包裹的代码块 -> bool
 	AnonymousClassType             = "java.anonymous_class.type"       // AnonymousClass 类型 -> string
 	FileLOC                        = "java.file.metrics.loc"           // 文件有效行数 -> int
+	FileRawLOC                     = "java.file.metrics.loc_raw"       // 文件行数 -> int
 )
 
 // =============================================================================
