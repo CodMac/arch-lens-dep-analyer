@@ -8,7 +8,7 @@ import (
 
 func TestMain_Integration(t *testing.T) {
 	// 1. 准备测试路径和临时输出目录
-	testDataPath := "D:\\Work\\Code\\go-treesitter-dependency-analyzer\\x\\java\\testdata\\com"
+	testDataPath := "./x/java/testdata/com"
 	if _, err := os.Stat(testDataPath); os.IsNotExist(err) {
 		t.Skipf("跳过测试：找不到路径 %s", testDataPath)
 	}

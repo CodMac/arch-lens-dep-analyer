@@ -2306,7 +2306,7 @@ func contains(s []string, str string) bool {
 }
 
 func TestJavaCollector_Metrics_Complexity(t *testing.T) {
-	filePath := getTestFilePath(filepath.Join("com", "example", "metrics", "ComplexityTest.java"))
+	filePath := getTestFilePath(filepath.Join("com", "example", "metrics", "complexity", "ComplexityTest.java"))
 	rootNode, sourceBytes, err := getJavaParser(t).ParseFile(filePath, false, true)
 	if err != nil {
 		t.Fatalf("Failed to parse file: %v", err)
