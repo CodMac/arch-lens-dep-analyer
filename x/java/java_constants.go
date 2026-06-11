@@ -42,6 +42,10 @@ const (
 	AnonymousClassType             = "java.anonymous_class.type"       // AnonymousClass 类型 -> string
 	FileLOC                        = "java.file.metrics.loc"           // 文件有效行数 -> int
 	FileRawLOC                     = "java.file.metrics.loc_raw"       // 文件行数 -> int
+
+	// Lombok 相关常量
+	MethodIsLombokGenerated = "java.method.is_lombok_generated" // 是否为Lombok生成的方法 -> bool
+	LombokAnnotationType    = "java.lombok.annotation_type"     // Lombok注解类型 -> string
 )
 
 // =============================================================================

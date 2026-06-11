@@ -42,7 +42,7 @@ func (c *Collector) CollectDefinitions(rootNode *sitter.Node, filePath string, s
 	// Step 4: 元数据增强 (Metadata & Signatures)
 	c.enrichMetadata(fCtx)
 
-	// Step 5: 语法糖处理 (Records, Enums, Constructors)
+	// Step 5: 语法糖处理 (Records, Enums, Constructors, Lombok)
 	c.applySyntacticSugar(fCtx)
 
 	return fCtx, nil
@@ -530,8 +530,12 @@ func (c *Collector) fillAnonymousClassMetadata(elem *model.CodeElement, node *si
 
 // =============================================================================
 // 4. 语法糖处理 (Syntactic Sugar)
+// - 原生Java语法糖处理: java_desugar_native.go
+// - Lombok语法糖处理:  java_desugar_lombok.go
 // =============================================================================
 
+// applySyntacticSugar: 语法糖处理主入口
+// 处理原生Java语法糖（Record、Enum、默认构造器）和Lombok语法糖
 func (c *Collector) applySyntacticSugar(fCtx *core.FileContext) {
 	clazz, ok := fCtx.FindByElementKind(model.Class)
 	if ok {
@@ -541,6 +545,7 @@ func (c *Collector) applySyntacticSugar(fCtx *core.FileContext) {
 				c.desugarRecordMembers(elem, node, fCtx)
 			} else if node.Kind() == "class_declaration" {
 				c.desugarDefaultConstructor(elem, node, fCtx)
+				c.desugarLombok(elem, node, fCtx)
 			}
 		}
 	}
@@ -550,127 +555,6 @@ func (c *Collector) applySyntacticSugar(fCtx *core.FileContext) {
 		for _, entry := range enums {
 			c.desugarEnumMethods(entry.Element, entry.Node, fCtx)
 		}
-	}
-}
-
-func (c *Collector) desugarDefaultConstructor(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
-	body := node.ChildByFieldName("body")
-	if body == nil {
-		return
-	}
-	for i := 0; i < int(body.NamedChildCount()); i++ {
-		if body.NamedChild(uint(i)).Kind() == "constructor_declaration" {
-			return
-		}
-	}
-
-	consName := elem.Name
-	consQN := c.resolver.BuildQualifiedName(elem.QualifiedName, consName+"()")
-	fCtx.AddDefinition(&model.CodeElement{
-		Kind:          model.Method,
-		Name:          consName,
-		QualifiedName: consQN,
-		Path:          fCtx.FilePath,
-		Location:      elem.Location,
-		Signature:     fmt.Sprintf("public %s()", consName),
-		Extra: &model.Extra{
-			Modifiers:   make([]string, 0),
-			Annotations: make([]string, 0),
-			Mores:       map[string]interface{}{MethodIsConstructor: true, MethodIsImplicit: true},
-		},
-		IsFormSugar: true,
-	}, elem.QualifiedName, node)
-}
-
-func (c *Collector) desugarEnumMethods(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
-	// values()
-	vQN := c.resolver.BuildQualifiedName(elem.QualifiedName, "values()")
-	fCtx.AddDefinition(&model.CodeElement{
-		Kind: model.Method, Name: "values", QualifiedName: vQN, Path: fCtx.FilePath, Location: elem.Location, IsFormSugar: true,
-		Signature: fmt.Sprintf("public static %s[] values()", elem.Name),
-		Extra: &model.Extra{
-			Modifiers:   make([]string, 0),
-			Annotations: make([]string, 0),
-			Mores:       map[string]interface{}{MethodIsImplicit: true},
-		},
-	}, elem.QualifiedName, node)
-
-	// valueOf(String)
-	voQN := c.resolver.BuildQualifiedName(elem.QualifiedName, "valueOf(String)")
-	fCtx.AddDefinition(&model.CodeElement{
-		Kind: model.Method, Name: "valueOf", QualifiedName: voQN, Path: fCtx.FilePath, Location: elem.Location, IsFormSugar: true,
-		Signature: fmt.Sprintf("public static %s valueOf(String name)", elem.Name),
-		Extra: &model.Extra{
-			Modifiers:   make([]string, 0),
-			Annotations: make([]string, 0),
-			Mores:       map[string]interface{}{MethodIsImplicit: true},
-		},
-	}, elem.QualifiedName, node)
-}
-
-func (c *Collector) desugarRecordMembers(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
-	paramList := c.findNamedChildOfType(node, "formal_parameters")
-	if paramList == nil {
-		return
-	}
-
-	type component struct{ name, vType string }
-	var comps []component
-	for i := 0; i < int(paramList.NamedChildCount()); i++ {
-		child := paramList.NamedChild(uint(i))
-		if child.Kind() == "formal_parameter" {
-			comps = append(comps, component{
-				name:  c.getNodeContent(child.ChildByFieldName("name"), *fCtx.SourceBytes),
-				vType: c.getNodeContent(child.ChildByFieldName("type"), *fCtx.SourceBytes),
-			})
-		}
-	}
-
-	for _, comp := range comps {
-		// Update Fields
-		fieldQN := c.resolver.BuildQualifiedName(elem.QualifiedName, comp.name)
-		if defs, _ := fCtx.FindByShortName(comp.name); len(defs) > 0 {
-			for _, d := range defs {
-				if d.Element.QualifiedName == fieldQN {
-					d.Element.Kind = model.Field
-					d.Element.Extra.Mores[FieldIsRecordComponent] = true
-					d.Element.Extra.Mores[FieldIsFinal] = true
-				}
-			}
-		}
-		// Accessors
-		mIdentity := comp.name + "()"
-		mQN := c.resolver.BuildQualifiedName(elem.QualifiedName, mIdentity)
-		if len(c.findDefinitionsByQN(fCtx, mQN)) == 0 {
-			fCtx.AddDefinition(&model.CodeElement{
-				Kind: model.Method, Name: comp.name, QualifiedName: mQN, Path: fCtx.FilePath, Location: elem.Location, IsFormSugar: true,
-				Signature: fmt.Sprintf("public %s %s()", comp.vType, comp.name),
-				Extra: &model.Extra{
-					Modifiers:   make([]string, 0),
-					Annotations: make([]string, 0),
-					Mores:       map[string]interface{}{MethodIsImplicit: true},
-				},
-			}, elem.QualifiedName, node)
-		}
-	}
-
-	// Canonical Constructor
-	var pTypes []string
-	for _, comp := range comps {
-		pTypes = append(pTypes, strings.TrimSpace(strings.Split(comp.vType, "<")[0]))
-	}
-	cIdentity := fmt.Sprintf("%s(%s)", elem.Name, strings.Join(pTypes, ","))
-	cQN := c.resolver.BuildQualifiedName(elem.QualifiedName, cIdentity)
-	if len(c.findDefinitionsByQN(fCtx, cQN)) == 0 {
-		fCtx.AddDefinition(&model.CodeElement{
-			Kind: model.Method, Name: elem.Name, QualifiedName: cQN, Path: fCtx.FilePath, Location: elem.Location, IsFormSugar: true,
-			Signature: fmt.Sprintf("public %s(%s)", elem.Name, c.getNodeContent(paramList, *fCtx.SourceBytes)),
-			Extra: &model.Extra{
-				Modifiers:   make([]string, 0),
-				Annotations: make([]string, 0),
-				Mores:       map[string]interface{}{MethodIsConstructor: true, MethodIsImplicit: true},
-			},
-		}, elem.QualifiedName, node)
 	}
 }
 
@@ -1027,4 +911,47 @@ func (c *Collector) findNearestBlockParent(node *sitter.Node) *sitter.Node {
 		curr = curr.Parent()
 	}
 	return nil
+}
+
+// extractClassFields: 提取类中的所有字段（不含语法糖生成的字段）
+func (c *Collector) extractClassFields(elem *model.CodeElement, fCtx *core.FileContext) []*core.DefinitionEntry {
+	var fields []*core.DefinitionEntry
+	for _, entry := range fCtx.Definitions {
+		if entry.Element.Kind == model.Field &&
+			entry.ParentQN == elem.QualifiedName &&
+			!entry.Element.IsFormSugar {
+			fields = append(fields, entry)
+		}
+	}
+	return fields
+}
+
+// generateParamsString: 生成参数字符串，如 "String name, int age"
+func (c *Collector) generateParamsString(paramTypes, paramNames []string) string {
+	if len(paramTypes) != len(paramNames) {
+		return ""
+	}
+	var params []string
+	for i := 0; i < len(paramTypes); i++ {
+		params = append(params, paramTypes[i]+" "+paramNames[i])
+	}
+	return strings.Join(params, ", ")
+}
+
+// checkMethodExists: 检查方法是否已存在（避免重复生成）
+func (c *Collector) checkMethodExists(parentQN, methodName, paramTypes string, fCtx *core.FileContext) bool {
+	methodQN := c.resolver.BuildQualifiedName(parentQN, methodName+paramTypes)
+	if len(c.findDefinitionsByQN(fCtx, methodQN)) > 0 {
+		return true
+	}
+
+	for _, entry := range fCtx.Definitions {
+		if entry.Element.Kind == model.Method &&
+			entry.ParentQN == parentQN &&
+			entry.Element.Name == methodName {
+			return true
+		}
+	}
+
+	return false
 }
