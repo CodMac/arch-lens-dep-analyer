@@ -23,6 +23,8 @@ func TestJavaCollector_LombokBuilderComprehensive(t *testing.T) {
 		t.Fatalf("CollectDefinitions failed: %v", err)
 	}
 
+	test.PrintCodeElements(fCtx)
+
 	t.Run("Verify_Builder_Class", func(t *testing.T) {
 		builderQN := "com.example.lombok.BuilderComprehensive.Builder"
 		found := false
@@ -244,6 +246,8 @@ func TestJavaCollector_LombokConstructorComprehensive(t *testing.T) {
 		t.Fatalf("CollectDefinitions failed: %v", err)
 	}
 
+	test.PrintCodeElements(fCtx)
+
 	t.Run("Verify_NoArgsConstructor", func(t *testing.T) {
 		constructorQN := "com.example.lombok.ConstructorComprehensive.ConstructorComprehensive()"
 		found := false
@@ -276,7 +280,7 @@ func TestJavaCollector_LombokConstructorComprehensive(t *testing.T) {
 	})
 
 	t.Run("Verify_RequiredArgsConstructor", func(t *testing.T) {
-		constructorQN := "com.example.lombok.ConstructorComprehensive.RequiredArgsConstructor.RequiredArgsConstructor(int)"
+		constructorQN := "com.example.lombok.ConstructorComprehensive.RequiredArgsConstructor.RequiredArgsConstructor(String)"
 		found := false
 		for _, entry := range fCtx.Definitions {
 			if entry.Element.QualifiedName == constructorQN {

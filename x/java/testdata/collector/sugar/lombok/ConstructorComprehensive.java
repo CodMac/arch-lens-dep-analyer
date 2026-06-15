@@ -11,6 +11,7 @@ public class ConstructorComprehensive {
     private String name;
     private int age;
 
+    @RequiredArgsConstructor
     public static class RequiredArgsConstructor {
         private final String requiredField;  // final字段 - @RequiredArgsConstructor会生成构造器
         private String optionalField;

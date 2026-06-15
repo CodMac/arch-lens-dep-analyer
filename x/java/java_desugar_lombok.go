@@ -20,33 +20,42 @@ func (c *Collector) desugarLombok(elem *model.CodeElement, node *sitter.Node, fC
 
 	annotations := elem.Extra.Annotations
 
-	if c.hasLombokAnnotation(annotations, "Slf4j") {
-		c.lombokSlf4j(elem, node, fCtx)
+	if c._hasLombokAnnotation(annotations, "Slf4j") {
+		c._lombokSlf4j(elem, node, fCtx)
 	}
-	if c.hasLombokAnnotation(annotations, "Getter") {
-		c.lombokGetter(elem, node, fCtx)
+	if c._hasLombokAnnotation(annotations, "Getter") {
+		c._lombokGetter(elem, node, fCtx)
 	}
-	if c.hasLombokAnnotation(annotations, "Setter") {
-		c.lombokSetter(elem, node, fCtx)
+	if c._hasLombokAnnotation(annotations, "Setter") {
+		c._lombokSetter(elem, node, fCtx)
 	}
-	if c.hasLombokAnnotation(annotations, "ToString") {
-		c.lombokToString(elem, node, fCtx)
+	if c._hasLombokAnnotation(annotations, "ToString") {
+		c._lombokToString(elem, node, fCtx)
 	}
-	if c.hasLombokAnnotation(annotations, "EqualsAndHashCode") {
-		c.lombokEqualsAndHashCode(elem, node, fCtx)
+	if c._hasLombokAnnotation(annotations, "EqualsAndHashCode") {
+		c._lombokEqualsAndHashCode(elem, node, fCtx)
 	}
-	if c.hasLombokAnnotation(annotations, "NoArgsConstructor") {
-		c.lombokNoArgsConstructor(elem, node, fCtx)
+	if c._hasLombokAnnotation(annotations, "NoArgsConstructor") {
+		c._lombokNoArgsConstructor(elem, node, fCtx)
 	}
-	if c.hasLombokAnnotation(annotations, "AllArgsConstructor") {
-		c.lombokAllArgsConstructor(elem, node, fCtx)
+	if c._hasLombokAnnotation(annotations, "AllArgsConstructor") {
+		c._lombokAllArgsConstructor(elem, node, fCtx)
 	}
-	if c.hasLombokAnnotation(annotations, "RequiredArgsConstructor") {
-		c.lombokRequiredArgsConstructor(elem, node, fCtx)
+	if c._hasLombokAnnotation(annotations, "RequiredArgsConstructor") {
+		c._lombokRequiredArgsConstructor(elem, node, fCtx)
+	}
+	if c._hasLombokAnnotation(annotations, "Data") {
+		c._lombokData(elem, node, fCtx)
+	}
+	if c._hasLombokAnnotation(annotations, "Value") {
+		c._lombokValue(elem, node, fCtx)
+	}
+	if c._hasLombokAnnotation(annotations, "Builder") {
+		c._lombokBuilder(elem, node, fCtx)
 	}
 }
 
-func (c *Collector) hasLombokAnnotation(annotations []string, target string) bool {
+func (c *Collector) _hasLombokAnnotation(annotations []string, target string) bool {
 	for _, anno := range annotations {
 		if strings.Contains(anno, "@"+target) || strings.Contains(anno, "lombok."+target) {
 			return true
@@ -55,9 +64,9 @@ func (c *Collector) hasLombokAnnotation(annotations []string, target string) boo
 	return false
 }
 
-// lombokSlf4j: 处理 @Slf4j 注解
+// _lombokSlf4j: 处理 @Slf4j 注解
 // 生成私有静态final的Logger字段 log
-func (c *Collector) lombokSlf4j(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+func (c *Collector) _lombokSlf4j(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
 	logFieldName := "log"
 	logFieldQN := c.resolver.BuildQualifiedName(elem.QualifiedName, logFieldName)
 
@@ -88,9 +97,9 @@ func (c *Collector) lombokSlf4j(elem *model.CodeElement, node *sitter.Node, fCtx
 	}, elem.QualifiedName, node)
 }
 
-// lombokGetter: 处理 @Getter 注解
+// _lombokGetter: 处理 @Getter 注解
 // 为每个非static字段生成getter方法
-func (c *Collector) lombokGetter(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+func (c *Collector) _lombokGetter(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
 	fields := c.extractClassFields(elem, fCtx)
 
 	for _, fieldEntry := range fields {
@@ -139,9 +148,9 @@ func (c *Collector) lombokGetter(elem *model.CodeElement, node *sitter.Node, fCt
 	}
 }
 
-// lombokSetter: 处理 @Setter 注解
+// _lombokSetter: 处理 @Setter 注解
 // 为每个非static、非final字段生成setter方法
-func (c *Collector) lombokSetter(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+func (c *Collector) _lombokSetter(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
 	fields := c.extractClassFields(elem, fCtx)
 
 	for _, fieldEntry := range fields {
@@ -191,9 +200,9 @@ func (c *Collector) lombokSetter(elem *model.CodeElement, node *sitter.Node, fCt
 	}
 }
 
-// lombokToString: 处理 @ToString 注解
+// _lombokToString: 处理 @ToString 注解
 // 生成 toString() 方法
-func (c *Collector) lombokToString(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+func (c *Collector) _lombokToString(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
 	// 检查 toString() 是否已存在
 	if c.checkMethodExists(elem.QualifiedName, "toString", "()", fCtx) {
 		return
@@ -221,9 +230,9 @@ func (c *Collector) lombokToString(elem *model.CodeElement, node *sitter.Node, f
 	}, elem.QualifiedName, node)
 }
 
-// lombokEqualsAndHashCode: 处理 @EqualsAndHashCode 注解
+// _lombokEqualsAndHashCode: 处理 @EqualsAndHashCode 注解
 // 生成 equals(), hashCode(), canEqual() 三个方法
-func (c *Collector) lombokEqualsAndHashCode(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+func (c *Collector) _lombokEqualsAndHashCode(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
 	// 1. 生成 equals(Object)
 	if !c.checkMethodExists(elem.QualifiedName, "equals", "(Object)", fCtx) {
 		equalsQN := c.resolver.BuildQualifiedName(elem.QualifiedName, "equals(Object)")
@@ -296,9 +305,9 @@ func (c *Collector) lombokEqualsAndHashCode(elem *model.CodeElement, node *sitte
 	}
 }
 
-// lombokNoArgsConstructor: 处理 @NoArgsConstructor 注解
+// _lombokNoArgsConstructor: 处理 @NoArgsConstructor 注解
 // 生成无参构造器
-func (c *Collector) lombokNoArgsConstructor(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+func (c *Collector) _lombokNoArgsConstructor(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
 	// 检查无参构造器是否已存在
 	if c.checkMethodExists(elem.QualifiedName, elem.Name, "()", fCtx) {
 		return
@@ -326,9 +335,9 @@ func (c *Collector) lombokNoArgsConstructor(elem *model.CodeElement, node *sitte
 	}, elem.QualifiedName, node)
 }
 
-// lombokAllArgsConstructor: 处理 @AllArgsConstructor 注解
+// _lombokAllArgsConstructor: 处理 @AllArgsConstructor 注解
 // 生成全参构造器
-func (c *Collector) lombokAllArgsConstructor(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+func (c *Collector) _lombokAllArgsConstructor(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
 	fields := c.extractClassFields(elem, fCtx)
 
 	// 过滤掉static字段
@@ -384,9 +393,9 @@ func (c *Collector) lombokAllArgsConstructor(elem *model.CodeElement, node *sitt
 	}, elem.QualifiedName, node)
 }
 
-// lombokRequiredArgsConstructor: 处理 @RequiredArgsConstructor 注解
+// _lombokRequiredArgsConstructor: 处理 @RequiredArgsConstructor 注解
 // 为final字段生成构造器
-func (c *Collector) lombokRequiredArgsConstructor(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+func (c *Collector) _lombokRequiredArgsConstructor(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
 	fields := c.extractClassFields(elem, fCtx)
 
 	// 只收集final且非static的字段
@@ -441,4 +450,165 @@ func (c *Collector) lombokRequiredArgsConstructor(elem *model.CodeElement, node 
 		},
 		IsFormSugar: true,
 	}, elem.QualifiedName, node)
+}
+
+// _lombokData: 处理 @Data 注解
+// @Data 等价于 @Getter + @Setter + @ToString + @EqualsAndHashCode + @NoArgsConstructor
+func (c *Collector) _lombokData(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+	c._lombokGetter(elem, node, fCtx)
+	c._lombokSetter(elem, node, fCtx)
+	c._lombokToString(elem, node, fCtx)
+	c._lombokEqualsAndHashCode(elem, node, fCtx)
+	c._lombokNoArgsConstructor(elem, node, fCtx)
+}
+
+// _lombokValue: 处理 @Value 注解
+// @Value 等价于 @Getter + @AllArgsConstructor + @ToString + @EqualsAndHashCode
+// 不生成 setter，生成全参构造器
+func (c *Collector) _lombokValue(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+	c._lombokGetter(elem, node, fCtx)
+	c._lombokAllArgsConstructor(elem, node, fCtx)
+	c._lombokToString(elem, node, fCtx)
+	c._lombokEqualsAndHashCode(elem, node, fCtx)
+}
+
+// _lombokBuilder: 处理 @Builder 注解
+// 生成Builder内部类和相关方法
+func (c *Collector) _lombokBuilder(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+	fields := c.extractClassFields(elem, fCtx)
+
+	// 过滤掉static字段
+	var nonStaticFields []*core.DefinitionEntry
+	for _, field := range fields {
+		isStatic, _ := field.Element.Extra.Mores[FieldIsStatic].(bool)
+		if !isStatic {
+			nonStaticFields = append(nonStaticFields, field)
+		}
+	}
+
+	builderClassName := "Builder"
+	builderQN := c.resolver.BuildQualifiedName(elem.QualifiedName, builderClassName)
+
+	// 1. 检查Builder内部类是否已存在
+	if len(c.findDefinitionsByQN(fCtx, builderQN)) == 0 {
+		fCtx.AddDefinition(&model.CodeElement{
+			Kind:          model.Class,
+			Name:          builderClassName,
+			QualifiedName: builderQN,
+			Path:          fCtx.FilePath,
+			Location:      elem.Location,
+			Signature:     "public static class Builder",
+			Extra: &model.Extra{
+				Modifiers:   []string{"public", "static"},
+				Annotations: make([]string, 0),
+				Mores: map[string]interface{}{
+					FieldIsStatic:           false,
+					MethodIsLombokGenerated: true,
+					LombokAnnotationType:    "Builder",
+				},
+			},
+			IsFormSugar: true,
+		}, elem.QualifiedName, node)
+	}
+
+	// 2. 生成静态builder()方法
+	builderMethodName := "builder"
+	builderMethodQN := c.resolver.BuildQualifiedName(elem.QualifiedName, builderMethodName+"()")
+	if !c.checkMethodExists(elem.QualifiedName, builderMethodName, "()", fCtx) {
+		fCtx.AddDefinition(&model.CodeElement{
+			Kind:          model.Method,
+			Name:          builderMethodName,
+			QualifiedName: builderMethodQN,
+			Path:          fCtx.FilePath,
+			Location:      elem.Location,
+			Signature:     fmt.Sprintf("public static %s builder()", builderClassName),
+			Extra: &model.Extra{
+				Modifiers:   []string{"public", "static"},
+				Annotations: make([]string, 0),
+				Mores: map[string]interface{}{
+					MethodIsLombokGenerated: true,
+					LombokAnnotationType:    "Builder",
+					MethodReturnType:        builderClassName,
+				},
+			},
+			IsFormSugar: true,
+		}, elem.QualifiedName, node)
+	}
+
+	// 3. 在Builder类中生成链式setter方法
+	for _, field := range nonStaticFields {
+		fieldName := field.Element.Name
+		fieldType, _ := field.Element.Extra.Mores[FieldRawType].(string)
+
+		setterQN := c.resolver.BuildQualifiedName(builderQN, fieldName+"("+fieldType+")")
+		if len(c.findDefinitionsByQN(fCtx, setterQN)) == 0 {
+			fCtx.AddDefinition(&model.CodeElement{
+				Kind:          model.Method,
+				Name:          fieldName,
+				QualifiedName: setterQN,
+				Path:          fCtx.FilePath,
+				Location:      elem.Location,
+				Signature:     fmt.Sprintf("public %s %s(%s)", builderClassName, fieldName, fieldType),
+				Extra: &model.Extra{
+					Modifiers:   []string{"public"},
+					Annotations: make([]string, 0),
+					Mores: map[string]interface{}{
+						MethodIsLombokGenerated: true,
+						LombokAnnotationType:    "Builder",
+						MethodReturnType:        builderClassName,
+						MethodParameters:        []string{fieldType + " " + fieldName},
+					},
+				},
+				IsFormSugar: true,
+			}, builderQN, node)
+		}
+	}
+
+	// 4. 在Builder类中生成build()方法
+	buildQN := c.resolver.BuildQualifiedName(builderQN, "build()")
+	if !c.checkMethodExists(builderQN, "build", "()", fCtx) {
+		fCtx.AddDefinition(&model.CodeElement{
+			Kind:          model.Method,
+			Name:          "build",
+			QualifiedName: buildQN,
+			Path:          fCtx.FilePath,
+			Location:      elem.Location,
+			Signature:     fmt.Sprintf("public %s build()", elem.Name),
+			Extra: &model.Extra{
+				Modifiers:   []string{"public"},
+				Annotations: make([]string, 0),
+				Mores: map[string]interface{}{
+					MethodIsLombokGenerated: true,
+					LombokAnnotationType:    "Builder",
+					MethodReturnType:        elem.Name,
+				},
+			},
+			IsFormSugar: true,
+		}, builderQN, node)
+	}
+
+	// 5. 在主类中生成私有全参构造器（接受Builder参数）
+	builderParam := "builder"
+	privateConstructorQN := c.resolver.BuildQualifiedName(elem.QualifiedName, fmt.Sprintf("%s(%s)", elem.Name, builderClassName))
+	if !c.checkMethodExists(elem.QualifiedName, elem.Name, "("+builderClassName+")", fCtx) {
+		fCtx.AddDefinition(&model.CodeElement{
+			Kind:          model.Method,
+			Name:          elem.Name,
+			QualifiedName: privateConstructorQN,
+			Path:          fCtx.FilePath,
+			Location:      elem.Location,
+			Signature:     fmt.Sprintf("private %s(%s %s)", elem.Name, builderClassName, builderParam),
+			Extra: &model.Extra{
+				Modifiers:   []string{"private"},
+				Annotations: make([]string, 0),
+				Mores: map[string]interface{}{
+					MethodIsConstructor:     true,
+					MethodIsLombokGenerated: true,
+					LombokAnnotationType:    "Builder",
+					MethodParameters:        []string{builderClassName + " " + builderParam},
+				},
+			},
+			IsFormSugar: true,
+		}, elem.QualifiedName, node)
+	}
 }
