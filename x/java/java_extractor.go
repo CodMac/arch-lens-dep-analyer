@@ -40,7 +40,7 @@ func (e *Extractor) Extract(filePath string, gCtx *core.GlobalContext) ([]*model
 	// 2. 元数据增强
 	enhanceTargets := append(structuralRels, actionRels...)
 	for _, rel := range enhanceTargets {
-		e.enrichCoreMetadata(rel, fCtx)
+		e.enrichCoreMetadata(rel, fCtx, gCtx)
 	}
 
 	// 3. Capture关系发现（基于已提取到的ASSIGN和USE关系）
@@ -235,7 +235,7 @@ func (e *Extractor) discoverActionRelations(fCtx *core.FileContext, gCtx *core.G
 // 2. 元数据增强 (Metadata Enrichment)
 // =============================================================================
 
-func (e *Extractor) enrichCoreMetadata(rel *model.DependencyRelation, fCtx *core.FileContext) {
+func (e *Extractor) enrichCoreMetadata(rel *model.DependencyRelation, fCtx *core.FileContext, gCtx *core.GlobalContext) {
 	node, _ := rel.Mores["tmp_node"].(*sitter.Node)
 	rawText, _ := rel.Mores["tmp_raw"].(string)
 	stmt, _ := rel.Mores["tmp_stmt"].(*sitter.Node)
@@ -248,7 +248,7 @@ func (e *Extractor) enrichCoreMetadata(rel *model.DependencyRelation, fCtx *core
 
 	switch rel.Type {
 	case model.Call:
-		e.enrichCallCore(rel, node, stmt, src)
+		e.enrichCallCore(rel, node, stmt, src, fCtx, gCtx)
 	case model.Create:
 		e.enrichCreateCore(rel, node, stmt, src)
 	case model.Assign:
@@ -268,7 +268,7 @@ func (e *Extractor) enrichCoreMetadata(rel *model.DependencyRelation, fCtx *core
 	}
 }
 
-func (e *Extractor) enrichCallCore(rel *model.DependencyRelation, node *sitter.Node, ctx *sitter.Node, src []byte) {
+func (e *Extractor) enrichCallCore(rel *model.DependencyRelation, node *sitter.Node, ctx *sitter.Node, src []byte, fCtx *core.FileContext, gCtx *core.GlobalContext) {
 	rel.Mores[RelCallIsStatic] = false
 	rel.Mores[RelCallIsConstructor] = false
 	rel.Mores[RelAstKind] = node.Kind()
@@ -304,7 +304,15 @@ func (e *Extractor) enrichCallCore(rel *model.DependencyRelation, node *sitter.N
 			}
 
 			// 识别链式调用
-			if objectNode.Kind() == "method_invocation" || objectNode.Kind() == "object_creation_expression" {
+			if objectNode.Kind() == "method_invocation" {
+				rel.Mores[RelCallIsChained] = true
+				// 【新增】利用 Resolver 推断链式调用的 Receiver 类型QN
+				receiverTypeQN := e.inferChainedCallReceiverType(objectNode, src, fCtx, gCtx)
+				if receiverTypeQN != "" {
+					rel.Mores[RelCallReceiverType] = receiverTypeQN
+				}
+			} else if objectNode.Kind() == "object_creation_expression" {
+				// 对象创建表达式也是链式调用的一部分（如 new Builder().name()）
 				rel.Mores[RelCallIsChained] = true
 			}
 		} else {
@@ -346,6 +354,49 @@ func (e *Extractor) enrichCallCore(rel *model.DependencyRelation, node *sitter.N
 			}
 		}
 	}
+}
+
+// inferChainedCallReceiverType: 利用 Resolver 推断链式调用中 Receiver 的类型QN
+// 例如：对于 obj.getName().toUpperCase()，推断 getName() 返回的类型 (String)
+func (e *Extractor) inferChainedCallReceiverType(node *sitter.Node, src []byte, fCtx *core.FileContext, gCtx *core.GlobalContext) string {
+	// 获取方法名
+	methodName := ""
+	if nameNode := node.ChildByFieldName("name"); nameNode != nil {
+		methodName = nameNode.Utf8Text(src)
+	}
+	if methodName == "" {
+		return ""
+	}
+
+	// 获取 receiver（调用链中前一个调用的接收者）
+	var receiver string
+	if obj := node.ChildByFieldName("object"); obj != nil {
+		receiver = obj.Utf8Text(src)
+	}
+
+	// 利用 Resolver 解析这个方法调用（支持作用域回溯、继承链查找、重载匹配）
+	target := e.resolver.Resolve(gCtx, fCtx, node, e.clean(receiver), methodName, model.Method)
+	if target == nil {
+		return ""
+	}
+
+	// 从 Target 的 Extra 中获取返回类型 QN
+	if target.Extra != nil {
+		// 优先使用带 QN 的返回类型
+		if returnTypeQN, ok := target.Extra.Mores[MethodReturnTypeWithQN].(string); ok {
+			return returnTypeQN
+		}
+
+		// 如果没有 QN，尝试从原始类型解析为 QN
+		if returnType, ok := target.Extra.Mores[MethodReturnType].(string); ok {
+			// 尝试将原始类型解析为 QN
+			if returnEle := e.resolver.Resolve(gCtx, fCtx, nil, "", returnType, model.Class); returnEle != nil {
+				return returnEle.QualifiedName
+			}
+		}
+	}
+
+	return ""
 }
 
 func (e *Extractor) enrichCreateCore(rel *model.DependencyRelation, node, ctx *sitter.Node, src []byte) {
