@@ -296,7 +296,7 @@ func TestJavaExtractor_Use_Advanced(t *testing.T) {
 		},
 		{
 			name:       "Case 6: Chained Receiver Trace",
-			targetFile: "testdata/com/example/rel/use/case6/ReceiverTest.java",
+			targetFile: case6ReceiverTest,
 			expected: []struct {
 				relType    model.DependencyType
 				sourceQN   string

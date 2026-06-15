@@ -276,7 +276,7 @@ func TestJavaCollector_LombokConstructorComprehensive(t *testing.T) {
 	})
 
 	t.Run("Verify_RequiredArgsConstructor", func(t *testing.T) {
-		constructorQN := "com.example.lombok.ConstructorComprehensive.RequiredArgsConstructor.RequiredArgsConstructor(String)"
+		constructorQN := "com.example.lombok.ConstructorComprehensive.RequiredArgsConstructor.RequiredArgsConstructor(int)"
 		found := false
 		for _, entry := range fCtx.Definitions {
 			if entry.Element.QualifiedName == constructorQN {

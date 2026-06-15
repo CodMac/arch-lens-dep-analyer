@@ -2,3 +2,4 @@
 *.ast
 *.ast.format
 *.txt
+/arch-lens-dep-analyer

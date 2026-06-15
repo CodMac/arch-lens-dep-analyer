@@ -945,13 +945,5 @@ func (c *Collector) checkMethodExists(parentQN, methodName, paramTypes string, f
 		return true
 	}
 
-	for _, entry := range fCtx.Definitions {
-		if entry.Element.Kind == model.Method &&
-			entry.ParentQN == parentQN &&
-			entry.Element.Name == methodName {
-			return true
-		}
-	}
-
 	return false
 }
