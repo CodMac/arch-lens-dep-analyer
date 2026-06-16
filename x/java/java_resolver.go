@@ -62,8 +62,8 @@ func (j *SymbolResolver) Resolve(gc *core.GlobalContext, fc *core.FileContext, n
 	}
 }
 
-func (j *SymbolResolver) IsPrimitive(t string) bool {
-	switch t {
+func (j *SymbolResolver) IsPrimitive(typeName string) bool {
+	switch typeName {
 	case "int", "long", "short", "byte", "char", "boolean", "float", "double":
 		return true
 	}

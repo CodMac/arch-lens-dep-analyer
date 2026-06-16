@@ -23,26 +23,28 @@ type ImportEntry struct {
 }
 
 type FileContext struct {
-	FilePath     string
-	PackageName  string
-	RootNode     *sitter.Node
-	SourceBytes  *[]byte
-	Definitions  []*DefinitionEntry
-	Imports      map[string][]*ImportEntry
-	mutex        sync.RWMutex
-	shortNameMap map[string][]*DefinitionEntry
-	kindMap      map[model.ElementKind][]*DefinitionEntry
+	FilePath         string
+	PackageName      string
+	RootNode         *sitter.Node
+	SourceBytes      *[]byte
+	Definitions      []*DefinitionEntry
+	Imports          map[string][]*ImportEntry
+	mutex            sync.RWMutex
+	shortNameMap     map[string][]*DefinitionEntry
+	qualifiedNameMap map[string][]*DefinitionEntry
+	kindMap          map[model.ElementKind][]*DefinitionEntry
 }
 
 func NewFileContext(filePath string, rootNode *sitter.Node, sourceBytes *[]byte) *FileContext {
 	return &FileContext{
-		FilePath:     filePath,
-		RootNode:     rootNode,
-		SourceBytes:  sourceBytes,
-		Definitions:  []*DefinitionEntry{},
-		Imports:      make(map[string][]*ImportEntry),
-		shortNameMap: make(map[string][]*DefinitionEntry),
-		kindMap:      make(map[model.ElementKind][]*DefinitionEntry),
+		FilePath:         filePath,
+		RootNode:         rootNode,
+		SourceBytes:      sourceBytes,
+		Definitions:      []*DefinitionEntry{},
+		Imports:          make(map[string][]*ImportEntry),
+		shortNameMap:     make(map[string][]*DefinitionEntry),
+		qualifiedNameMap: make(map[string][]*DefinitionEntry),
+		kindMap:          make(map[model.ElementKind][]*DefinitionEntry),
 	}
 }
 
@@ -54,6 +56,7 @@ func (fc *FileContext) AddDefinition(elem *model.CodeElement, parentQN string, n
 
 	fc.Definitions = append(fc.Definitions, &entry)
 	fc.shortNameMap[elem.Name] = append(fc.shortNameMap[elem.Name], &entry)
+	fc.qualifiedNameMap[elem.QualifiedName] = append(fc.qualifiedNameMap[elem.QualifiedName], &entry)
 	fc.kindMap[elem.Kind] = append(fc.kindMap[elem.Kind], &entry)
 }
 
@@ -61,6 +64,11 @@ func (fc *FileContext) AddImport(alias string, imp *ImportEntry) {
 	fc.mutex.Lock()
 	defer fc.mutex.Unlock()
 	fc.Imports[alias] = append(fc.Imports[alias], imp)
+}
+
+func (fc *FileContext) FindByQualifiedName(qn string) ([]*DefinitionEntry, bool) {
+	entries, ok := fc.qualifiedNameMap[qn]
+	return entries, ok
 }
 
 func (fc *FileContext) FindByShortName(sn string) ([]*DefinitionEntry, bool) {
