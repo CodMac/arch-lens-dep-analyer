@@ -8,6 +8,7 @@ import (
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -24,7 +25,7 @@ func (c *EleMetadataEnricher) ProcessMetadataForEntry(entry *core.DefinitionEntr
 	extra := &model.Extra{
 		Modifiers: mods, Annotations: annos, Mores: make(map[string]interface{}),
 	}
-	isStatic, isFinal := Contains(mods, "static"), Contains(mods, "final")
+	isStatic, isFinal := helper.Contains(mods, "static"), helper.Contains(mods, "final")
 
 	switch elem.Kind {
 	case model.File:
@@ -47,7 +48,7 @@ func (c *EleMetadataEnricher) ProcessMetadataForEntry(entry *core.DefinitionEntr
 		c.fillLambdaMetadata(elem, node, extra)
 	case model.MethodRef:
 		// 1. 设置原始签名 (如 System.out::println)
-		elem.Signature = GetNodeContent(node, *c.fCtx.SourceBytes)
+		elem.Signature = helper.GetNodeContent(node, *c.fCtx.SourceBytes)
 
 		// 2. 深度解析被引用的目标
 		c.fillMethodReferenceDetails(elem, node, extra)
@@ -68,13 +69,13 @@ func (c *EleMetadataEnricher) extractTypeString(node *sitter.Node, src *[]byte) 
 		return "inferred"
 	}
 	if tNode := node.ChildByFieldName("type"); tNode != nil {
-		return GetNodeContent(tNode, *src)
+		return helper.GetNodeContent(tNode, *src)
 	}
 	if node.Kind() == "spread_parameter" {
 		for i := 0; i < int(node.NamedChildCount()); i++ {
 			child := node.NamedChild(uint(i))
 			if strings.Contains(child.Kind(), "type") {
-				return GetNodeContent(child, *src) + "..."
+				return helper.GetNodeContent(child, *src) + "..."
 			}
 		}
 	}
@@ -82,7 +83,7 @@ func (c *EleMetadataEnricher) extractTypeString(node *sitter.Node, src *[]byte) 
 }
 
 func (c *EleMetadataEnricher) extractThrows(node *sitter.Node, src *[]byte) []string {
-	tNode := FindNamedChildOfType(node, "throws")
+	tNode := helper.FindNamedChildOfType(node, "throws")
 	if tNode == nil {
 		return nil
 	}
@@ -90,7 +91,7 @@ func (c *EleMetadataEnricher) extractThrows(node *sitter.Node, src *[]byte) []st
 	for i := 0; i < int(tNode.NamedChildCount()); i++ {
 		child := tNode.NamedChild(uint(i))
 		if child.IsNamed() && child.Kind() != "throws" {
-			types = append(types, GetNodeContent(child, *src))
+			types = append(types, helper.GetNodeContent(child, *src))
 		}
 	}
 	return types
@@ -99,10 +100,10 @@ func (c *EleMetadataEnricher) extractThrows(node *sitter.Node, src *[]byte) []st
 func (c *EleMetadataEnricher) extractModifiersAndAnnotations(n *sitter.Node, src []byte) ([]string, []string) {
 	var mods = make([]string, 0)
 	var annos = make([]string, 0)
-	if mNode := FindNamedChildOfType(n, "modifiers"); mNode != nil {
+	if mNode := helper.FindNamedChildOfType(n, "modifiers"); mNode != nil {
 		for i := 0; i < int(mNode.ChildCount()); i++ {
 			child := mNode.Child(uint(i))
-			txt := GetNodeContent(child, src)
+			txt := helper.GetNodeContent(child, src)
 			if strings.Contains(child.Kind(), "annotation") {
 				annos = append(annos, txt)
 			} else if txt != "" {
@@ -121,7 +122,7 @@ func (c *EleMetadataEnricher) extractComments(node *sitter.Node, src *[]byte) (d
 	prev := curr.PrevSibling()
 	for prev != nil {
 		if prev.Kind() == "block_comment" || prev.Kind() == "line_comment" {
-			text := GetNodeContent(prev, *src)
+			text := helper.GetNodeContent(prev, *src)
 			if strings.HasPrefix(text, "/**") {
 				doc = text
 			} else {
@@ -129,7 +130,7 @@ func (c *EleMetadataEnricher) extractComments(node *sitter.Node, src *[]byte) (d
 			}
 			break
 		}
-		if strings.TrimSpace(GetNodeContent(prev, *src)) != "" {
+		if strings.TrimSpace(helper.GetNodeContent(prev, *src)) != "" {
 			break
 		}
 		prev = prev.PrevSibling()
@@ -144,14 +145,14 @@ func (c *EleMetadataEnricher) extractParameterList(node *sitter.Node, src *[]byt
 	}
 	var params []string
 	for i := 0; i < int(pNode.NamedChildCount()); i++ {
-		params = append(params, GetNodeContent(pNode.NamedChild(uint(i)), *src))
+		params = append(params, helper.GetNodeContent(pNode.NamedChild(uint(i)), *src))
 	}
 	return params
 }
 
 func (c *EleMetadataEnricher) extractParameterWithNames(node *sitter.Node, src *[]byte) string {
 	if pNode := node.ChildByFieldName("parameters"); pNode != nil {
-		return GetNodeContent(pNode, *src)
+		return helper.GetNodeContent(pNode, *src)
 	}
 	return "()"
 }
@@ -160,14 +161,14 @@ func (c *EleMetadataEnricher) extractInterfaceListFromNode(node *sitter.Node, sr
 	var results []string
 	target := node
 	if node.Kind() != "type_list" {
-		if listNode := FindNamedChildOfType(node, "type_list"); listNode != nil {
+		if listNode := helper.FindNamedChildOfType(node, "type_list"); listNode != nil {
 			target = listNode
 		}
 	}
 	for i := 0; i < int(target.NamedChildCount()); i++ {
 		child := target.NamedChild(uint(i))
 		if strings.Contains(child.Kind(), "type") || child.Kind() == "type_identifier" {
-			results = append(results, GetNodeContent(child, *src))
+			results = append(results, helper.GetNodeContent(child, *src))
 		}
 	}
 	return results
@@ -242,17 +243,17 @@ func (c *EleMetadataEnricher) fillFileMetadata(elem *model.CodeElement, extra *m
 }
 
 func (c *EleMetadataEnricher) fillTypeMetadata(elem *model.CodeElement, node *sitter.Node, extra *model.Extra, mods []string, isFinal bool) {
-	extra.Mores[constants.ClassIsAbstract], extra.Mores[constants.ClassIsFinal] = Contains(mods, "abstract"), isFinal
-	extra.Mores[constants.ClassIsStatic] = Contains(mods, "static")
+	extra.Mores[constants.ClassIsAbstract], extra.Mores[constants.ClassIsFinal] = helper.Contains(mods, "abstract"), isFinal
+	extra.Mores[constants.ClassIsStatic] = helper.Contains(mods, "static")
 
 	typeParams := ""
 	if tpNode := node.ChildByFieldName("type_parameters"); tpNode != nil {
-		typeParams = GetNodeContent(tpNode, *c.fCtx.SourceBytes)
+		typeParams = helper.GetNodeContent(tpNode, *c.fCtx.SourceBytes)
 	}
 
 	heritage := ""
 	if super := node.ChildByFieldName("superclass"); super != nil {
-		content := GetNodeContent(super, *c.fCtx.SourceBytes)
+		content := helper.GetNodeContent(super, *c.fCtx.SourceBytes)
 		extra.Mores[constants.ClassSuperClass] = strings.TrimSpace(strings.TrimPrefix(content, "extends"))
 		heritage += " " + content
 	}
@@ -265,7 +266,7 @@ func (c *EleMetadataEnricher) fillTypeMetadata(elem *model.CodeElement, node *si
 				mKey = constants.ClassImplementedInterfaces
 			}
 			extra.Mores[mKey] = ifaces
-			heritage += " " + GetNodeContent(ifacesNode, *c.fCtx.SourceBytes)
+			heritage += " " + helper.GetNodeContent(ifacesNode, *c.fCtx.SourceBytes)
 		}
 	}
 
@@ -280,12 +281,12 @@ func (c *EleMetadataEnricher) fillMethodMetadata(elem *model.CodeElement, node *
 
 	typeParams := ""
 	if tpNode := node.ChildByFieldName("type_parameters"); tpNode != nil {
-		typeParams = GetNodeContent(tpNode, *c.fCtx.SourceBytes) + " "
+		typeParams = helper.GetNodeContent(tpNode, *c.fCtx.SourceBytes) + " "
 	}
 
 	retType := ""
 	if tNode := node.ChildByFieldName("type"); tNode != nil {
-		retType = GetNodeContent(tNode, *c.fCtx.SourceBytes)
+		retType = helper.GetNodeContent(tNode, *c.fCtx.SourceBytes)
 		extra.Mores[constants.MethodReturnType] = retType
 	}
 
@@ -322,10 +323,10 @@ func (c *EleMetadataEnricher) fillLocalVariableMetadata(elem *model.CodeElement,
 func (c *EleMetadataEnricher) fillEnumConstantMetadata(elem *model.CodeElement, node *sitter.Node, extra *model.Extra) {
 	elem.Signature = elem.Name
 
-	if argList := FindNamedChildOfType(node, "argument_list"); argList != nil {
+	if argList := helper.FindNamedChildOfType(node, "argument_list"); argList != nil {
 		var args []string
 		for i := 0; i < int(argList.NamedChildCount()); i++ {
-			args = append(args, GetNodeContent(argList.NamedChild(uint(i)), *c.fCtx.SourceBytes))
+			args = append(args, helper.GetNodeContent(argList.NamedChild(uint(i)), *c.fCtx.SourceBytes))
 		}
 		extra.Mores[constants.EnumArguments] = args
 	}
@@ -334,9 +335,9 @@ func (c *EleMetadataEnricher) fillEnumConstantMetadata(elem *model.CodeElement, 
 func (c *EleMetadataEnricher) fillAnnotationMember(elem *model.CodeElement, node *sitter.Node, extra *model.Extra) {
 	extra.Mores[constants.MethodIsAnnotation] = true
 	if valNode := node.ChildByFieldName("value"); valNode != nil {
-		extra.Mores[constants.MethodDefaultValue] = GetNodeContent(valNode, *c.fCtx.SourceBytes)
+		extra.Mores[constants.MethodDefaultValue] = helper.GetNodeContent(valNode, *c.fCtx.SourceBytes)
 	}
-	vType := GetNodeContent(node.ChildByFieldName("type"), *c.fCtx.SourceBytes)
+	vType := helper.GetNodeContent(node.ChildByFieldName("type"), *c.fCtx.SourceBytes)
 	elem.Signature = fmt.Sprintf("%s %s()", vType, elem.Name)
 }
 
@@ -360,13 +361,13 @@ func (c *EleMetadataEnricher) fillMethodReferenceDetails(elem *model.CodeElement
 		// 1. 忽略不需要的符号和中间件
 		if kind == "::" || kind == "type_arguments" {
 			if kind == "type_arguments" {
-				extra.Mores[constants.MethodRefTypeArgs] = GetNodeContent(child, *c.fCtx.SourceBytes)
+				extra.Mores[constants.MethodRefTypeArgs] = helper.GetNodeContent(child, *c.fCtx.SourceBytes)
 			}
 			continue
 		}
 
 		// 2. 识别内容
-		content := GetNodeContent(child, *c.fCtx.SourceBytes)
+		content := helper.GetNodeContent(child, *c.fCtx.SourceBytes)
 		if content == "" {
 			continue
 		}
@@ -398,12 +399,12 @@ func (c *EleMetadataEnricher) fillLambdaMetadata(elem *model.CodeElement, node *
 	var paramsStr string
 	paramNode := node.ChildByFieldName("parameters")
 	if paramNode != nil {
-		paramsStr = GetNodeContent(paramNode, *c.fCtx.SourceBytes)
+		paramsStr = helper.GetNodeContent(paramNode, *c.fCtx.SourceBytes)
 	} else {
 		// 处理单参数没有括号的情况: s -> s.toLowerCase()
 		// 在 tree-sitter-java 中，这种 identifier 会是 lambda_expression 的第一个命名子节点
 		if firstChild := node.NamedChild(0); firstChild != nil && firstChild.Kind() == "identifier" {
-			paramsStr = GetNodeContent(firstChild, *c.fCtx.SourceBytes)
+			paramsStr = helper.GetNodeContent(firstChild, *c.fCtx.SourceBytes)
 		}
 	}
 	extra.Mores[constants.LambdaParameters] = paramsStr
@@ -434,7 +435,7 @@ func (c *EleMetadataEnricher) fillAnonymousClassMetadata(elem *model.CodeElement
 	// 提取 new 关键字后的类型，例如 new Runnable() { ... } 中的 Runnable
 	typeNode := node.ChildByFieldName("type")
 	if typeNode != nil {
-		typeName := GetNodeContent(typeNode, *c.fCtx.SourceBytes)
+		typeName := helper.GetNodeContent(typeNode, *c.fCtx.SourceBytes)
 		extra.Mores[constants.AnonymousClassType] = typeName
 		elem.Signature = "anonymous extends/implements " + typeName
 	}
@@ -451,5 +452,5 @@ func (c *EleMetadataEnricher) findInterfacesNode(node *sitter.Node) *sitter.Node
 	if n := node.ChildByFieldName("extends"); n != nil {
 		return n
 	}
-	return FindNamedChildOfType(node, "extends_interfaces")
+	return helper.FindNamedChildOfType(node, "extends_interfaces")
 }

@@ -247,7 +247,7 @@ func TestJavaExtractor_Use_Advanced(t *testing.T) {
 					targetQN:   "com.example.rel.use.case3.pk1.Base.protectedVar",
 					targetKind: model.Field,
 				},
-				// [Case 6] Package 变量跨包不可见，Resolver 应返回 nil
+				// [Case 6] Package 变量跨包不可见，resolver 应返回 nil
 			},
 		},
 		{
@@ -267,7 +267,7 @@ func TestJavaExtractor_Use_Advanced(t *testing.T) {
 					targetKind: model.Field,
 				},
 				// [Case 8] 静态方法访问实例变量 (解析器应因 checkVisibility 或 static 校验而拒绝)
-				// 注意：如果 Resolver 实现了静态校验，这里 targetQN 不应是全路径
+				// 注意：如果 resolver 实现了静态校验，这里 targetQN 不应是全路径
 			},
 		},
 		{

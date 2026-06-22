@@ -6,6 +6,7 @@ import (
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -63,7 +64,7 @@ func (e *RelMetadataEnricher) enrichCallCore(rel *model.DependencyRelation, node
 	}
 
 	// 定位调用的真实 AST 容器节点
-	callNode := FindNearestKind(node, "method_invocation", "method_reference", "explicit_constructor_invocation", "object_creation_expression")
+	callNode := helper.FindNearestKind(node, "method_invocation", "method_reference", "explicit_constructor_invocation", "object_creation_expression")
 	if callNode == nil {
 		return
 	}
@@ -76,10 +77,10 @@ func (e *RelMetadataEnricher) enrichCallCore(rel *model.DependencyRelation, node
 			rel.Mores[constants.RelCallReceiver] = e._normalizeReceiverText(receiverRaw)
 
 			// 【核心修复】判定静态调用，必须排除 getList() 这种带括号的 receiver
-			isStatic := IsPotentialClassName(receiverRaw)
+			isStatic := helper.IsPotentialClassName(receiverRaw)
 			rel.Mores[constants.RelCallIsStatic] = isStatic
 			if isStatic {
-				// 【新增】统一转换为QN格式：利用 Resolver 解析类名
+				// 【新增】统一转换为QN格式：利用 resolver 解析类名
 				typeEle := e.resolver.Resolve(e.gCtx, e.fCtx, nil, "", receiverRaw, model.Class)
 				if typeEle != nil {
 					rel.Mores[constants.RelCallReceiverType] = typeEle.QualifiedName
@@ -104,7 +105,7 @@ func (e *RelMetadataEnricher) enrichCallCore(rel *model.DependencyRelation, node
 				rel.Mores[constants.RelCallReceiverType] = receiverTypeQN
 			} else if objectNode.Kind() == "identifier" {
 				// 【新增】实例变量调用：obj1.method()
-				// 利用 Resolver 解析变量，获取其类型QN
+				// 利用 resolver 解析变量，获取其类型QN
 				varEle := e.resolver.Resolve(e.gCtx, e.fCtx, objectNode, "", receiverRaw, model.Variable)
 				if varEle != nil && varEle.Extra != nil {
 					// 优先使用带 QN 的类型
@@ -148,7 +149,7 @@ func (e *RelMetadataEnricher) enrichCallCore(rel *model.DependencyRelation, node
 			receiverRaw := objectNode.Utf8Text(src)
 			rel.Mores[constants.RelCallReceiverRaw] = receiverRaw
 			rel.Mores[constants.RelCallReceiver] = e._normalizeReceiverText(receiverRaw)
-			if IsPotentialClassName(receiverRaw) {
+			if helper.IsPotentialClassName(receiverRaw) {
 				rel.Mores[constants.RelCallIsStatic] = true
 			}
 		}
@@ -173,7 +174,7 @@ func (e *RelMetadataEnricher) enrichCallCore(rel *model.DependencyRelation, node
 	}
 
 	// 【新增】补全 CALL 关系 Target 的 QN（移到最后执行，确保 RelCallReceiverType 已被填充）
-	// 当 Resolver 无法找到目标方法时，根据 RelCallReceiverType 和方法名构建完整 QN
+	// 当 resolver 无法找到目标方法时，根据 RelCallReceiverType 和方法名构建完整 QN
 	if rel.Target != nil && rel.Target.Kind == model.Method {
 		targetQN := rel.Target.QualifiedName
 		receiverTypeQN, hasReceiverType := rel.Mores[constants.RelCallReceiverType].(string)
@@ -309,8 +310,8 @@ func (e *RelMetadataEnricher) enrichCastCore(rel *model.DependencyRelation, node
 func (e *RelMetadataEnricher) enrichThrowCore(rel *model.DependencyRelation, node, ctx *sitter.Node, rawText string, src []byte) {
 	if node != nil {
 		rel.Mores[constants.RelAstKind] = "throw_statement"
-		rel.Target.Name = Clean(rel.Target.Name)
-		rel.Target.QualifiedName = Clean(rel.Target.QualifiedName)
+		rel.Target.Name = helper.Clean(rel.Target.Name)
+		rel.Target.QualifiedName = helper.Clean(rel.Target.QualifiedName)
 		if node.Kind() == "type_identifier" || (node.Parent() != nil && node.Parent().Kind() == "object_creation_expression") {
 			rel.Mores[constants.RelThrowIsRuntime] = true
 		} else if node.Kind() == "identifier" {
@@ -321,7 +322,7 @@ func (e *RelMetadataEnricher) enrichThrowCore(rel *model.DependencyRelation, nod
 	if rawText != "" && rel.Source != nil && rel.Source.Extra != nil {
 		if ths, ok := rel.Source.Extra.Mores[constants.MethodThrowsTypes].([]string); ok {
 			for i, ex := range ths {
-				if Clean(ex) == rel.Target.Name {
+				if helper.Clean(ex) == rel.Target.Name {
 					rel.Mores[constants.RelThrowIndex] = i
 					rel.Mores[constants.RelThrowIsSignature] = true
 					break
@@ -349,7 +350,7 @@ func (e *RelMetadataEnricher) enrichParameterCore(rel *model.DependencyRelation,
 }
 
 func (e *RelMetadataEnricher) enrichReturnCore(rel *model.DependencyRelation, rawText string) {
-	rel.Mores[constants.RelReturnIsPrimitive] = e.resolver.IsPrimitive(Clean(rawText))
+	rel.Mores[constants.RelReturnIsPrimitive] = e.resolver.IsPrimitive(helper.Clean(rawText))
 	rel.Mores[constants.RelReturnIsArray] = strings.Contains(rawText, "[]")
 }
 
@@ -400,7 +401,7 @@ func (e *RelMetadataEnricher) enrichUseCore(rel *model.DependencyRelation, node,
 		for _, k := range keys {
 			if rt, ok := rel.Target.Extra.Mores[k].(string); ok {
 				// e.clean 会去掉泛型和修饰符，保留纯粹的类型名
-				rel.Mores[constants.RelUseReceiverType] = Clean(rt)
+				rel.Mores[constants.RelUseReceiverType] = helper.Clean(rt)
 				break
 			}
 		}
@@ -488,8 +489,8 @@ func (e *RelMetadataEnricher) _inferChainedCallReceiverType(node *sitter.Node, s
 		receiver = obj.Utf8Text(src)
 	}
 
-	// 利用 Resolver 解析这个方法调用（支持作用域回溯、继承链查找、重载匹配）
-	target := e.resolver.Resolve(e.gCtx, e.fCtx, node, Clean(receiver), methodName, model.Method)
+	// 利用 resolver 解析这个方法调用（支持作用域回溯、继承链查找、重载匹配）
+	target := e.resolver.Resolve(e.gCtx, e.fCtx, node, helper.Clean(receiver), methodName, model.Method)
 	if target == nil {
 		return ""
 	}
@@ -523,14 +524,14 @@ func (e *RelMetadataEnricher) _inferObjectCreationReceiverType(node *sitter.Node
 		return ""
 	}
 
-	// 直接使用 Resolver.resolve 解析类型（不需要 clean，因为 Builder 就是类型名）
+	// 直接使用 resolver.resolve 解析类型（不需要 clean，因为 Builder 就是类型名）
 	typeEle := e.resolver.Resolve(e.gCtx, e.fCtx, nil, "", typeName, model.Class)
 	if typeEle != nil {
 		return typeEle.QualifiedName
 	}
 
 	// 如果找不到，尝试用 clean 后的类型名
-	cleanType := Clean(typeName)
+	cleanType := helper.Clean(typeName)
 	if cleanType != typeName {
 		typeEle = e.resolver.Resolve(e.gCtx, e.fCtx, nil, "", cleanType, model.Class)
 		if typeEle != nil {

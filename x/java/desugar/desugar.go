@@ -1,4 +1,4 @@
-package java
+package desugar
 
 import (
 	"fmt"
@@ -7,11 +7,16 @@ import (
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 type DeSugar struct {
 	resolver core.SymbolResolver
+}
+
+func NewDeSugar(resolver core.SymbolResolver) *DeSugar {
+	return &DeSugar{resolver: resolver}
 }
 
 // =============================================================================
@@ -78,7 +83,7 @@ func (c *DeSugar) DesugarEnumMethods(elem *model.CodeElement, node *sitter.Node,
 }
 
 func (c *DeSugar) DesugarRecordMembers(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
-	paramList := FindNamedChildOfType(node, "formal_parameters")
+	paramList := helper.FindNamedChildOfType(node, "formal_parameters")
 	if paramList == nil {
 		return
 	}
@@ -89,8 +94,8 @@ func (c *DeSugar) DesugarRecordMembers(elem *model.CodeElement, node *sitter.Nod
 		child := paramList.NamedChild(uint(i))
 		if child.Kind() == "formal_parameter" {
 			comps = append(comps, component{
-				name:  GetNodeContent(child.ChildByFieldName("name"), *fCtx.SourceBytes),
-				vType: GetNodeContent(child.ChildByFieldName("type"), *fCtx.SourceBytes),
+				name:  helper.GetNodeContent(child.ChildByFieldName("name"), *fCtx.SourceBytes),
+				vType: helper.GetNodeContent(child.ChildByFieldName("type"), *fCtx.SourceBytes),
 			})
 		}
 	}
@@ -130,7 +135,7 @@ func (c *DeSugar) DesugarRecordMembers(elem *model.CodeElement, node *sitter.Nod
 	if _, ok := fCtx.FindByQualifiedName(cQN); !ok {
 		fCtx.AddDefinition(&model.CodeElement{
 			Kind: model.Method, Name: elem.Name, QualifiedName: cQN, Path: fCtx.FilePath, Location: elem.Location, IsFormSugar: true,
-			Signature: fmt.Sprintf("public %s(%s)", elem.Name, GetNodeContent(paramList, *fCtx.SourceBytes)),
+			Signature: fmt.Sprintf("public %s(%s)", elem.Name, helper.GetNodeContent(paramList, *fCtx.SourceBytes)),
 			Extra: &model.Extra{
 				Modifiers:   make([]string, 0),
 				Annotations: make([]string, 0),
@@ -151,42 +156,42 @@ func (c *DeSugar) DesugarLombok(elem *model.CodeElement, node *sitter.Node, fCtx
 
 	annotations := elem.Extra.Annotations
 
-	if c._hasLombokAnnotation(annotations, "Slf4j") {
-		c._lombokSlf4j(elem, node, fCtx)
+	if c.hasLombokAnnotation(annotations, "Slf4j") {
+		c.lombokSlf4j(elem, node, fCtx)
 	}
-	if c._hasLombokAnnotation(annotations, "Getter") {
-		c._lombokGetter(elem, node, fCtx)
+	if c.hasLombokAnnotation(annotations, "Getter") {
+		c.lombokGetter(elem, node, fCtx)
 	}
-	if c._hasLombokAnnotation(annotations, "Setter") {
-		c._lombokSetter(elem, node, fCtx)
+	if c.hasLombokAnnotation(annotations, "Setter") {
+		c.lombokSetter(elem, node, fCtx)
 	}
-	if c._hasLombokAnnotation(annotations, "ToString") {
-		c._lombokToString(elem, node, fCtx)
+	if c.hasLombokAnnotation(annotations, "ToString") {
+		c.lombokToString(elem, node, fCtx)
 	}
-	if c._hasLombokAnnotation(annotations, "EqualsAndHashCode") {
-		c._lombokEqualsAndHashCode(elem, node, fCtx)
+	if c.hasLombokAnnotation(annotations, "EqualsAndHashCode") {
+		c.lombokEqualsAndHashCode(elem, node, fCtx)
 	}
-	if c._hasLombokAnnotation(annotations, "NoArgsConstructor") {
-		c._lombokNoArgsConstructor(elem, node, fCtx)
+	if c.hasLombokAnnotation(annotations, "NoArgsConstructor") {
+		c.lombokNoArgsConstructor(elem, node, fCtx)
 	}
-	if c._hasLombokAnnotation(annotations, "AllArgsConstructor") {
-		c._lombokAllArgsConstructor(elem, node, fCtx)
+	if c.hasLombokAnnotation(annotations, "AllArgsConstructor") {
+		c.lombokAllArgsConstructor(elem, node, fCtx)
 	}
-	if c._hasLombokAnnotation(annotations, "RequiredArgsConstructor") {
-		c._lombokRequiredArgsConstructor(elem, node, fCtx)
+	if c.hasLombokAnnotation(annotations, "RequiredArgsConstructor") {
+		c.lombokRequiredArgsConstructor(elem, node, fCtx)
 	}
-	if c._hasLombokAnnotation(annotations, "Data") {
-		c._lombokData(elem, node, fCtx)
+	if c.hasLombokAnnotation(annotations, "Data") {
+		c.lombokData(elem, node, fCtx)
 	}
-	if c._hasLombokAnnotation(annotations, "Value") {
-		c._lombokValue(elem, node, fCtx)
+	if c.hasLombokAnnotation(annotations, "Value") {
+		c.lombokValue(elem, node, fCtx)
 	}
-	if c._hasLombokAnnotation(annotations, "Builder") {
-		c._lombokBuilder(elem, node, fCtx)
+	if c.hasLombokAnnotation(annotations, "Builder") {
+		c.lombokBuilder(elem, node, fCtx)
 	}
 }
 
-func (c *DeSugar) _hasLombokAnnotation(annotations []string, target string) bool {
+func (c *DeSugar) hasLombokAnnotation(annotations []string, target string) bool {
 	for _, anno := range annotations {
 		if strings.Contains(anno, "@"+target) || strings.Contains(anno, "lombok."+target) {
 			return true
@@ -197,7 +202,7 @@ func (c *DeSugar) _hasLombokAnnotation(annotations []string, target string) bool
 
 // lombokSlf4j: 处理 @Slf4j 注解
 // 生成私有静态final的Logger字段 log
-func (c *DeSugar) _lombokSlf4j(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+func (c *DeSugar) lombokSlf4j(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
 	logFieldName := "log"
 	logFieldQN := c.resolver.BuildQualifiedName(elem.QualifiedName, logFieldName)
 
@@ -228,10 +233,10 @@ func (c *DeSugar) _lombokSlf4j(elem *model.CodeElement, node *sitter.Node, fCtx 
 	}, elem.QualifiedName, node)
 }
 
-// _lombokGetter: 处理 @Getter 注解
+// lombokGetter: 处理 @Getter 注解
 // 为每个非static字段生成getter方法
-func (c *DeSugar) _lombokGetter(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
-	fields := c.__extractClassFields(elem, fCtx)
+func (c *DeSugar) lombokGetter(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+	fields := c._extractClassFields(elem, fCtx)
 
 	for _, fieldEntry := range fields {
 		fieldName := fieldEntry.Element.Name
@@ -252,7 +257,7 @@ func (c *DeSugar) _lombokGetter(elem *model.CodeElement, node *sitter.Node, fCtx
 		}
 
 		// 检查方法是否已存在
-		if c.__checkMethodExists(elem.QualifiedName, getterName, "()", fCtx) {
+		if c._checkMethodExists(elem.QualifiedName, getterName, "()", fCtx) {
 			continue
 		}
 
@@ -279,10 +284,10 @@ func (c *DeSugar) _lombokGetter(elem *model.CodeElement, node *sitter.Node, fCtx
 	}
 }
 
-// _lombokSetter: 处理 @Setter 注解
+// lombokSetter: 处理 @Setter 注解
 // 为每个非static、非final字段生成setter方法
-func (c *DeSugar) _lombokSetter(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
-	fields := c.__extractClassFields(elem, fCtx)
+func (c *DeSugar) lombokSetter(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+	fields := c._extractClassFields(elem, fCtx)
 
 	for _, fieldEntry := range fields {
 		fieldName := fieldEntry.Element.Name
@@ -304,7 +309,7 @@ func (c *DeSugar) _lombokSetter(elem *model.CodeElement, node *sitter.Node, fCtx
 		setterName := "set" + strings.ToUpper(fieldName[:1]) + fieldName[1:]
 
 		// 检查方法是否已存在
-		if c.__checkMethodExists(elem.QualifiedName, setterName, "("+fieldType+")", fCtx) {
+		if c._checkMethodExists(elem.QualifiedName, setterName, "("+fieldType+")", fCtx) {
 			continue
 		}
 
@@ -331,11 +336,11 @@ func (c *DeSugar) _lombokSetter(elem *model.CodeElement, node *sitter.Node, fCtx
 	}
 }
 
-// _lombokToString: 处理 @ToString 注解
+// lombokToString: 处理 @ToString 注解
 // 生成 toString() 方法
-func (c *DeSugar) _lombokToString(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+func (c *DeSugar) lombokToString(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
 	// 检查 toString() 是否已存在
-	if c.__checkMethodExists(elem.QualifiedName, "toString", "()", fCtx) {
+	if c._checkMethodExists(elem.QualifiedName, "toString", "()", fCtx) {
 		return
 	}
 
@@ -361,11 +366,11 @@ func (c *DeSugar) _lombokToString(elem *model.CodeElement, node *sitter.Node, fC
 	}, elem.QualifiedName, node)
 }
 
-// _lombokEqualsAndHashCode: 处理 @EqualsAndHashCode 注解
+// lombokEqualsAndHashCode: 处理 @EqualsAndHashCode 注解
 // 生成 equals(), hashCode(), canEqual() 三个方法
-func (c *DeSugar) _lombokEqualsAndHashCode(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+func (c *DeSugar) lombokEqualsAndHashCode(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
 	// 1. 生成 equals(Object)
-	if !c.__checkMethodExists(elem.QualifiedName, "equals", "(Object)", fCtx) {
+	if !c._checkMethodExists(elem.QualifiedName, "equals", "(Object)", fCtx) {
 		equalsQN := c.resolver.BuildQualifiedName(elem.QualifiedName, "equals(Object)")
 		fCtx.AddDefinition(&model.CodeElement{
 			Kind:          model.Method,
@@ -389,7 +394,7 @@ func (c *DeSugar) _lombokEqualsAndHashCode(elem *model.CodeElement, node *sitter
 	}
 
 	// 2. 生成 hashCode()
-	if !c.__checkMethodExists(elem.QualifiedName, "hashCode", "()", fCtx) {
+	if !c._checkMethodExists(elem.QualifiedName, "hashCode", "()", fCtx) {
 		hashCodeQN := c.resolver.BuildQualifiedName(elem.QualifiedName, "hashCode()")
 		fCtx.AddDefinition(&model.CodeElement{
 			Kind:          model.Method,
@@ -412,7 +417,7 @@ func (c *DeSugar) _lombokEqualsAndHashCode(elem *model.CodeElement, node *sitter
 	}
 
 	// 3. 生成 canEqual(Object)
-	if !c.__checkMethodExists(elem.QualifiedName, "canEqual", "(Object)", fCtx) {
+	if !c._checkMethodExists(elem.QualifiedName, "canEqual", "(Object)", fCtx) {
 		canEqualQN := c.resolver.BuildQualifiedName(elem.QualifiedName, "canEqual(Object)")
 		fCtx.AddDefinition(&model.CodeElement{
 			Kind:          model.Method,
@@ -436,11 +441,11 @@ func (c *DeSugar) _lombokEqualsAndHashCode(elem *model.CodeElement, node *sitter
 	}
 }
 
-// _lombokNoArgsConstructor: 处理 @NoArgsConstructor 注解
+// lombokNoArgsConstructor: 处理 @NoArgsConstructor 注解
 // 生成无参构造器
-func (c *DeSugar) _lombokNoArgsConstructor(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+func (c *DeSugar) lombokNoArgsConstructor(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
 	// 检查无参构造器是否已存在
-	if c.__checkMethodExists(elem.QualifiedName, elem.Name, "()", fCtx) {
+	if c._checkMethodExists(elem.QualifiedName, elem.Name, "()", fCtx) {
 		return
 	}
 
@@ -466,10 +471,10 @@ func (c *DeSugar) _lombokNoArgsConstructor(elem *model.CodeElement, node *sitter
 	}, elem.QualifiedName, node)
 }
 
-// _lombokAllArgsConstructor: 处理 @AllArgsConstructor 注解
+// lombokAllArgsConstructor: 处理 @AllArgsConstructor 注解
 // 生成全参构造器
-func (c *DeSugar) _lombokAllArgsConstructor(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
-	fields := c.__extractClassFields(elem, fCtx)
+func (c *DeSugar) lombokAllArgsConstructor(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+	fields := c._extractClassFields(elem, fCtx)
 
 	// 过滤掉static字段
 	var nonStaticFields []*core.DefinitionEntry
@@ -497,7 +502,7 @@ func (c *DeSugar) _lombokAllArgsConstructor(elem *model.CodeElement, node *sitte
 
 	// 检查是否已存在
 	paramsStr := "(" + strings.Join(paramTypes, ",") + ")"
-	if c.__checkMethodExists(elem.QualifiedName, elem.Name, paramsStr, fCtx) {
+	if c._checkMethodExists(elem.QualifiedName, elem.Name, paramsStr, fCtx) {
 		return
 	}
 
@@ -524,10 +529,10 @@ func (c *DeSugar) _lombokAllArgsConstructor(elem *model.CodeElement, node *sitte
 	}, elem.QualifiedName, node)
 }
 
-// _lombokRequiredArgsConstructor: 处理 @RequiredArgsConstructor 注解
+// lombokRequiredArgsConstructor: 处理 @RequiredArgsConstructor 注解
 // 为final字段生成构造器
-func (c *DeSugar) _lombokRequiredArgsConstructor(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
-	fields := c.__extractClassFields(elem, fCtx)
+func (c *DeSugar) lombokRequiredArgsConstructor(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+	fields := c._extractClassFields(elem, fCtx)
 
 	// 只收集final且非static的字段
 	var finalFields []*core.DefinitionEntry
@@ -556,7 +561,7 @@ func (c *DeSugar) _lombokRequiredArgsConstructor(elem *model.CodeElement, node *
 
 	// 检查是否已存在
 	paramsStr := "(" + strings.Join(paramTypes, ",") + ")"
-	if c.__checkMethodExists(elem.QualifiedName, elem.Name, paramsStr, fCtx) {
+	if c._checkMethodExists(elem.QualifiedName, elem.Name, paramsStr, fCtx) {
 		return
 	}
 
@@ -583,30 +588,30 @@ func (c *DeSugar) _lombokRequiredArgsConstructor(elem *model.CodeElement, node *
 	}, elem.QualifiedName, node)
 }
 
-// _lombokData: 处理 @Data 注解
+// lombokData: 处理 @Data 注解
 // @Data 等价于 @Getter + @Setter + @ToString + @EqualsAndHashCode + @NoArgsConstructor
-func (c *DeSugar) _lombokData(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
-	c._lombokGetter(elem, node, fCtx)
-	c._lombokSetter(elem, node, fCtx)
-	c._lombokToString(elem, node, fCtx)
-	c._lombokEqualsAndHashCode(elem, node, fCtx)
-	c._lombokNoArgsConstructor(elem, node, fCtx)
+func (c *DeSugar) lombokData(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+	c.lombokGetter(elem, node, fCtx)
+	c.lombokSetter(elem, node, fCtx)
+	c.lombokToString(elem, node, fCtx)
+	c.lombokEqualsAndHashCode(elem, node, fCtx)
+	c.lombokNoArgsConstructor(elem, node, fCtx)
 }
 
-// _lombokValue: 处理 @Value 注解
+// lombokValue: 处理 @Value 注解
 // @Value 等价于 @Getter + @AllArgsConstructor + @ToString + @EqualsAndHashCode
 // 不生成 setter，生成全参构造器
-func (c *DeSugar) _lombokValue(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
-	c._lombokGetter(elem, node, fCtx)
-	c._lombokAllArgsConstructor(elem, node, fCtx)
-	c._lombokToString(elem, node, fCtx)
-	c._lombokEqualsAndHashCode(elem, node, fCtx)
+func (c *DeSugar) lombokValue(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+	c.lombokGetter(elem, node, fCtx)
+	c.lombokAllArgsConstructor(elem, node, fCtx)
+	c.lombokToString(elem, node, fCtx)
+	c.lombokEqualsAndHashCode(elem, node, fCtx)
 }
 
-// _lombokBuilder: 处理 @Builder 注解
+// lombokBuilder: 处理 @Builder 注解
 // 生成Builder内部类和相关方法
-func (c *DeSugar) _lombokBuilder(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
-	fields := c.__extractClassFields(elem, fCtx)
+func (c *DeSugar) lombokBuilder(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
+	fields := c._extractClassFields(elem, fCtx)
 
 	// 过滤掉static字段
 	var nonStaticFields []*core.DefinitionEntry
@@ -645,7 +650,7 @@ func (c *DeSugar) _lombokBuilder(elem *model.CodeElement, node *sitter.Node, fCt
 	// 2. 生成静态builder()方法
 	builderMethodName := "builder"
 	builderMethodQN := c.resolver.BuildQualifiedName(elem.QualifiedName, builderMethodName+"()")
-	if !c.__checkMethodExists(elem.QualifiedName, builderMethodName, "()", fCtx) {
+	if !c._checkMethodExists(elem.QualifiedName, builderMethodName, "()", fCtx) {
 		fCtx.AddDefinition(&model.CodeElement{
 			Kind:          model.Method,
 			Name:          builderMethodName,
@@ -697,7 +702,7 @@ func (c *DeSugar) _lombokBuilder(elem *model.CodeElement, node *sitter.Node, fCt
 
 	// 4. 在Builder类中生成build()方法
 	buildQN := c.resolver.BuildQualifiedName(builderQN, "build()")
-	if !c.__checkMethodExists(builderQN, "build", "()", fCtx) {
+	if !c._checkMethodExists(builderQN, "build", "()", fCtx) {
 		fCtx.AddDefinition(&model.CodeElement{
 			Kind:          model.Method,
 			Name:          "build",
@@ -721,7 +726,7 @@ func (c *DeSugar) _lombokBuilder(elem *model.CodeElement, node *sitter.Node, fCt
 	// 5. 在主类中生成私有全参构造器（接受Builder参数）
 	builderParam := "builder"
 	privateConstructorQN := c.resolver.BuildQualifiedName(elem.QualifiedName, fmt.Sprintf("%s(%s)", elem.Name, builderClassName))
-	if !c.__checkMethodExists(elem.QualifiedName, elem.Name, "("+builderClassName+")", fCtx) {
+	if !c._checkMethodExists(elem.QualifiedName, elem.Name, "("+builderClassName+")", fCtx) {
 		fCtx.AddDefinition(&model.CodeElement{
 			Kind:          model.Method,
 			Name:          elem.Name,
@@ -748,8 +753,8 @@ func (c *DeSugar) _lombokBuilder(elem *model.CodeElement, node *sitter.Node, fCt
 // 辅助方法
 // =============================================================================
 
-// __extractClassFields: 提取类中的所有字段（不含语法糖生成的字段）
-func (c *DeSugar) __extractClassFields(elem *model.CodeElement, fCtx *core.FileContext) []*core.DefinitionEntry {
+// _extractClassFields: 提取类中的所有字段（不含语法糖生成的字段）
+func (c *DeSugar) _extractClassFields(elem *model.CodeElement, fCtx *core.FileContext) []*core.DefinitionEntry {
 	var fields []*core.DefinitionEntry
 
 	if defs, ok := fCtx.FindByElementKind(model.Field); ok {
@@ -763,8 +768,8 @@ func (c *DeSugar) __extractClassFields(elem *model.CodeElement, fCtx *core.FileC
 	return fields
 }
 
-// __checkMethodExists: 检查方法是否已存在（避免重复生成）
-func (c *DeSugar) __checkMethodExists(parentQN, methodName, paramTypes string, fCtx *core.FileContext) bool {
+// _checkMethodExists: 检查方法是否已存在（避免重复生成）
+func (c *DeSugar) _checkMethodExists(parentQN, methodName, paramTypes string, fCtx *core.FileContext) bool {
 	methodQN := c.resolver.BuildQualifiedName(parentQN, methodName+paramTypes)
 	if _, ok := fCtx.FindByQualifiedName(methodQN); ok {
 		return true

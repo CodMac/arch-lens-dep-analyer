@@ -34,7 +34,7 @@ func (gc *GlobalContext) RegisterFileContext(fc *FileContext) {
 
 	gc.FileContexts[fc.FilePath] = fc
 
-	// 1. 委托 Resolver 处理包/命名空间注册 (Java 拆分, Go 不拆)
+	// 1. 委托 resolver 处理包/命名空间注册 (Java 拆分, Go 不拆)
 	gc.resolver.RegisterPackage(gc, fc.PackageName)
 
 	// 2. 注册文件内定义 (AddDefinition 会自动忽略已存在的 QN，即忽略重复的 FILE 节点)

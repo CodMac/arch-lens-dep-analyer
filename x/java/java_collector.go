@@ -7,19 +7,21 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/desugar"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 type Collector struct {
 	resolver core.SymbolResolver
-	desugar  *DeSugar
+	desugar  *desugar.DeSugar
 }
 
 func NewJavaCollector() *Collector {
 	resolver := NewJavaSymbolResolver()
 	return &Collector{
 		resolver: resolver,
-		desugar:  &DeSugar{resolver: resolver},
+		desugar:  desugar.NewDeSugar(resolver),
 	}
 }
 
@@ -74,10 +76,10 @@ func (c *Collector) processTopLevelDeclarations(fCtx *core.FileContext) {
 		}
 		switch child.Kind() {
 		case "package_declaration":
-			if ident := FindNamedChildOfType(child, "scoped_identifier"); ident != nil {
-				fCtx.PackageName = GetNodeContent(ident, *fCtx.SourceBytes)
+			if ident := helper.FindNamedChildOfType(child, "scoped_identifier"); ident != nil {
+				fCtx.PackageName = helper.GetNodeContent(ident, *fCtx.SourceBytes)
 			} else if nameNode := child.ChildByFieldName("name"); nameNode != nil {
-				fCtx.PackageName = GetNodeContent(nameNode, *fCtx.SourceBytes)
+				fCtx.PackageName = helper.GetNodeContent(nameNode, *fCtx.SourceBytes)
 			}
 		case "import_declaration":
 			c._handleImport(child, fCtx)
@@ -94,7 +96,7 @@ func (c *Collector) collectBasicDefinitions(node *sitter.Node, fCtx *core.FileCo
 			}
 
 			// 如果是作用域容器（如类或方法），继续深入
-			if IsScopeContainer(kind) {
+			if helper.IsScopeContainer(kind) {
 				childOccurrences := make(map[string]int)
 				for i := 0; i < int(node.ChildCount()); i++ {
 					c.collectBasicDefinitions(node.Child(uint(i)), fCtx, elems[0].QualifiedName, childOccurrences)
@@ -137,7 +139,7 @@ func (c *Collector) refineVariableScopes(fCtx *core.FileContext) {
 
 			// 3. 在已采集的定义中，通过 Location 匹配找到对应的 block 实体
 			for _, bDef := range blocks {
-				if MatchLocation(child, bDef.Element) {
+				if helper.MatchLocation(child, bDef.Element) {
 					newParentQN := bDef.Element.QualifiedName
 
 					// 4. 更新 ParentQN 并重新构建 QualifiedName
@@ -199,7 +201,7 @@ func (c *Collector) _handleImport(node *sitter.Node, fCtx *core.FileContext) {
 		case "static":
 			isStatic = true
 		case "scoped_identifier", "identifier", "asterisk":
-			pathParts = append(pathParts, GetNodeContent(child, *fCtx.SourceBytes))
+			pathParts = append(pathParts, helper.GetNodeContent(child, *fCtx.SourceBytes))
 			if child.Kind() == "asterisk" {
 				isWildcard = true
 			}
@@ -220,7 +222,7 @@ func (c *Collector) _handleImport(node *sitter.Node, fCtx *core.FileContext) {
 	}
 
 	fCtx.AddImport(alias, &core.ImportEntry{
-		Kind: entryKind, Alias: alias, RawImportPath: fullPath, IsWildcard: isWildcard, IsStatic: isStatic, Location: ExtractLocation(node, fCtx.FilePath),
+		Kind: entryKind, Alias: alias, RawImportPath: fullPath, IsWildcard: isWildcard, IsStatic: isStatic, Location: helper.ExtractLocation(node, fCtx.FilePath),
 	})
 }
 
@@ -251,7 +253,7 @@ func (c *Collector) _identifyElements(node *sitter.Node, fCtx *core.FileContext,
 	case "enhanced_for_statement", "instanceof_expression":
 		if nameNode := node.ChildByFieldName("name"); nameNode != nil {
 			kind = model.Variable
-			names = []string{GetNodeContent(nameNode, *fCtx.SourceBytes)}
+			names = []string{helper.GetNodeContent(nameNode, *fCtx.SourceBytes)}
 		}
 	case "lambda_expression":
 		kind = model.Lambda
@@ -270,7 +272,7 @@ func (c *Collector) _identifyElements(node *sitter.Node, fCtx *core.FileContext,
 	case "block":
 		kind, names = c._identifyBlockType(node)
 	case "object_creation_expression":
-		if FindNamedChildOfType(node, "class_body") != nil {
+		if helper.FindNamedChildOfType(node, "class_body") != nil {
 			kind = model.AnonymousClass
 			names = []string{"anonymousClass"}
 		}
@@ -289,7 +291,7 @@ func (c *Collector) _identifyElements(node *sitter.Node, fCtx *core.FileContext,
 			Kind:         kind,
 			Name:         name,
 			Path:         fCtx.FilePath,
-			Location:     ExtractLocation(node, fCtx.FilePath),
+			Location:     helper.ExtractLocation(node, fCtx.FilePath),
 			IsFormSource: true,
 		})
 	}
@@ -307,12 +309,12 @@ func (c *Collector) _identifyLambdaParameter(node *sitter.Node, fCtx *core.FileC
 		// 如果是单参数 Lambda (s -> ...)，确保 identifier 是参数位置而非 Body 位置
 		if pKind == "lambda_expression" {
 			firstChild := parent.NamedChild(0)
-			if firstChild == nil || GetNodeContent(firstChild, *fCtx.SourceBytes) != GetNodeContent(node, *fCtx.SourceBytes) {
+			if firstChild == nil || helper.GetNodeContent(firstChild, *fCtx.SourceBytes) != helper.GetNodeContent(node, *fCtx.SourceBytes) {
 				return "", ""
 			}
 		}
 
-		return model.Variable, GetNodeContent(node, *fCtx.SourceBytes)
+		return model.Variable, helper.GetNodeContent(node, *fCtx.SourceBytes)
 	}
 	return "", ""
 }
@@ -388,13 +390,13 @@ func (c *Collector) __extractTypeString(node *sitter.Node, src *[]byte) string {
 		return "inferred"
 	}
 	if tNode := node.ChildByFieldName("type"); tNode != nil {
-		return GetNodeContent(tNode, *src)
+		return helper.GetNodeContent(tNode, *src)
 	}
 	if node.Kind() == "spread_parameter" {
 		for i := 0; i < int(node.NamedChildCount()); i++ {
 			child := node.NamedChild(uint(i))
 			if strings.Contains(child.Kind(), "type") {
-				return GetNodeContent(child, *src) + "..."
+				return helper.GetNodeContent(child, *src) + "..."
 			}
 		}
 	}
@@ -420,7 +422,7 @@ func (c *Collector) __extractAllVariableNames(node *sitter.Node, src *[]byte) []
 		child := node.NamedChild(uint(i))
 		if child.Kind() == "variable_declarator" {
 			if nNode := child.ChildByFieldName("name"); nNode != nil {
-				names = append(names, GetNodeContent(nNode, *src))
+				names = append(names, helper.GetNodeContent(nNode, *src))
 			}
 		}
 	}
@@ -429,7 +431,7 @@ func (c *Collector) __extractAllVariableNames(node *sitter.Node, src *[]byte) []
 
 func (c *Collector) __resolveMissingName(node *sitter.Node, kind model.ElementKind, parentQN string, src *[]byte) string {
 	if nNode := node.ChildByFieldName("name"); nNode != nil {
-		return GetNodeContent(nNode, *src)
+		return helper.GetNodeContent(nNode, *src)
 	}
 	if kind == model.Method {
 		parts := strings.Split(parentQN, ".")
