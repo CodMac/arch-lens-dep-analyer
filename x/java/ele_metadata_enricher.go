@@ -2,7 +2,6 @@ package java
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
@@ -13,8 +12,9 @@ import (
 )
 
 type EleMetadataEnricher struct {
-	resolver core.SymbolResolver
-	fCtx     *core.FileContext
+	fCtx *core.FileContext
+
+	caseMap map[string]*sitter.Node
 }
 
 func (c *EleMetadataEnricher) ProcessMetadataForEntry(entry *core.DefinitionEntry) {
@@ -175,71 +175,12 @@ func (c *EleMetadataEnricher) extractInterfaceListFromNode(node *sitter.Node, sr
 }
 
 // =============================================================================
-// metrics指标计算
-// =============================================================================
-
-func (c *EleMetadataEnricher) calculateComplexity(node *sitter.Node) int {
-	complexity := 1
-	var traverse func(*sitter.Node)
-	traverse = func(n *sitter.Node) {
-		if n == nil {
-			return
-		}
-		kind := n.Kind()
-		switch kind {
-		case "if_statement", "for_statement", "while_statement", "do_statement",
-			"catch_clause", "conditional_expression", "ternary_expression", "switch_label":
-			complexity++
-		case "binary_expression":
-			// 对于 binary_expression，我们需要检查运算符是否为 && 或 ||
-			// 注意：tree-sitter-java 可能将 && 和 || 视为不同的子节点
-			for i := 0; i < int(n.ChildCount()); i++ {
-				child := n.Child(uint(i))
-				if child.Kind() == "&&" || child.Kind() == "||" {
-					complexity++
-				}
-			}
-		}
-		for i := 0; i < int(n.ChildCount()); i++ {
-			traverse(n.Child(uint(i)))
-		}
-	}
-	traverse(node)
-	return complexity
-}
-
-func (c *EleMetadataEnricher) calculateLOC(source []byte) int {
-	// 1. 移除块注释
-	reBlock := regexp.MustCompile(`(?s)/\*.*?\*/`)
-	content := reBlock.ReplaceAll(source, []byte(""))
-
-	// 2. 按行切分并统计
-	lines := strings.Split(string(content), "\n")
-	loc := 0
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		// 排除空行和单行注释
-		if trimmed != "" && !strings.HasPrefix(trimmed, "//") {
-			loc++
-		}
-	}
-	return loc
-}
-
-func (c *EleMetadataEnricher) calculateRawLOC(source []byte) int {
-	// 按行切分并统计
-	lines := strings.Split(string(source), "\n")
-
-	return len(lines)
-}
-
-// =============================================================================
 // 元数据填充
 // =============================================================================
 
 func (c *EleMetadataEnricher) fillFileMetadata(elem *model.CodeElement, extra *model.Extra) {
-	extra.Mores[constants.FileRawLOC] = c.calculateRawLOC(*c.fCtx.SourceBytes)
-	extra.Mores[constants.FileLOC] = c.calculateLOC(*c.fCtx.SourceBytes)
+	extra.Mores[constants.FileRawLOC] = helper.CalculateRawLOC(*c.fCtx.SourceBytes)
+	extra.Mores[constants.FileLOC] = helper.CalculateLOC(*c.fCtx.SourceBytes)
 }
 
 func (c *EleMetadataEnricher) fillTypeMetadata(elem *model.CodeElement, node *sitter.Node, extra *model.Extra, mods []string, isFinal bool) {
@@ -277,7 +218,7 @@ func (c *EleMetadataEnricher) fillTypeMetadata(elem *model.CodeElement, node *si
 
 func (c *EleMetadataEnricher) fillMethodMetadata(elem *model.CodeElement, node *sitter.Node, extra *model.Extra, mods []string) {
 	extra.Mores[constants.MethodIsConstructor] = (node.Kind() == "constructor_declaration")
-	extra.Mores[constants.MethodComplexity] = c.calculateComplexity(node)
+	extra.Mores[constants.MethodComplexity] = helper.CalculateComplexity(node)
 
 	typeParams := ""
 	if tpNode := node.ChildByFieldName("type_parameters"); tpNode != nil {
@@ -344,7 +285,7 @@ func (c *EleMetadataEnricher) fillAnnotationMember(elem *model.CodeElement, node
 func (c *EleMetadataEnricher) fillScopeBlockMetadata(elem *model.CodeElement, node *sitter.Node, extra *model.Extra) {
 	isStatic := (node.Kind() == "static_initializer")
 	extra.Mores[constants.BlockIsStatic] = isStatic
-	extra.Mores[constants.MethodComplexity] = c.calculateComplexity(node)
+	extra.Mores[constants.MethodComplexity] = helper.CalculateComplexity(node)
 	elem.Signature = "{...}"
 	if isStatic {
 		elem.Signature = "static {...}"
@@ -408,7 +349,7 @@ func (c *EleMetadataEnricher) fillLambdaMetadata(elem *model.CodeElement, node *
 		}
 	}
 	extra.Mores[constants.LambdaParameters] = paramsStr
-	extra.Mores[constants.MethodComplexity] = c.calculateComplexity(node)
+	extra.Mores[constants.MethodComplexity] = helper.CalculateComplexity(node)
 
 	// 2. 识别 Body 类型
 	// body 可能是 block 或 表达式

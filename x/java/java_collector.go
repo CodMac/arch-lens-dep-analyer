@@ -156,10 +156,7 @@ func (c *Collector) refineVariableScopes(fCtx *core.FileContext) {
 }
 
 func (c *Collector) enrichMetadata(fCtx *core.FileContext) {
-	enricher := EleMetadataEnricher{
-		resolver: c.resolver,
-		fCtx:     fCtx,
-	}
+	enricher := EleMetadataEnricher{fCtx: fCtx}
 
 	for _, entry := range fCtx.Definitions {
 		enricher.ProcessMetadataForEntry(entry)
