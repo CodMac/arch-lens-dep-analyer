@@ -140,7 +140,7 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gCtx *core.GlobalC
 					target := e.resolver.Resolve(gCtx, fCtx, nil, "", helper.Clean(typePart), model.Class)
 					rels = append(rels, &model.DependencyRelation{
 						Type: model.Parameter, Source: elem, Target: target,
-						Mores: map[string]interface{}{"tmp_raw": p},
+						Mores: map[string]interface{}{constants.TmpRaw: p},
 					})
 				}
 			}
@@ -148,7 +148,7 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gCtx *core.GlobalC
 				target := e.resolver.Resolve(gCtx, fCtx, nil, "", helper.Clean(rt), model.Class)
 				rels = append(rels, &model.DependencyRelation{
 					Type: model.Return, Source: elem, Target: target,
-					Mores: map[string]interface{}{"tmp_raw": rt},
+					Mores: map[string]interface{}{constants.TmpRaw: rt},
 				})
 			}
 			if ths, ok := elem.Extra.Mores[constants.MethodThrowsTypes].([]string); ok {
@@ -156,7 +156,7 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gCtx *core.GlobalC
 					target := e.resolver.Resolve(gCtx, fCtx, nil, "", helper.Clean(ex), model.Class)
 					rels = append(rels, &model.DependencyRelation{
 						Type: model.Throw, Source: elem, Target: target,
-						Mores: map[string]interface{}{"tmp_raw": ex},
+						Mores: map[string]interface{}{constants.TmpRaw: ex},
 					})
 				}
 			}
@@ -220,8 +220,8 @@ func (e *Extractor) discoverActionRelations(fCtx *core.FileContext, gCtx *core.G
 					Location: helper.ExtractLocation(at.TargetNode, fCtx.FilePath),
 					Mores: map[string]interface{}{
 						constants.RelRawText: ctxNode.Utf8Text(*fCtx.SourceBytes),
-						"tmp_node":           at.TargetNode,
-						"tmp_stmt":           ctxNode,
+						constants.TmpNode:    at.TargetNode,
+						constants.TmpStmt:    ctxNode,
 					},
 				})
 			}

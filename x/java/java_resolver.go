@@ -7,6 +7,7 @@ import (
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -50,8 +51,8 @@ func (j *SymbolResolver) RegisterPackage(gc *core.GlobalContext, packageName str
 //
 // kind 为 others 类型 			-> 必须：symbol
 func (j *SymbolResolver) Resolve(gc *core.GlobalContext, fc *core.FileContext, node *sitter.Node, receiver, symbol string, kind model.ElementKind) *model.CodeElement {
-	cleanReceiver := j.clean(receiver)
-	cleanSymbol := j.clean(symbol)
+	cleanReceiver := helper.Clean(receiver)
+	cleanSymbol := helper.Clean(symbol)
 
 	switch kind {
 	case model.Variable:
@@ -157,7 +158,7 @@ func (j *SymbolResolver) resolveMethod(gc *core.GlobalContext, fc *core.FileCont
 			if receiver == "super" && container != nil {
 				// 如果是 super，容器直接指向父类
 				if sc, ok := container.Extra.Mores[constants.ClassSuperClass].(string); ok && sc != "" {
-					if parents := j.preciseResolve(gc, fc, j.clean(sc)); len(parents) > 0 {
+					if parents := j.preciseResolve(gc, fc, helper.Clean(sc)); len(parents) > 0 {
 						container = parents[0].Element
 					}
 				}
@@ -173,7 +174,7 @@ func (j *SymbolResolver) resolveMethod(gc *core.GlobalContext, fc *core.FileCont
 					typeQN, _ = recvVar.Extra.Mores[constants.VariableRawType].(string)
 				}
 				if typeQN != "" {
-					if ents := j.preciseResolve(gc, fc, j.clean(typeQN)); len(ents) > 0 {
+					if ents := j.preciseResolve(gc, fc, helper.Clean(typeQN)); len(ents) > 0 {
 						container = ents[0].Element
 					}
 				}
@@ -342,7 +343,7 @@ func (j *SymbolResolver) searchMethodInHierarchy(gc *core.GlobalContext, fc *cor
 
 	// C. 当前类没找到，递归查找父类 (Extends)
 	if sc, ok := currContainer.Extra.Mores[constants.ClassSuperClass].(string); ok && sc != "" {
-		if parents := j.preciseResolve(gc, fc, j.clean(sc)); len(parents) > 0 {
+		if parents := j.preciseResolve(gc, fc, helper.Clean(sc)); len(parents) > 0 {
 			if res := j.searchMethodInHierarchy(gc, fc, parents[0].Element, symbol, argCount, inferredTypes, isStaticCall, source); res != nil {
 				return res
 			}
@@ -352,7 +353,7 @@ func (j *SymbolResolver) searchMethodInHierarchy(gc *core.GlobalContext, fc *cor
 	// D. 递归查找接口 (Implements)
 	if itfs, ok := currContainer.Extra.Mores[constants.ClassImplementedInterfaces].([]string); ok {
 		for _, itf := range itfs {
-			if parents := j.preciseResolve(gc, fc, j.clean(itf)); len(parents) > 0 {
+			if parents := j.preciseResolve(gc, fc, helper.Clean(itf)); len(parents) > 0 {
 				if res := j.searchMethodInHierarchy(gc, fc, parents[0].Element, symbol, argCount, inferredTypes, isStaticCall, source); res != nil {
 					return res
 				}
@@ -388,7 +389,7 @@ func (j *SymbolResolver) pickBestOverloadEnhanced(entries []*core.DefinitionEntr
 
 			// 2. 匹配参数类型
 			for i := 0; i < argCount; i++ {
-				definedTypeQN := j.clean(params[i])
+				definedTypeQN := helper.Clean(params[i])
 				inferredType := inferredTypes[i] // 实参推断出的类型（可能是短名或 QN）
 
 				if inferredType == "unknown" || inferredType == "null" {
@@ -437,13 +438,13 @@ func (j *SymbolResolver) inferArgumentTypes(argsNode *sitter.Node, fc *core.File
 			types = append(types, "null")
 		case "object_creation_expression", "cast_expression":
 			if typeNode := arg.ChildByFieldName("type"); typeNode != nil {
-				types = append(types, j.getNodeContent(typeNode, src))
+				types = append(types, helper.GetNodeContent(typeNode, src))
 			} else {
 				types = append(types, "unknown")
 			}
 		case "array_creation_expression":
 			if typeNode := arg.ChildByFieldName("type"); typeNode != nil {
-				types = append(types, j.getNodeContent(typeNode, src)+"[]")
+				types = append(types, helper.GetNodeContent(typeNode, src)+"[]")
 			} else {
 				types = append(types, "unknown")
 			}
@@ -632,38 +633,4 @@ func (j *SymbolResolver) findInvocationNode(n *sitter.Node) *sitter.Node {
 		}
 	}
 	return nil
-}
-
-func (j *SymbolResolver) getNodeContent(n *sitter.Node, src []byte) string {
-	return strings.TrimSpace(string(src[n.StartByte():n.EndByte()]))
-}
-
-func (j *SymbolResolver) clean(symbol string) string {
-	if symbol == "" {
-		return ""
-	}
-
-	// 1. 清理换行符和多余空格
-	res := strings.ReplaceAll(symbol, "\n", "")
-	res = strings.ReplaceAll(res, "\r", "")
-	res = strings.TrimSpace(res)
-
-	// 2. 泛型擦除: List<String, Integer> -> List
-	// 找到第一个 '<' 并截断
-	if idx := strings.Index(res, "<"); idx != -1 {
-		res = res[:idx]
-	}
-
-	// 3. 清理方法参数列表: getName(String, int) -> getName
-	// 当 symbol 作为 QN 的一部分传入时，我们需要剥离括号内容
-	if idx := strings.Index(res, "("); idx != -1 {
-		res = res[:idx]
-	}
-
-	// 4. 清理数组符号: String[] -> String
-	// 在寻找类定义时，数组类型应映射到其基本元素类
-	res = strings.ReplaceAll(res, "[]", "")
-
-	// 5. 再次 Trim，防止截断后产生新的边缘空格
-	return strings.TrimSpace(res)
 }

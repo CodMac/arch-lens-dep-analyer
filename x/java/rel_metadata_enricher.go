@@ -16,10 +16,6 @@ type RelMetadataEnricher struct {
 	gCtx     *core.GlobalContext
 }
 
-const TmpNode = "tmp_node"
-const TmpRaw = "tmp_raw"
-const TmpStmt = "tmp_stmt"
-
 func (e *RelMetadataEnricher) EnrichCoreMetadata(rel *model.DependencyRelation) {
 	node, rawText, stmt := e._getRelTmpValue(rel)
 	src := *e.fCtx.SourceBytes
@@ -445,13 +441,13 @@ func (e *RelMetadataEnricher) enrichUseCore(rel *model.DependencyRelation, node,
 // =============================================================================
 
 func (e *RelMetadataEnricher) _getRelTmpValue(rel *model.DependencyRelation) (*sitter.Node, string, *sitter.Node) {
-	node, _ := rel.Mores[TmpNode].(*sitter.Node)
-	rawText, _ := rel.Mores[TmpRaw].(string)
-	stmt, _ := rel.Mores[TmpStmt].(*sitter.Node)
+	node, _ := rel.Mores[constants.TmpNode].(*sitter.Node)
+	rawText, _ := rel.Mores[constants.TmpRaw].(string)
+	stmt, _ := rel.Mores[constants.TmpStmt].(*sitter.Node)
 
-	delete(rel.Mores, TmpNode)
-	delete(rel.Mores, TmpRaw)
-	delete(rel.Mores, TmpStmt)
+	delete(rel.Mores, constants.TmpNode)
+	delete(rel.Mores, constants.TmpRaw)
+	delete(rel.Mores, constants.TmpStmt)
 
 	return node, rawText, stmt
 }

@@ -246,10 +246,10 @@ func (c *Collector) _identifyElements(node *sitter.Node, fCtx *core.FileContext,
 		kind = model.Method
 	case "field_declaration":
 		kind = model.Field
-		names = c.__extractAllVariableNames(node, fCtx.SourceBytes)
+		names = c._extractAllVariableNames(node, fCtx.SourceBytes)
 	case "local_variable_declaration", "formal_parameter", "spread_parameter", "resource", "catch_formal_parameter":
 		kind = model.Variable
-		names = c.__extractAllVariableNames(node, fCtx.SourceBytes)
+		names = c._extractAllVariableNames(node, fCtx.SourceBytes)
 	case "enhanced_for_statement", "instanceof_expression":
 		if nameNode := node.ChildByFieldName("name"); nameNode != nil {
 			kind = model.Variable
@@ -279,7 +279,7 @@ func (c *Collector) _identifyElements(node *sitter.Node, fCtx *core.FileContext,
 	}
 
 	if kind != "" && names == nil {
-		names = []string{c.__resolveMissingName(node, kind, parentQN, fCtx.SourceBytes)}
+		names = []string{c._resolveMissingName(node, kind, parentQN, fCtx.SourceBytes)}
 	}
 	if kind == "" || names == nil {
 		return nil, ""
@@ -345,7 +345,7 @@ func (c *Collector) _identifyBlockType(node *sitter.Node) (model.ElementKind, []
 func (c *Collector) _applyUniqueQN(elem *model.CodeElement, node *sitter.Node, parentQN string, occurrences map[string]int, src *[]byte) {
 	identity := elem.Name
 	if elem.Kind == model.Method && (node.Kind() == "method_declaration" || node.Kind() == "constructor_declaration" || node.Kind() == "annotation_type_element_declaration") {
-		identity += c.__extractParameterTypesOnly(node, src)
+		identity += c._extractParameterTypesOnly(node, src)
 	}
 
 	if elem.Kind == model.AnonymousClass || elem.Kind == model.Lambda || elem.Kind == model.ScopeBlock || elem.Kind == model.MethodRef {
@@ -385,7 +385,7 @@ func (c *Collector) _findNearestBlockParent(node *sitter.Node) *sitter.Node {
 // 辅助工具逻辑 (Helper Utilities)
 // =============================================================================
 
-func (c *Collector) __extractTypeString(node *sitter.Node, src *[]byte) string {
+func (c *Collector) _extractTypeString(node *sitter.Node, src *[]byte) string {
 	if node.Kind() == "identifier" {
 		return "inferred"
 	}
@@ -403,20 +403,20 @@ func (c *Collector) __extractTypeString(node *sitter.Node, src *[]byte) string {
 	return "unknown"
 }
 
-func (c *Collector) __extractParameterTypesOnly(node *sitter.Node, src *[]byte) string {
+func (c *Collector) _extractParameterTypesOnly(node *sitter.Node, src *[]byte) string {
 	pNode := node.ChildByFieldName("parameters")
 	if pNode == nil {
 		return "()"
 	}
 	var types []string
 	for i := 0; i < int(pNode.NamedChildCount()); i++ {
-		tStr := strings.Split(c.__extractTypeString(pNode.NamedChild(uint(i)), src), "<")[0]
+		tStr := strings.Split(c._extractTypeString(pNode.NamedChild(uint(i)), src), "<")[0]
 		types = append(types, strings.TrimSpace(tStr))
 	}
 	return "(" + strings.Join(types, ",") + ")"
 }
 
-func (c *Collector) __extractAllVariableNames(node *sitter.Node, src *[]byte) []string {
+func (c *Collector) _extractAllVariableNames(node *sitter.Node, src *[]byte) []string {
 	var names []string
 	for i := 0; i < int(node.NamedChildCount()); i++ {
 		child := node.NamedChild(uint(i))
@@ -429,7 +429,7 @@ func (c *Collector) __extractAllVariableNames(node *sitter.Node, src *[]byte) []
 	return names
 }
 
-func (c *Collector) __resolveMissingName(node *sitter.Node, kind model.ElementKind, parentQN string, src *[]byte) string {
+func (c *Collector) _resolveMissingName(node *sitter.Node, kind model.ElementKind, parentQN string, src *[]byte) string {
 	if nNode := node.ChildByFieldName("name"); nNode != nil {
 		return helper.GetNodeContent(nNode, *src)
 	}
