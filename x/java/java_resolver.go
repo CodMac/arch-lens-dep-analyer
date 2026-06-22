@@ -6,6 +6,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -109,7 +110,7 @@ func (j *SymbolResolver) resolveVariable(gc *core.GlobalContext, fc *core.FileCo
 		// 先解析 receiver 变量本身拿到它的类型
 		receiverEle := j.resolveVariable(gc, fc, node, "", receiver)
 		if receiverEle != nil && receiverEle.Extra != nil {
-			if typeQN, ok := receiverEle.Extra.Mores[VariableTypeWithQN].(string); ok {
+			if typeQN, ok := receiverEle.Extra.Mores[constants.VariableTypeWithQN].(string); ok {
 				if entries := j.preciseResolve(gc, fc, typeQN); len(entries) > 0 {
 					receiverTypeEle := entries[0].Element
 					if receiverTypeEle.Kind == model.Class || receiverTypeEle.Kind == model.Interface || receiverTypeEle.Kind == model.AnonymousClass {
@@ -155,7 +156,7 @@ func (j *SymbolResolver) resolveMethod(gc *core.GlobalContext, fc *core.FileCont
 			container = j.determinePreciseContainer(fc, node, []model.ElementKind{model.Class, model.AnonymousClass})
 			if receiver == "super" && container != nil {
 				// 如果是 super，容器直接指向父类
-				if sc, ok := container.Extra.Mores[ClassSuperClass].(string); ok && sc != "" {
+				if sc, ok := container.Extra.Mores[constants.ClassSuperClass].(string); ok && sc != "" {
 					if parents := j.preciseResolve(gc, fc, j.clean(sc)); len(parents) > 0 {
 						container = parents[0].Element
 					}
@@ -167,9 +168,9 @@ func (j *SymbolResolver) resolveMethod(gc *core.GlobalContext, fc *core.FileCont
 		if container == nil {
 			if recvVar := j.resolveVariable(gc, fc, node, "", receiver); recvVar != nil {
 				// 利用 Binder 补全的 QN 定位类
-				typeQN, _ := recvVar.Extra.Mores[VariableTypeWithQN].(string)
+				typeQN, _ := recvVar.Extra.Mores[constants.VariableTypeWithQN].(string)
 				if typeQN == "" {
-					typeQN, _ = recvVar.Extra.Mores[VariableRawType].(string)
+					typeQN, _ = recvVar.Extra.Mores[constants.VariableRawType].(string)
 				}
 				if typeQN != "" {
 					if ents := j.preciseResolve(gc, fc, j.clean(typeQN)); len(ents) > 0 {
@@ -276,10 +277,10 @@ func (j *SymbolResolver) resolveFromInheritance(gc *core.GlobalContext, fc *core
 	}
 
 	var superTargets []string
-	if sc, ok := elem.Extra.Mores[ClassSuperClass].(string); ok && sc != "" {
+	if sc, ok := elem.Extra.Mores[constants.ClassSuperClass].(string); ok && sc != "" {
 		superTargets = append(superTargets, sc)
 	}
-	if itfs, ok := elem.Extra.Mores[ClassImplementedInterfaces].([]string); ok {
+	if itfs, ok := elem.Extra.Mores[constants.ClassImplementedInterfaces].([]string); ok {
 		superTargets = append(superTargets, itfs...)
 	}
 
@@ -340,7 +341,7 @@ func (j *SymbolResolver) searchMethodInHierarchy(gc *core.GlobalContext, fc *cor
 	}
 
 	// C. 当前类没找到，递归查找父类 (Extends)
-	if sc, ok := currContainer.Extra.Mores[ClassSuperClass].(string); ok && sc != "" {
+	if sc, ok := currContainer.Extra.Mores[constants.ClassSuperClass].(string); ok && sc != "" {
 		if parents := j.preciseResolve(gc, fc, j.clean(sc)); len(parents) > 0 {
 			if res := j.searchMethodInHierarchy(gc, fc, parents[0].Element, symbol, argCount, inferredTypes, isStaticCall, source); res != nil {
 				return res
@@ -349,7 +350,7 @@ func (j *SymbolResolver) searchMethodInHierarchy(gc *core.GlobalContext, fc *cor
 	}
 
 	// D. 递归查找接口 (Implements)
-	if itfs, ok := currContainer.Extra.Mores[ClassImplementedInterfaces].([]string); ok {
+	if itfs, ok := currContainer.Extra.Mores[constants.ClassImplementedInterfaces].([]string); ok {
 		for _, itf := range itfs {
 			if parents := j.preciseResolve(gc, fc, j.clean(itf)); len(parents) > 0 {
 				if res := j.searchMethodInHierarchy(gc, fc, parents[0].Element, symbol, argCount, inferredTypes, isStaticCall, source); res != nil {
@@ -376,7 +377,7 @@ func (j *SymbolResolver) pickBestOverloadEnhanced(entries []*core.DefinitionEntr
 		currentScore := 0
 
 		// 获取 Binder 补全后的参数 QN 列表, 格式为 ["String name", "int age"]
-		params, ok := entry.Element.Extra.Mores[MethodParametersWithQN].([]string)
+		params, ok := entry.Element.Extra.Mores[constants.MethodParametersWithQN].([]string)
 		if ok {
 			definedParamCount = len(params)
 		}
@@ -609,7 +610,7 @@ func (j *SymbolResolver) isSubClassOf(gc *core.GlobalContext, fc *core.FileConte
 	if !ok || entry.Element.Extra == nil {
 		return false
 	}
-	if sc, ok := entry.Element.Extra.Mores[ClassSuperClass].(string); ok && sc != "" {
+	if sc, ok := entry.Element.Extra.Mores[constants.ClassSuperClass].(string); ok && sc != "" {
 		parents := j.preciseResolve(gc, fc, strings.Split(sc, "<")[0])
 		for _, p := range parents {
 			if p.Element.QualifiedName == super || j.isSubClassOf(gc, fc, p.Element.QualifiedName, super) {

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
 )
 
@@ -55,13 +56,13 @@ func TestJavaCollector_GenericComplex(t *testing.T) {
 		elem := defs[0].Element
 
 		// 验证返回值 (MethodReturnType)
-		retType, _ := elem.Extra.Mores[java.MethodReturnType].(string)
+		retType, _ := elem.Extra.Mores[constants.MethodReturnType].(string)
 		if retType != "List<? extends T>" {
 			t.Errorf("Expected return type List<? extends T>, got %s", retType)
 		}
 
 		// 验证原始参数列表 (MethodParameters)
-		params, _ := elem.Extra.Mores[java.MethodParameters].([]string)
+		params, _ := elem.Extra.Mores[constants.MethodParameters].([]string)
 		if len(params) == 0 || params[0] != "List<? super T> criteria" {
 			t.Errorf("Expected param List<? super T> criteria, got %v", params)
 		}
@@ -82,7 +83,7 @@ func TestJavaCollector_GenericComplex(t *testing.T) {
 		}
 
 		// 验证 Throws 元数据
-		throws, _ := elem.Extra.Mores[java.MethodThrowsTypes].([]string)
+		throws, _ := elem.Extra.Mores[constants.MethodThrowsTypes].([]string)
 		if len(throws) == 0 || throws[0] != "E" {
 			t.Errorf("Expected throws E, got %v", throws)
 		}

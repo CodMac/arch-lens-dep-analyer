@@ -7,6 +7,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
 )
 
@@ -89,7 +90,7 @@ func TestJavaCollector_DefaultConstructorTest(t *testing.T) {
 		if len(defs) == 0 {
 			t.Fatalf("Explicit enum constant RED should still exist")
 		}
-		if isImplicit := defs[0].Element.Extra.Mores[java.MethodIsImplicit]; isImplicit != nil {
+		if isImplicit := defs[0].Element.Extra.Mores[constants.MethodIsImplicit]; isImplicit != nil {
 			t.Errorf("Explicit constant RED should NOT be marked as implicit")
 		}
 	})
@@ -156,7 +157,7 @@ func TestJavaCollector_RecordSugar(t *testing.T) {
 		}
 
 		// 验证显式定义没有被标记为隐式
-		isImp, _ := methodDef.Extra.Mores[java.MethodIsImplicit].(bool)
+		isImp, _ := methodDef.Extra.Mores[constants.MethodIsImplicit].(bool)
 		if isImp {
 			t.Errorf("Explicitly defined method name() should NOT be marked as implicit")
 		}
@@ -303,11 +304,11 @@ func TestJavaCollector_Lambda(t *testing.T) {
 
 				// 验证深度解析元数据
 				mores := elem.Extra.Mores
-				if mores[java.LambdaParameters] != tc.expectedParams {
-					t.Errorf("Params mismatch: got %v, want %v", mores[java.LambdaParameters], tc.expectedParams)
+				if mores[constants.LambdaParameters] != tc.expectedParams {
+					t.Errorf("Params mismatch: got %v, want %v", mores[constants.LambdaParameters], tc.expectedParams)
 				}
-				if mores[java.LambdaBodyIsBlock] != tc.expectedIsBlock {
-					t.Errorf("IsBlock mismatch: got %v, want %v", mores[java.LambdaBodyIsBlock], tc.expectedIsBlock)
+				if mores[constants.LambdaBodyIsBlock] != tc.expectedIsBlock {
+					t.Errorf("IsBlock mismatch: got %v, want %v", mores[constants.LambdaBodyIsBlock], tc.expectedIsBlock)
 				}
 			})
 		}
@@ -452,8 +453,8 @@ func TestJavaCollector_MethodReference(t *testing.T) {
 				return
 			}
 
-			actualReceiver := elem.Extra.Mores[java.MethodRefReceiver]
-			actualTarget := elem.Extra.Mores[java.MethodRefTarget]
+			actualReceiver := elem.Extra.Mores[constants.MethodRefReceiver]
+			actualTarget := elem.Extra.Mores[constants.MethodRefTarget]
 
 			if actualReceiver != tc.expectedReceiver {
 				t.Errorf("Receiver mismatch: got %v, want %v", actualReceiver, tc.expectedReceiver)

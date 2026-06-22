@@ -7,6 +7,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
 	"github.com/stretchr/testify/assert"
 )
@@ -38,7 +39,7 @@ func TestJavaExtractor_Annotation(t *testing.T) {
 			targetQN:   "Entity",
 			targetKind: model.KAnnotation,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "TYPE", m[java.RelAnnotationTarget])
+				assert.Equal(t, "TYPE", m[constants.RelAnnotationTarget])
 			},
 		},
 		{
@@ -47,7 +48,7 @@ func TestJavaExtractor_Annotation(t *testing.T) {
 			targetQN:   "SuppressWarnings",
 			targetKind: model.KAnnotation,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "TYPE", m[java.RelAnnotationTarget])
+				assert.Equal(t, "TYPE", m[constants.RelAnnotationTarget])
 			},
 		},
 		// --- 2. 字段注解 ---
@@ -57,7 +58,7 @@ func TestJavaExtractor_Annotation(t *testing.T) {
 			targetQN:   "Id",
 			targetKind: model.KAnnotation,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "FIELD", m[java.RelAnnotationTarget])
+				assert.Equal(t, "FIELD", m[constants.RelAnnotationTarget])
 			},
 		},
 		// --- 3. 方法注解 ---
@@ -67,7 +68,7 @@ func TestJavaExtractor_Annotation(t *testing.T) {
 			targetQN:   "Transactional",
 			targetKind: model.KAnnotation,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "METHOD", m[java.RelAnnotationTarget])
+				assert.Equal(t, "METHOD", m[constants.RelAnnotationTarget])
 				// 注意：RelAnnotationParams 已移至 Extended，此处不再断言
 			},
 		},
@@ -78,7 +79,7 @@ func TestJavaExtractor_Annotation(t *testing.T) {
 			targetQN:   "NonEmpty",
 			targetKind: model.KAnnotation,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "LOCAL_VARIABLE", m[java.RelAnnotationTarget])
+				assert.Equal(t, "LOCAL_VARIABLE", m[constants.RelAnnotationTarget])
 			},
 		},
 	}

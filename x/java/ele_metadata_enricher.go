@@ -7,6 +7,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -236,13 +237,13 @@ func (c *EleMetadataEnricher) calculateRawLOC(source []byte) int {
 // =============================================================================
 
 func (c *EleMetadataEnricher) fillFileMetadata(elem *model.CodeElement, extra *model.Extra) {
-	extra.Mores[FileRawLOC] = c.calculateRawLOC(*c.fCtx.SourceBytes)
-	extra.Mores[FileLOC] = c.calculateLOC(*c.fCtx.SourceBytes)
+	extra.Mores[constants.FileRawLOC] = c.calculateRawLOC(*c.fCtx.SourceBytes)
+	extra.Mores[constants.FileLOC] = c.calculateLOC(*c.fCtx.SourceBytes)
 }
 
 func (c *EleMetadataEnricher) fillTypeMetadata(elem *model.CodeElement, node *sitter.Node, extra *model.Extra, mods []string, isFinal bool) {
-	extra.Mores[ClassIsAbstract], extra.Mores[ClassIsFinal] = Contains(mods, "abstract"), isFinal
-	extra.Mores[ClassIsStatic] = Contains(mods, "static")
+	extra.Mores[constants.ClassIsAbstract], extra.Mores[constants.ClassIsFinal] = Contains(mods, "abstract"), isFinal
+	extra.Mores[constants.ClassIsStatic] = Contains(mods, "static")
 
 	typeParams := ""
 	if tpNode := node.ChildByFieldName("type_parameters"); tpNode != nil {
@@ -252,16 +253,16 @@ func (c *EleMetadataEnricher) fillTypeMetadata(elem *model.CodeElement, node *si
 	heritage := ""
 	if super := node.ChildByFieldName("superclass"); super != nil {
 		content := GetNodeContent(super, *c.fCtx.SourceBytes)
-		extra.Mores[ClassSuperClass] = strings.TrimSpace(strings.TrimPrefix(content, "extends"))
+		extra.Mores[constants.ClassSuperClass] = strings.TrimSpace(strings.TrimPrefix(content, "extends"))
 		heritage += " " + content
 	}
 
 	ifacesNode := c.findInterfacesNode(node)
 	if ifacesNode != nil {
 		if ifaces := c.extractInterfaceListFromNode(ifacesNode, c.fCtx.SourceBytes); len(ifaces) > 0 {
-			mKey := InterfaceImplementedInterfaces
+			mKey := constants.InterfaceImplementedInterfaces
 			if elem.Kind == model.Class {
-				mKey = ClassImplementedInterfaces
+				mKey = constants.ClassImplementedInterfaces
 			}
 			extra.Mores[mKey] = ifaces
 			heritage += " " + GetNodeContent(ifacesNode, *c.fCtx.SourceBytes)
@@ -274,8 +275,8 @@ func (c *EleMetadataEnricher) fillTypeMetadata(elem *model.CodeElement, node *si
 }
 
 func (c *EleMetadataEnricher) fillMethodMetadata(elem *model.CodeElement, node *sitter.Node, extra *model.Extra, mods []string) {
-	extra.Mores[MethodIsConstructor] = (node.Kind() == "constructor_declaration")
-	extra.Mores[MethodComplexity] = c.calculateComplexity(node)
+	extra.Mores[constants.MethodIsConstructor] = (node.Kind() == "constructor_declaration")
+	extra.Mores[constants.MethodComplexity] = c.calculateComplexity(node)
 
 	typeParams := ""
 	if tpNode := node.ChildByFieldName("type_parameters"); tpNode != nil {
@@ -285,18 +286,18 @@ func (c *EleMetadataEnricher) fillMethodMetadata(elem *model.CodeElement, node *
 	retType := ""
 	if tNode := node.ChildByFieldName("type"); tNode != nil {
 		retType = GetNodeContent(tNode, *c.fCtx.SourceBytes)
-		extra.Mores[MethodReturnType] = retType
+		extra.Mores[constants.MethodReturnType] = retType
 	}
 
 	paramsRaw := c.extractParameterWithNames(node, c.fCtx.SourceBytes)
 	if params := c.extractParameterList(node, c.fCtx.SourceBytes); len(params) > 0 {
-		extra.Mores[MethodParameters] = params
+		extra.Mores[constants.MethodParameters] = params
 	}
 
 	throwsList := c.extractThrows(node, c.fCtx.SourceBytes)
 	throwsStr := ""
 	if len(throwsList) > 0 {
-		extra.Mores[MethodThrowsTypes] = throwsList
+		extra.Mores[constants.MethodThrowsTypes] = throwsList
 		throwsStr = " throws " + strings.Join(throwsList, ", ")
 	}
 
@@ -306,15 +307,15 @@ func (c *EleMetadataEnricher) fillMethodMetadata(elem *model.CodeElement, node *
 
 func (c *EleMetadataEnricher) fillFieldMetadata(elem *model.CodeElement, node *sitter.Node, extra *model.Extra, mods []string, isStatic, isFinal bool) {
 	vType := c.extractTypeString(node, c.fCtx.SourceBytes)
-	extra.Mores[FieldRawType], extra.Mores[FieldIsStatic], extra.Mores[FieldIsFinal] = vType, isStatic, isFinal
-	extra.Mores[FieldIsConstant] = isStatic && isFinal
+	extra.Mores[constants.FieldRawType], extra.Mores[constants.FieldIsStatic], extra.Mores[constants.FieldIsFinal] = vType, isStatic, isFinal
+	extra.Mores[constants.FieldIsConstant] = isStatic && isFinal
 	elem.Signature = strings.TrimSpace(fmt.Sprintf("%s %s %s", strings.Join(mods, " "), vType, elem.Name))
 }
 
 func (c *EleMetadataEnricher) fillLocalVariableMetadata(elem *model.CodeElement, node *sitter.Node, extra *model.Extra, mods []string, isFinal bool) {
 	vType := c.extractTypeString(node, c.fCtx.SourceBytes)
-	extra.Mores[VariableRawType], extra.Mores[VariableIsFinal] = vType, isFinal
-	extra.Mores[VariableIsParam] = (node.Kind() == "formal_parameter" || node.Kind() == "spread_parameter")
+	extra.Mores[constants.VariableRawType], extra.Mores[constants.VariableIsFinal] = vType, isFinal
+	extra.Mores[constants.VariableIsParam] = (node.Kind() == "formal_parameter" || node.Kind() == "spread_parameter")
 	elem.Signature = strings.TrimSpace(fmt.Sprintf("%s %s %s", strings.Join(mods, " "), vType, elem.Name))
 }
 
@@ -326,14 +327,14 @@ func (c *EleMetadataEnricher) fillEnumConstantMetadata(elem *model.CodeElement, 
 		for i := 0; i < int(argList.NamedChildCount()); i++ {
 			args = append(args, GetNodeContent(argList.NamedChild(uint(i)), *c.fCtx.SourceBytes))
 		}
-		extra.Mores[EnumArguments] = args
+		extra.Mores[constants.EnumArguments] = args
 	}
 }
 
 func (c *EleMetadataEnricher) fillAnnotationMember(elem *model.CodeElement, node *sitter.Node, extra *model.Extra) {
-	extra.Mores[MethodIsAnnotation] = true
+	extra.Mores[constants.MethodIsAnnotation] = true
 	if valNode := node.ChildByFieldName("value"); valNode != nil {
-		extra.Mores[MethodDefaultValue] = GetNodeContent(valNode, *c.fCtx.SourceBytes)
+		extra.Mores[constants.MethodDefaultValue] = GetNodeContent(valNode, *c.fCtx.SourceBytes)
 	}
 	vType := GetNodeContent(node.ChildByFieldName("type"), *c.fCtx.SourceBytes)
 	elem.Signature = fmt.Sprintf("%s %s()", vType, elem.Name)
@@ -341,8 +342,8 @@ func (c *EleMetadataEnricher) fillAnnotationMember(elem *model.CodeElement, node
 
 func (c *EleMetadataEnricher) fillScopeBlockMetadata(elem *model.CodeElement, node *sitter.Node, extra *model.Extra) {
 	isStatic := (node.Kind() == "static_initializer")
-	extra.Mores[BlockIsStatic] = isStatic
-	extra.Mores[MethodComplexity] = c.calculateComplexity(node)
+	extra.Mores[constants.BlockIsStatic] = isStatic
+	extra.Mores[constants.MethodComplexity] = c.calculateComplexity(node)
 	elem.Signature = "{...}"
 	if isStatic {
 		elem.Signature = "static {...}"
@@ -359,7 +360,7 @@ func (c *EleMetadataEnricher) fillMethodReferenceDetails(elem *model.CodeElement
 		// 1. 忽略不需要的符号和中间件
 		if kind == "::" || kind == "type_arguments" {
 			if kind == "type_arguments" {
-				extra.Mores[MethodRefTypeArgs] = GetNodeContent(child, *c.fCtx.SourceBytes)
+				extra.Mores[constants.MethodRefTypeArgs] = GetNodeContent(child, *c.fCtx.SourceBytes)
 			}
 			continue
 		}
@@ -384,10 +385,10 @@ func (c *EleMetadataEnricher) fillMethodReferenceDetails(elem *model.CodeElement
 	}
 
 	if receiver != "" {
-		extra.Mores[MethodRefReceiver] = receiver
+		extra.Mores[constants.MethodRefReceiver] = receiver
 	}
 	if target != "" {
-		extra.Mores[MethodRefTarget] = target
+		extra.Mores[constants.MethodRefTarget] = target
 	}
 }
 
@@ -405,15 +406,15 @@ func (c *EleMetadataEnricher) fillLambdaMetadata(elem *model.CodeElement, node *
 			paramsStr = GetNodeContent(firstChild, *c.fCtx.SourceBytes)
 		}
 	}
-	extra.Mores[LambdaParameters] = paramsStr
-	extra.Mores[MethodComplexity] = c.calculateComplexity(node)
+	extra.Mores[constants.LambdaParameters] = paramsStr
+	extra.Mores[constants.MethodComplexity] = c.calculateComplexity(node)
 
 	// 2. 识别 Body 类型
 	// body 可能是 block 或 表达式
 	bodyNode := node.ChildByFieldName("body")
 	if bodyNode != nil {
 		isBlock := bodyNode.Kind() == "block"
-		extra.Mores[LambdaBodyIsBlock] = isBlock
+		extra.Mores[constants.LambdaBodyIsBlock] = isBlock
 
 		// 生成更具描述性的 Signature，例如 (s) -> { ... } 或 (a, b) -> expr
 		bodyType := "expr"
@@ -434,7 +435,7 @@ func (c *EleMetadataEnricher) fillAnonymousClassMetadata(elem *model.CodeElement
 	typeNode := node.ChildByFieldName("type")
 	if typeNode != nil {
 		typeName := GetNodeContent(typeNode, *c.fCtx.SourceBytes)
-		extra.Mores[AnonymousClassType] = typeName
+		extra.Mores[constants.AnonymousClassType] = typeName
 		elem.Signature = "anonymous extends/implements " + typeName
 	}
 }

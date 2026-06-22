@@ -6,6 +6,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
 )
 
@@ -70,9 +71,9 @@ func TestCollector_Metrics_LOC(t *testing.T) {
 			}
 
 			// 4) 提取 LOC 指标并验证
-			actualLOCRaw, exists := fileElem.Extra.Mores[java.FileLOC] // 使用你定义的常量 FileLOC
+			actualLOCRaw, exists := fileElem.Extra.Mores[constants.FileLOC] // 使用你定义的常量 FileLOC
 			if !exists {
-				t.Fatalf("Metric '%s' not found in File Extra.Mores for %s", java.FileLOC, tc.fileName)
+				t.Fatalf("Metric '%s' not found in File Extra.Mores for %s", constants.FileLOC, tc.fileName)
 			}
 
 			// 类型断言为 int
@@ -122,9 +123,9 @@ func TestJavaCollector_Metrics_Complexity(t *testing.T) {
 			}
 
 			complexity := 0
-			if val, ok := defs[0].Element.Extra.Mores[java.MethodComplexity].(int); ok {
+			if val, ok := defs[0].Element.Extra.Mores[constants.MethodComplexity].(int); ok {
 				complexity = val
-			} else if val, ok := defs[0].Element.Extra.Mores[java.MethodComplexity].(float64); ok {
+			} else if val, ok := defs[0].Element.Extra.Mores[constants.MethodComplexity].(float64); ok {
 				complexity = int(val)
 			} else {
 				t.Errorf("Complexity metric missing or invalid type for %s", tc.methodQN)

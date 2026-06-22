@@ -6,6 +6,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
 )
 
@@ -56,9 +57,9 @@ func TestJavaCollector_EnumErrorCode(t *testing.T) {
 		}
 
 		// 核心验证：检查参数提取 (404, "User not found...")
-		args, ok := elem.Extra.Mores[java.EnumArguments].([]string)
+		args, ok := elem.Extra.Mores[constants.EnumArguments].([]string)
 		if !ok {
-			t.Fatalf("Metadata key %s (EnumArguments) not found or wrong type", java.EnumArguments)
+			t.Fatalf("Metadata key %s (EnumArguments) not found or wrong type", constants.EnumArguments)
 		}
 
 		if len(args) != 2 {
@@ -79,9 +80,9 @@ func TestJavaCollector_EnumErrorCode(t *testing.T) {
 		}
 
 		elem := defs[0].Element
-		isCtor, ok := elem.Extra.Mores[java.MethodIsConstructor].(bool)
+		isCtor, ok := elem.Extra.Mores[constants.MethodIsConstructor].(bool)
 		if !ok || !isCtor {
-			t.Errorf("Expected %s to be true", java.MethodIsConstructor)
+			t.Errorf("Expected %s to be true", constants.MethodIsConstructor)
 		}
 	})
 
@@ -94,7 +95,7 @@ func TestJavaCollector_EnumErrorCode(t *testing.T) {
 		}
 
 		elem := defs[0].Element
-		retType, ok := elem.Extra.Mores[java.MethodReturnType].(string)
+		retType, ok := elem.Extra.Mores[constants.MethodReturnType].(string)
 		if !ok || retType != "String" {
 			t.Errorf("Expected return type String, got %v", retType)
 		}

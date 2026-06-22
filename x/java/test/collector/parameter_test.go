@@ -7,6 +7,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
 )
 
@@ -42,7 +43,7 @@ func TestJavaCollector_ParameterScope(t *testing.T) {
 		if elem.Kind != model.Variable {
 			t.Errorf("Expected Kind Variable, got %s", elem.Kind)
 		}
-		if isParam := elem.Extra.Mores[java.VariableIsParam].(bool); !isParam {
+		if isParam := elem.Extra.Mores[constants.VariableIsParam].(bool); !isParam {
 			t.Error("Expected VariableIsParam to be true")
 		}
 	})
@@ -55,7 +56,7 @@ func TestJavaCollector_ParameterScope(t *testing.T) {
 			t.Fatalf("Varargs parameter 'labels' not found")
 		}
 
-		vType := defs[0].Element.Extra.Mores[java.VariableRawType].(string)
+		vType := defs[0].Element.Extra.Mores[constants.VariableRawType].(string)
 		// 验证你的 extractTypeString 是否正确处理了 "..."
 		if !strings.Contains(vType, "...") {
 			t.Errorf("Expected type with '...', got %s", vType)

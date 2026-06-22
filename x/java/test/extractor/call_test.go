@@ -8,6 +8,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
 	"github.com/stretchr/testify/assert"
 )
@@ -38,8 +39,8 @@ func TestJavaExtractor_Call(t *testing.T) {
 			targetName: "simpleMethod",
 			relType:    model.Call,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "this", m[java.RelCallReceiver])
-				assert.Equal(t, false, m[java.RelCallIsStatic])
+				assert.Equal(t, "this", m[constants.RelCallReceiver])
+				assert.Equal(t, false, m[constants.RelCallIsStatic])
 			},
 		},
 		{
@@ -47,9 +48,9 @@ func TestJavaExtractor_Call(t *testing.T) {
 			targetName: "staticMethod",
 			relType:    model.Call,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, true, m[java.RelCallIsStatic])
+				assert.Equal(t, true, m[constants.RelCallIsStatic])
 				// 【改进】现在统一存储为QN格式
-				assert.Contains(t, m[java.RelCallReceiverType], "CallRelationSuite")
+				assert.Contains(t, m[constants.RelCallReceiverType], "CallRelationSuite")
 			},
 		},
 		{
@@ -57,8 +58,8 @@ func TestJavaExtractor_Call(t *testing.T) {
 			targetName: "currentTimeMillis",
 			relType:    model.Call,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "System", m[java.RelCallReceiver])
-				assert.Equal(t, true, m[java.RelCallIsStatic])
+				assert.Equal(t, "System", m[constants.RelCallReceiver])
+				assert.Equal(t, true, m[constants.RelCallIsStatic])
 			},
 		},
 		{
@@ -66,7 +67,7 @@ func TestJavaExtractor_Call(t *testing.T) {
 			targetName: "add",
 			relType:    model.Call,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, true, m[java.RelCallIsChained])
+				assert.Equal(t, true, m[constants.RelCallIsChained])
 			},
 		},
 		{
@@ -79,7 +80,7 @@ func TestJavaExtractor_Call(t *testing.T) {
 			targetName: "ArrayList",
 			relType:    model.Call, // 采纳建议：同时也存在 CALL 构造函数
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, true, m[java.RelCallIsConstructor])
+				assert.Equal(t, true, m[constants.RelCallIsConstructor])
 			},
 		},
 		{
@@ -87,7 +88,7 @@ func TestJavaExtractor_Call(t *testing.T) {
 			targetName: "simpleMethod",
 			relType:    model.Call,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "com.example.rel.CallRelationSuite.executeAll()", m[java.RelCallEnclosingMethod])
+				assert.Equal(t, "com.example.rel.CallRelationSuite.executeAll()", m[constants.RelCallEnclosingMethod])
 			},
 		},
 		{
@@ -95,7 +96,7 @@ func TestJavaExtractor_Call(t *testing.T) {
 			targetName: "simpleMethod",
 			relType:    model.Call,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "com.example.rel.CallRelationSuite.executeAll()", m[java.RelCallEnclosingMethod])
+				assert.Equal(t, "com.example.rel.CallRelationSuite.executeAll()", m[constants.RelCallEnclosingMethod])
 			},
 		},
 		{
@@ -103,8 +104,8 @@ func TestJavaExtractor_Call(t *testing.T) {
 			targetName: "super",
 			relType:    model.Call,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "explicit_constructor_invocation", m[java.RelAstKind])
-				assert.Equal(t, true, m[java.RelCallIsConstructor])
+				assert.Equal(t, "explicit_constructor_invocation", m[constants.RelAstKind])
+				assert.Equal(t, true, m[constants.RelCallIsConstructor])
 			},
 		},
 	}
@@ -158,8 +159,8 @@ func TestJavaExtractor_Call_Chained(t *testing.T) {
 				if rel.Target != nil && rel.Target.Kind == model.Method {
 					methodName := rel.Target.Name
 					sourceQN := rel.Source.QualifiedName
-					receiverTypeQN, _ := rel.Mores[java.RelCallReceiverType].(string)
-					isChained, _ := rel.Mores[java.RelCallIsChained].(bool)
+					receiverTypeQN, _ := rel.Mores[constants.RelCallReceiverType].(string)
+					isChained, _ := rel.Mores[constants.RelCallIsChained].(bool)
 
 					// 只关注 testChainedCalls 方法中的调用
 					if methodName == "name" && strings.Contains(sourceQN, "testChainedCalls") {
@@ -200,7 +201,7 @@ func TestJavaExtractor_Call_Chained(t *testing.T) {
 			if rel.Type == model.Call {
 				if rel.Target != nil && rel.Target.Kind == model.Method {
 					methodName := rel.Target.Name
-					receiverTypeQN, _ := rel.Mores[java.RelCallReceiverType].(string)
+					receiverTypeQN, _ := rel.Mores[constants.RelCallReceiverType].(string)
 					sourceQN := rel.Source.QualifiedName
 
 					if methodName == "getName" && strings.Contains(sourceQN, "testChainedCalls") {
@@ -208,12 +209,12 @@ func TestJavaExtractor_Call_Chained(t *testing.T) {
 					}
 					if methodName == "toUpperCase" && strings.Contains(sourceQN, "testChainedCalls") {
 						foundToUpperCase = true
-						assert.Equal(t, true, rel.Mores[java.RelCallIsChained], "toUpperCase() should be marked as chained")
+						assert.Equal(t, true, rel.Mores[constants.RelCallIsChained], "toUpperCase() should be marked as chained")
 						// toUpperCase() 的 receiver 是 getName() 的返回值，即 String
 						assert.Equal(t, "String", receiverTypeQN,
 							"Receiver type should be 'String', got: "+receiverTypeQN)
 						// 验证接收者文本
-						if receiver, ok := rel.Mores[java.RelCallReceiver].(string); ok {
+						if receiver, ok := rel.Mores[constants.RelCallReceiver].(string); ok {
 							assert.Contains(t, receiver, "getName",
 								"Receiver should contain 'getName', got: "+receiver)
 						}
@@ -236,10 +237,10 @@ func TestJavaExtractor_Call_Chained(t *testing.T) {
 			if rel.Type == model.Call {
 				if rel.Target != nil && rel.Target.Kind == model.Method {
 					methodName := rel.Target.Name
-					receiverTypeQN, _ := rel.Mores[java.RelCallReceiverType].(string)
+					receiverTypeQN, _ := rel.Mores[constants.RelCallReceiverType].(string)
 					sourceQN := rel.Source.QualifiedName
-					receiver, _ := rel.Mores[java.RelCallReceiver].(string)
-					isChained, _ := rel.Mores[java.RelCallIsChained].(bool)
+					receiver, _ := rel.Mores[constants.RelCallReceiver].(string)
+					isChained, _ := rel.Mores[constants.RelCallIsChained].(bool)
 
 					if methodName == "getName" && strings.Contains(sourceQN, "testChainedCalls") {
 						// 区分普通链式调用和深层链式调用的 getName()

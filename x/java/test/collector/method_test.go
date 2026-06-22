@@ -6,6 +6,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
 )
 
@@ -37,7 +38,7 @@ func TestJavaCollector_MethodOverloading(t *testing.T) {
 		}
 		elem := defs[0].Element
 
-		if isCons, _ := elem.Extra.Mores[java.MethodIsConstructor].(bool); !isCons {
+		if isCons, _ := elem.Extra.Mores[constants.MethodIsConstructor].(bool); !isCons {
 			t.Errorf("Expected MethodIsConstructor to be true")
 		}
 		if elem.Kind != model.Method {
@@ -64,7 +65,7 @@ func TestJavaCollector_MethodOverloading(t *testing.T) {
 			}
 
 			// 验证返回值提取
-			retType, _ := defs[0].Element.Extra.Mores[java.MethodReturnType].(string)
+			retType, _ := defs[0].Element.Extra.Mores[constants.MethodReturnType].(string)
 			if retType != tc.expected {
 				t.Errorf("For %s, expected return type %s, got %s", tc.qn, tc.expected, retType)
 			}

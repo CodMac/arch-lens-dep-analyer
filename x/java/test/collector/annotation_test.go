@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
 )
 
@@ -89,10 +90,10 @@ func TestJavaCollector_Annotation(t *testing.T) {
 		}
 
 		levelElem := levelDefs[0].Element
-		if isAnno, _ := levelElem.Extra.Mores[java.MethodIsAnnotation].(bool); !isAnno {
+		if isAnno, _ := levelElem.Extra.Mores[constants.MethodIsAnnotation].(bool); !isAnno {
 			t.Errorf("level should have MethodIsAnnotation = true")
 		}
-		if defVal := levelElem.Extra.Mores[java.MethodDefaultValue]; defVal != "\"INFO\"" {
+		if defVal := levelElem.Extra.Mores[constants.MethodDefaultValue]; defVal != "\"INFO\"" {
 			t.Errorf("Expected default value \"INFO\", got %v", defVal)
 		}
 
@@ -104,8 +105,8 @@ func TestJavaCollector_Annotation(t *testing.T) {
 		}
 
 		traceElem := traceDefs[0].Element
-		if defVal := traceElem.Extra.Mores[java.MethodDefaultValue]; defVal != "false" {
-			t.Errorf("Expected default value false, got %v", traceElem.Extra.Mores[java.MethodDefaultValue])
+		if defVal := traceElem.Extra.Mores[constants.MethodDefaultValue]; defVal != "false" {
+			t.Errorf("Expected default value false, got %v", traceElem.Extra.Mores[constants.MethodDefaultValue])
 		}
 	})
 }

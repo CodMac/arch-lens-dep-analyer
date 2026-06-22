@@ -7,6 +7,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
 	"github.com/stretchr/testify/assert"
 )
@@ -35,32 +36,32 @@ func TestJavaExtractor_Throw(t *testing.T) {
 			sourceQN: "com.example.rel.ThrowRelationSuite.readFile",
 			targetQN: "IOException",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, true, m[java.RelThrowIsSignature])
-				assert.Equal(t, 0, m[java.RelThrowIndex])
+				assert.Equal(t, true, m[constants.RelThrowIsSignature])
+				assert.Equal(t, 0, m[constants.RelThrowIndex])
 			},
 		},
 		{
 			sourceQN: "com.example.rel.ThrowRelationSuite.readFile",
 			targetQN: "SQLException",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, true, m[java.RelThrowIsSignature])
-				assert.Equal(t, 1, m[java.RelThrowIndex])
+				assert.Equal(t, true, m[constants.RelThrowIsSignature])
+				assert.Equal(t, 1, m[constants.RelThrowIndex])
 			},
 		},
 		{
 			sourceQN: "com.example.rel.ThrowRelationSuite.readFile",
 			targetQN: "RuntimeException",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				isSig, _ := m[java.RelThrowIsSignature].(bool)
+				isSig, _ := m[constants.RelThrowIsSignature].(bool)
 				assert.False(t, isSig)
-				assert.Contains(t, m[java.RelRawText], "throw new RuntimeException")
+				assert.Contains(t, m[constants.RelRawText], "throw new RuntimeException")
 			},
 		},
 		{
 			sourceQN: "com.example.rel.ThrowRelationSuite.ThrowRelationSuite", // 改掉 <init>
 			targetQN: "Exception",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, true, m[java.RelThrowIsSignature])
+				assert.Equal(t, true, m[constants.RelThrowIsSignature])
 			},
 		},
 		{

@@ -6,6 +6,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -41,10 +42,12 @@ func (e *Extractor) Extract(filePath string, gCtx *core.GlobalContext) ([]*model
 	enhanceTargets := append(structuralRels, actionRels...)
 	e.enrichRelMetadata(enhanceTargets, fCtx, gCtx)
 
-	// 3. Capture关系发现（基于已提取到的ASSIGN和USE关系）
+	// 3. 链式语法处理（基于已提取到的CALL关系）
+
+	// 4. Capture关系发现（基于已提取到的ASSIGN和USE关系）
 	captureRels := e.genCaptureRelations(enhanceTargets)
 
-	// 4. 合并结果
+	// 5. 合并结果
 	var allRels []*model.DependencyRelation
 	allRels = append(allRels, hierarchyRels...)
 	allRels = append(allRels, structuralRels...)
@@ -90,11 +93,11 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gCtx *core.GlobalC
 
 		// --- 1. 处理 Class (Extend/Implement) ---
 		if elem.Kind == model.Class {
-			if sc, ok := elem.Extra.Mores[ClassSuperClass].(string); ok && sc != "" {
+			if sc, ok := elem.Extra.Mores[constants.ClassSuperClass].(string); ok && sc != "" {
 				target := e.resolver.Resolve(gCtx, fCtx, nil, "", Clean(sc), model.Class)
 				rels = append(rels, &model.DependencyRelation{Type: model.Extend, Source: elem, Target: target})
 			}
-			if impls, ok := elem.Extra.Mores[ClassImplementedInterfaces].([]string); ok {
+			if impls, ok := elem.Extra.Mores[constants.ClassImplementedInterfaces].([]string); ok {
 				for _, implName := range impls {
 					target := e.resolver.Resolve(gCtx, fCtx, nil, "", Clean(implName), model.Interface)
 					rels = append(rels, &model.DependencyRelation{Type: model.Implement, Source: elem, Target: target})
@@ -102,7 +105,7 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gCtx *core.GlobalC
 			}
 		}
 		if elem.Kind == model.AnonymousClass {
-			if ac, ok := elem.Extra.Mores[AnonymousClassType].(string); ok && ac != "" {
+			if ac, ok := elem.Extra.Mores[constants.AnonymousClassType].(string); ok && ac != "" {
 				target := e.resolver.Resolve(gCtx, fCtx, nil, "", Clean(ac), model.Class)
 				rels = append(rels, &model.DependencyRelation{Type: model.Extend, Source: elem, Target: target})
 			}
@@ -110,7 +113,7 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gCtx *core.GlobalC
 
 		// --- 2. 处理 Interface (Extend) ---
 		if elem.Kind == model.Interface {
-			if impls, ok := elem.Extra.Mores[InterfaceImplementedInterfaces].([]string); ok {
+			if impls, ok := elem.Extra.Mores[constants.InterfaceImplementedInterfaces].([]string); ok {
 				for _, implName := range impls {
 					target := e.resolver.Resolve(gCtx, fCtx, nil, "", Clean(implName), model.Interface)
 					rels = append(rels, &model.DependencyRelation{Type: model.Extend, Source: elem, Target: target})
@@ -123,13 +126,13 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gCtx *core.GlobalC
 			target := e.resolver.Resolve(gCtx, fCtx, nil, "", Clean(anno), model.KAnnotation)
 			rels = append(rels, &model.DependencyRelation{
 				Type: model.Annotation, Source: elem, Target: target,
-				Mores: map[string]interface{}{RelRawText: anno},
+				Mores: map[string]interface{}{constants.RelRawText: anno},
 			})
 		}
 
 		// --- 4. 处理方法签名 (Parameter/Return/Throw) ---
 		if elem.Kind == model.Method {
-			if pts, ok := elem.Extra.Mores[MethodParameters].([]string); ok {
+			if pts, ok := elem.Extra.Mores[constants.MethodParameters].([]string); ok {
 				for _, p := range pts {
 					typePart := e.extractTypeFromParam(p)
 					target := e.resolver.Resolve(gCtx, fCtx, nil, "", Clean(typePart), model.Class)
@@ -139,14 +142,14 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gCtx *core.GlobalC
 					})
 				}
 			}
-			if rt, ok := elem.Extra.Mores[MethodReturnType].(string); ok && rt != "void" && rt != "" {
+			if rt, ok := elem.Extra.Mores[constants.MethodReturnType].(string); ok && rt != "void" && rt != "" {
 				target := e.resolver.Resolve(gCtx, fCtx, nil, "", Clean(rt), model.Class)
 				rels = append(rels, &model.DependencyRelation{
 					Type: model.Return, Source: elem, Target: target,
 					Mores: map[string]interface{}{"tmp_raw": rt},
 				})
 			}
-			if ths, ok := elem.Extra.Mores[MethodThrowsTypes].([]string); ok {
+			if ths, ok := elem.Extra.Mores[constants.MethodThrowsTypes].([]string); ok {
 				for _, ex := range ths {
 					target := e.resolver.Resolve(gCtx, fCtx, nil, "", Clean(ex), model.Class)
 					rels = append(rels, &model.DependencyRelation{
@@ -214,9 +217,9 @@ func (e *Extractor) discoverActionRelations(fCtx *core.FileContext, gCtx *core.G
 					Target:   at.Target, // 使用 mapAction resolve 好的对象
 					Location: ExtractLocation(at.TargetNode, fCtx.FilePath),
 					Mores: map[string]interface{}{
-						RelRawText: ctxNode.Utf8Text(*fCtx.SourceBytes),
-						"tmp_node": at.TargetNode,
-						"tmp_stmt": ctxNode,
+						constants.RelRawText: ctxNode.Utf8Text(*fCtx.SourceBytes),
+						"tmp_node":           at.TargetNode,
+						"tmp_stmt":           ctxNode,
 					},
 				})
 			}
@@ -237,6 +240,19 @@ func (e *Extractor) enrichRelMetadata(enhanceTargets []*model.DependencyRelation
 	}
 }
 
+func (e *Extractor) processChainRels(actionRels []*model.DependencyRelation, fCtx *core.FileContext, gCtx *core.GlobalContext) {
+	chainedCallResolver := NewChainedCallResolver(e.resolver, gCtx, fCtx)
+
+	for _, rel := range actionRels {
+		if rel.Type != model.Call || rel.Target == nil {
+			continue
+		}
+
+		chainedCallResolver.ProcessChainRels(rel)
+	}
+
+}
+
 func (e *Extractor) genCaptureRelations(deps []*model.DependencyRelation) []*model.DependencyRelation {
 	var captures []*model.DependencyRelation
 	seen := make(map[string]bool)
@@ -249,7 +265,7 @@ func (e *Extractor) genCaptureRelations(deps []*model.DependencyRelation) []*mod
 		isCapture := false
 
 		if rel.Type == model.Use {
-			if val, ok := rel.Mores[RelUseIsCapture]; ok {
+			if val, ok := rel.Mores[constants.RelUseIsCapture]; ok {
 				if b, isBool := val.(bool); isBool && b {
 					isCapture = true
 				}
@@ -257,7 +273,7 @@ func (e *Extractor) genCaptureRelations(deps []*model.DependencyRelation) []*mod
 		}
 
 		if rel.Type == model.Assign {
-			if val, ok := rel.Mores[RelAssignIsCapture]; ok {
+			if val, ok := rel.Mores[constants.RelAssignIsCapture]; ok {
 				if b, isBool := val.(bool); isBool && b {
 					isCapture = true
 				}
@@ -451,7 +467,7 @@ func (e *Extractor) extractTypeFromParam(p string) string {
 }
 
 func (e *Extractor) getRawTypesForTypeArgs(elem *model.CodeElement) (res []string) {
-	keys := []string{FieldRawType, VariableRawType, MethodReturnType}
+	keys := []string{constants.FieldRawType, constants.VariableRawType, constants.MethodReturnType}
 
 	for _, k := range keys {
 		if v, ok := elem.Extra.Mores[k].(string); ok {
@@ -459,7 +475,7 @@ func (e *Extractor) getRawTypesForTypeArgs(elem *model.CodeElement) (res []strin
 		}
 	}
 
-	if pts, ok := elem.Extra.Mores[MethodParameters].([]string); ok {
+	if pts, ok := elem.Extra.Mores[constants.MethodParameters].([]string); ok {
 		for _, p := range pts {
 			res = append(res, e.extractTypeFromParam(p))
 		}
@@ -517,7 +533,7 @@ func (e *Extractor) collectAllTypeArgs(rt string, source *model.CodeElement, gCt
 		target := e.resolver.Resolve(gCtx, fCtx, nil, "", Clean(arg), model.Class)
 		rels = append(rels, &model.DependencyRelation{
 			Type: model.TypeArg, Source: source, Target: target,
-			Mores: map[string]interface{}{RelTypeArgIndex: i, RelRawText: arg, RelAstKind: "type_arguments"},
+			Mores: map[string]interface{}{constants.RelTypeArgIndex: i, constants.RelRawText: arg, constants.RelAstKind: "type_arguments"},
 		})
 
 		if strings.Contains(arg, "<") {

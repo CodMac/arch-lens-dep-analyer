@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
 )
 
@@ -38,12 +39,12 @@ func TestJavaCollector_ExtendAndImplement(t *testing.T) {
 		elem := defs[0].Element
 
 		// 验证修饰符
-		if isAbs := elem.Extra.Mores[java.ClassIsAbstract].(bool); !isAbs {
+		if isAbs := elem.Extra.Mores[constants.ClassIsAbstract].(bool); !isAbs {
 			t.Errorf("Expected ClassIsAbstract to be true")
 		}
 
 		// 验证接口实现
-		ifaces, _ := elem.Extra.Mores[java.ClassImplementedInterfaces].([]string)
+		ifaces, _ := elem.Extra.Mores[constants.ClassImplementedInterfaces].([]string)
 		if len(ifaces) != 1 || ifaces[0] != "Serializable" {
 			t.Errorf("Expected interface Serializable, got %v", ifaces)
 		}
@@ -65,18 +66,18 @@ func TestJavaCollector_ExtendAndImplement(t *testing.T) {
 		elem := defs[0].Element
 
 		// 验证 Final 状态
-		if isFinal := elem.Extra.Mores[java.ClassIsFinal].(bool); !isFinal {
+		if isFinal := elem.Extra.Mores[constants.ClassIsFinal].(bool); !isFinal {
 			t.Errorf("Expected ClassIsFinal to be true")
 		}
 
 		// 验证父类继承
-		super, _ := elem.Extra.Mores[java.ClassSuperClass].(string)
+		super, _ := elem.Extra.Mores[constants.ClassSuperClass].(string)
 		if super != "BaseClass" {
 			t.Errorf("Expected SuperClass BaseClass, got %s", super)
 		}
 
 		// 验证多接口实现
-		ifaces, _ := elem.Extra.Mores[java.ClassImplementedInterfaces].([]string)
+		ifaces, _ := elem.Extra.Mores[constants.ClassImplementedInterfaces].([]string)
 		expectedIfaces := []string{"Cloneable", "Runnable"}
 		if len(ifaces) != 2 {
 			t.Errorf("Expected 2 interfaces, got %v", ifaces)

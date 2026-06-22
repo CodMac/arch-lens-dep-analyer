@@ -5,6 +5,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 )
 
 type Binder struct {
@@ -29,12 +30,12 @@ func (b *Binder) BindSymbols(gc *core.GlobalContext) {
 			}
 
 			// 1. 返回值消解
-			if raw, ok := elem.Extra.Mores[MethodReturnType].(string); ok {
-				elem.Extra.Mores[MethodReturnTypeWithQN] = b.resolveToQN(gc, fCtx, raw)
+			if raw, ok := elem.Extra.Mores[constants.MethodReturnType].(string); ok {
+				elem.Extra.Mores[constants.MethodReturnTypeWithQN] = b.resolveToQN(gc, fCtx, raw)
 			}
 
 			// 2. 参数列表消解 ["type name", "type name", ...]
-			if params, ok := elem.Extra.Mores[MethodParameters].([]string); ok {
+			if params, ok := elem.Extra.Mores[constants.MethodParameters].([]string); ok {
 				qnParams := make([]string, len(params))
 				copy(qnParams, params)
 				for i := 0; i < len(params); i += 1 {
@@ -54,21 +55,21 @@ func (b *Binder) BindSymbols(gc *core.GlobalContext) {
 					// 默认类型处理
 					qnParams[i] = b.resolveToQN(gc, fCtx, fields[0])
 				}
-				elem.Extra.Mores[MethodParametersWithQN] = qnParams
+				elem.Extra.Mores[constants.MethodParametersWithQN] = qnParams
 			}
 
 			// 3. 异常消解
-			if throws, ok := elem.Extra.Mores[MethodThrowsTypes].([]string); ok {
+			if throws, ok := elem.Extra.Mores[constants.MethodThrowsTypes].([]string); ok {
 				qnThrows := make([]string, len(throws))
 				for i, t := range throws {
 					qnThrows[i] = b.resolveToQN(gc, fCtx, t)
 				}
-				elem.Extra.Mores[MethodThrowsTypesWithQN] = qnThrows
+				elem.Extra.Mores[constants.MethodThrowsTypesWithQN] = qnThrows
 			}
 
 			// 4. 变量类型消解
-			if raw, ok := elem.Extra.Mores[VariableRawType].(string); ok {
-				elem.Extra.Mores[VariableTypeWithQN] = b.resolveToQN(gc, fCtx, raw)
+			if raw, ok := elem.Extra.Mores[constants.VariableRawType].(string); ok {
+				elem.Extra.Mores[constants.VariableTypeWithQN] = b.resolveToQN(gc, fCtx, raw)
 			}
 		}
 	}

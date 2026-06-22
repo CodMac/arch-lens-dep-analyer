@@ -7,6 +7,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
 	"github.com/stretchr/testify/assert"
 )
@@ -36,8 +37,8 @@ func TestJavaExtractor_Parameter(t *testing.T) {
 			targetQN: "String",
 			index:    0,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "name", m[java.RelParameterName])
-				assert.Equal(t, 0, m[java.RelParameterIndex])
+				assert.Equal(t, "name", m[constants.RelParameterName])
+				assert.Equal(t, 0, m[constants.RelParameterIndex])
 			},
 		},
 		// --- 1.1 多参数顺序与类型 (long id) ---
@@ -46,8 +47,8 @@ func TestJavaExtractor_Parameter(t *testing.T) {
 			targetQN: "long",
 			index:    1,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "id", m[java.RelParameterName])
-				assert.Equal(t, 1, m[java.RelParameterIndex])
+				assert.Equal(t, "id", m[constants.RelParameterName])
+				assert.Equal(t, 1, m[constants.RelParameterIndex])
 			},
 		},
 		// --- 2. 可变参数 (Object... args) ---
@@ -56,8 +57,8 @@ func TestJavaExtractor_Parameter(t *testing.T) {
 			targetQN: "Object",
 			index:    1,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, true, m[java.RelParameterIsVarargs])
-				assert.Equal(t, "args", m[java.RelParameterName])
+				assert.Equal(t, true, m[constants.RelParameterIsVarargs])
+				assert.Equal(t, "args", m[constants.RelParameterName])
 			},
 		},
 		// --- 3. Final 参数与注解修饰 ---
@@ -66,7 +67,7 @@ func TestJavaExtractor_Parameter(t *testing.T) {
 			targetQN: "String",
 			index:    0,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "path", m[java.RelParameterName])
+				assert.Equal(t, "path", m[constants.RelParameterName])
 			},
 		},
 		// --- 4. 构造函数参数 ---
@@ -75,7 +76,7 @@ func TestJavaExtractor_Parameter(t *testing.T) {
 			targetQN: "int",
 			index:    0,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "val", m[java.RelParameterName])
+				assert.Equal(t, "val", m[constants.RelParameterName])
 			},
 		},
 	}
@@ -84,7 +85,7 @@ func TestJavaExtractor_Parameter(t *testing.T) {
 		found := false
 		for _, rel := range allRelations {
 			// 匹配原则：类型为 PARAMETER + 目标类型名一致 + SourceQN 匹配 + Index 一致
-			relIndex, _ := rel.Mores[java.RelParameterIndex].(int)
+			relIndex, _ := rel.Mores[constants.RelParameterIndex].(int)
 
 			if rel.Type == model.Parameter &&
 				rel.Target.Name == exp.targetQN &&

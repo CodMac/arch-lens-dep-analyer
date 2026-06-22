@@ -7,6 +7,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
 	"github.com/stretchr/testify/assert"
 )
@@ -38,8 +39,8 @@ func TestJavaExtractor_TypeArg(t *testing.T) {
 			targetQN: "String",
 			index:    0,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, 0, m[java.RelTypeArgIndex])
-				assert.Equal(t, "type_arguments", m[java.RelAstKind])
+				assert.Equal(t, 0, m[constants.RelTypeArgIndex])
+				assert.Equal(t, "type_arguments", m[constants.RelAstKind])
 			},
 		},
 		{
@@ -47,7 +48,7 @@ func TestJavaExtractor_TypeArg(t *testing.T) {
 			targetQN: "Integer",
 			index:    1,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, 1, m[java.RelTypeArgIndex])
+				assert.Equal(t, 1, m[constants.RelTypeArgIndex])
 			},
 		},
 
@@ -70,7 +71,7 @@ func TestJavaExtractor_TypeArg(t *testing.T) {
 			targetQN: "Serializable",
 			index:    0,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Contains(t, m[java.RelRawText], "? extends Serializable")
+				assert.Contains(t, m[constants.RelRawText], "? extends Serializable")
 			},
 		},
 
@@ -80,7 +81,7 @@ func TestJavaExtractor_TypeArg(t *testing.T) {
 			targetQN: "String",
 			index:    0,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "type_arguments", m[java.RelAstKind])
+				assert.Equal(t, "type_arguments", m[constants.RelAstKind])
 			},
 		},
 
@@ -90,7 +91,7 @@ func TestJavaExtractor_TypeArg(t *testing.T) {
 			targetQN: "Integer",
 			index:    0,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Contains(t, m[java.RelRawText], "? super Integer")
+				assert.Contains(t, m[constants.RelRawText], "? super Integer")
 			},
 		},
 	}
@@ -100,7 +101,7 @@ func TestJavaExtractor_TypeArg(t *testing.T) {
 		found := false
 		for _, rel := range allRelations {
 			// 获取实际的 Index
-			relIndex, _ := rel.Mores[java.RelTypeArgIndex].(int)
+			relIndex, _ := rel.Mores[constants.RelTypeArgIndex].(int)
 
 			// 匹配原则：类型为 TYPE_ARG + 目标类名一致 + SourceQN 包含关键词 + Index 一致
 			if rel.Type == model.TypeArg &&

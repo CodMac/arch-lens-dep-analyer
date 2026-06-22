@@ -1,10 +1,12 @@
 package java
 
 import (
+	"strings"
+
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	sitter "github.com/tree-sitter/go-tree-sitter"
-	"strings"
 )
 
 type RelMetadataEnricher struct {
@@ -44,11 +46,12 @@ func (e *RelMetadataEnricher) EnrichCoreMetadata(rel *model.DependencyRelation) 
 }
 
 func (e *RelMetadataEnricher) enrichCallCore(rel *model.DependencyRelation, node *sitter.Node, ctx *sitter.Node, src []byte) {
-	rel.Mores[RelCallIsStatic] = false
-	rel.Mores[RelCallIsConstructor] = false
-	rel.Mores[RelAstKind] = node.Kind()
-	rel.Mores[RelRawText] = ctx.Utf8Text(src)
-	rel.Mores[RelContext] = ctx.Kind()
+	rel.Mores[constants.RelCallIsStatic] = false
+	rel.Mores[constants.RelCallIsConstructor] = false
+	rel.Mores[constants.RelCallIsChained] = false
+	rel.Mores[constants.RelAstKind] = node.Kind()
+	rel.Mores[constants.RelRawText] = ctx.Utf8Text(src)
+	rel.Mores[constants.RelContext] = ctx.Kind()
 
 	if node == nil {
 		return
@@ -68,84 +71,92 @@ func (e *RelMetadataEnricher) enrichCallCore(rel *model.DependencyRelation, node
 	switch callNode.Kind() {
 	case "method_invocation":
 		if objectNode := callNode.ChildByFieldName("object"); objectNode != nil {
-			receiverText := objectNode.Utf8Text(src)
-			rel.Mores[RelCallReceiver] = receiverText
+			receiverRaw := objectNode.Utf8Text(src)
+			rel.Mores[constants.RelCallReceiverRaw] = receiverRaw
+			rel.Mores[constants.RelCallReceiver] = e._normalizeReceiverText(receiverRaw)
 
 			// 【核心修复】判定静态调用，必须排除 getList() 这种带括号的 receiver
-			isStatic := IsPotentialClassName(receiverText)
-			rel.Mores[RelCallIsStatic] = isStatic
+			isStatic := IsPotentialClassName(receiverRaw)
+			rel.Mores[constants.RelCallIsStatic] = isStatic
 			if isStatic {
 				// 【新增】统一转换为QN格式：利用 Resolver 解析类名
-				typeEle := e.resolver.Resolve(e.gCtx, e.fCtx, nil, "", receiverText, model.Class)
+				typeEle := e.resolver.Resolve(e.gCtx, e.fCtx, nil, "", receiverRaw, model.Class)
 				if typeEle != nil {
-					rel.Mores[RelCallReceiverType] = typeEle.QualifiedName
+					rel.Mores[constants.RelCallReceiverType] = typeEle.QualifiedName
 				}
 			}
 
-			// 识别链式调用并推断 Receiver 类型
+			// 识别链式调用并推断 Receiver 类型（链式调用的类型推导交由 ChainedCallResolver 处理）
 			if objectNode.Kind() == "method_invocation" {
-				rel.Mores[RelCallIsChained] = true
+				rel.Mores[constants.RelCallIsChained] = true
+				rel.Mores[constants.RelCallChainDepth] = e._calculateChainDepth(receiverRaw)
 				// 推断前一个方法调用的返回类型
 				receiverTypeQN := e._inferChainedCallReceiverType(objectNode, src)
 				if receiverTypeQN != "" {
-					rel.Mores[RelCallReceiverType] = receiverTypeQN
+					rel.Mores[constants.RelCallReceiverType] = receiverTypeQN
 				}
 			} else if objectNode.Kind() == "object_creation_expression" {
 				// 对象创建表达式也是链式调用的一部分（如 new Builder().name()）
-				rel.Mores[RelCallIsChained] = true
+				rel.Mores[constants.RelCallIsChained] = true
+				rel.Mores[constants.RelCallChainDepth] = e._calculateChainDepth(receiverRaw)
 				// 推断对象创建的类型
 				receiverTypeQN := e._inferObjectCreationReceiverType(objectNode, src)
-				rel.Mores[RelCallReceiverType] = receiverTypeQN
+				rel.Mores[constants.RelCallReceiverType] = receiverTypeQN
 			} else if objectNode.Kind() == "identifier" {
 				// 【新增】实例变量调用：obj1.method()
 				// 利用 Resolver 解析变量，获取其类型QN
-				varEle := e.resolver.Resolve(e.gCtx, e.fCtx, objectNode, "", receiverText, model.Variable)
+				varEle := e.resolver.Resolve(e.gCtx, e.fCtx, objectNode, "", receiverRaw, model.Variable)
 				if varEle != nil && varEle.Extra != nil {
 					// 优先使用带 QN 的类型
-					if typeQN, ok := varEle.Extra.Mores[VariableTypeWithQN].(string); ok {
-						rel.Mores[RelCallReceiverType] = typeQN
+					if typeQN, ok := varEle.Extra.Mores[constants.VariableTypeWithQN].(string); ok {
+						rel.Mores[constants.RelCallReceiverType] = typeQN
 					}
 					// 如果没有 QN，尝试从原始类型解析为 QN
-					if rel.Mores[RelCallReceiverType] == nil {
-						if rawType, ok := varEle.Extra.Mores[VariableRawType].(string); ok {
+					if rel.Mores[constants.RelCallReceiverType] == nil {
+						if rawType, ok := varEle.Extra.Mores[constants.VariableRawType].(string); ok {
 							typeEle := e.resolver.Resolve(e.gCtx, e.fCtx, nil, "", rawType, model.Class)
 							if typeEle != nil {
-								rel.Mores[RelCallReceiverType] = typeEle.QualifiedName
+								rel.Mores[constants.RelCallReceiverType] = typeEle.QualifiedName
 							}
 						}
 					}
 				}
 			}
 		} else {
-			rel.Mores[RelCallReceiver] = "this"
-			rel.Mores[RelCallIsStatic] = false
+			rel.Mores[constants.RelCallReceiver] = "this"
+			rel.Mores[constants.RelCallIsStatic] = false
 		}
 
 	case "object_creation_expression":
-		rel.Mores[RelCallIsConstructor] = true
+		rel.Mores[constants.RelCallIsConstructor] = true
+
 		if typeNode := callNode.ChildByFieldName("type"); typeNode != nil {
 			typeName := typeNode.Utf8Text(src)
-			// 【新增】统一转换为QN格式：利用 Resolver 解析类名
+			rel.Mores[constants.RelCallReceiverRaw] = typeName
+			rel.Mores[constants.RelCallReceiver] = typeName
+
 			typeEle := e.resolver.Resolve(e.gCtx, e.fCtx, nil, "", typeName, model.Class)
 			if typeEle != nil {
-				rel.Mores[RelCallReceiverType] = typeEle.QualifiedName
+				rel.Mores[constants.RelCallReceiverType] = typeEle.QualifiedName
 			}
 		}
 
 	case "method_reference":
-		rel.Mores[RelCallIsFunctional] = true
+		rel.Mores[constants.RelCallIsFunctional] = true
+
 		if objectNode := callNode.ChildByFieldName("object"); objectNode != nil {
-			receiverText := objectNode.Utf8Text(src)
-			rel.Mores[RelCallReceiver] = receiverText
-			if IsPotentialClassName(receiverText) {
-				rel.Mores[RelCallIsStatic] = true
+			receiverRaw := objectNode.Utf8Text(src)
+			rel.Mores[constants.RelCallReceiverRaw] = receiverRaw
+			rel.Mores[constants.RelCallReceiver] = e._normalizeReceiverText(receiverRaw)
+			if IsPotentialClassName(receiverRaw) {
+				rel.Mores[constants.RelCallIsStatic] = true
 			}
 		}
 
 	case "explicit_constructor_invocation":
-		rel.Mores[RelCallIsConstructor] = true
+		rel.Mores[constants.RelCallIsConstructor] = true
 		if callNode.ChildCount() > 0 {
-			rel.Mores[RelCallReceiver] = callNode.Child(0).Utf8Text(src)
+			rel.Mores[constants.RelCallReceiver] = callNode.Child(0).Utf8Text(src)
 		}
 	}
 
@@ -155,7 +166,7 @@ func (e *RelMetadataEnricher) enrichCallCore(rel *model.DependencyRelation, node
 		stopMarkers := []string{".lambda", ".anonymousClass", "$", ".block"}
 		for _, marker := range stopMarkers {
 			if idx := strings.Index(qn, marker); idx != -1 {
-				rel.Mores[RelCallEnclosingMethod] = qn[:idx]
+				rel.Mores[constants.RelCallEnclosingMethod] = qn[:idx]
 				break
 			}
 		}
@@ -165,7 +176,7 @@ func (e *RelMetadataEnricher) enrichCallCore(rel *model.DependencyRelation, node
 	// 当 Resolver 无法找到目标方法时，根据 RelCallReceiverType 和方法名构建完整 QN
 	if rel.Target != nil && rel.Target.Kind == model.Method {
 		targetQN := rel.Target.QualifiedName
-		receiverTypeQN, hasReceiverType := rel.Mores[RelCallReceiverType].(string)
+		receiverTypeQN, hasReceiverType := rel.Mores[constants.RelCallReceiverType].(string)
 
 		// 检查是否为不完整的 QN（没有点号或者只有简单的点括号结构）
 		isIncompleteQN := !strings.Contains(targetQN, ".") ||
@@ -194,8 +205,8 @@ func (e *RelMetadataEnricher) enrichCreateCore(rel *model.DependencyRelation, no
 	}
 
 	// 1. 通用属性
-	rel.Mores[RelAstKind] = ctx.Kind()
-	rel.Mores[RelRawText] = ctx.Utf8Text(src)
+	rel.Mores[constants.RelAstKind] = ctx.Kind()
+	rel.Mores[constants.RelRawText] = ctx.Utf8Text(src)
 
 	// 2. 专用属性提取：变量名 (RelCreateVariableName)
 	contextNode := ctx
@@ -206,13 +217,13 @@ func (e *RelMetadataEnricher) enrichCreateCore(rel *model.DependencyRelation, no
 	}
 	if contextNode.Kind() == "variable_declarator" {
 		if nameNode := contextNode.ChildByFieldName("name"); nameNode != nil {
-			rel.Mores[RelCreateVariableName] = nameNode.Utf8Text(src)
+			rel.Mores[constants.RelCreateVariableName] = nameNode.Utf8Text(src)
 		}
 	}
 
 	// 3. 专用属性提取：数组 (RelCreateIsArray)
 	if ctx.Kind() == "array_creation_expression" {
-		rel.Mores[RelCreateIsArray] = true
+		rel.Mores[constants.RelCreateIsArray] = true
 	}
 
 	// 4. 特殊处理 super() -> Object 的情况
@@ -224,45 +235,45 @@ func (e *RelMetadataEnricher) enrichCreateCore(rel *model.DependencyRelation, no
 
 func (e *RelMetadataEnricher) enrichAssignCore(rel *model.DependencyRelation, node, ctx *sitter.Node, src []byte) {
 	// --- 基础信息补全 ---
-	rel.Mores[RelAssignTargetName] = node.Utf8Text(src)
-	rel.Mores[RelRawText] = ctx.Utf8Text(src)
-	rel.Mores[RelAstKind] = node.Kind() // 记录为 identifier
+	rel.Mores[constants.RelAssignTargetName] = node.Utf8Text(src)
+	rel.Mores[constants.RelRawText] = ctx.Utf8Text(src)
+	rel.Mores[constants.RelAstKind] = node.Kind() // 记录为 identifier
 
 	// --- 提取并填充 Receiver 属性 ---
 	parent := node.Parent()
 	if parent != nil && parent.Kind() == "field_access" {
 		if obj := parent.ChildByFieldName("object"); obj != nil {
-			rel.Mores[RelAssignReceiver] = obj.Utf8Text(src)
+			rel.Mores[constants.RelAssignReceiver] = obj.Utf8Text(src)
 		}
 	} else if rel.Target != nil && rel.Target.Kind == model.Field {
 		// 如果解析出来的目标是 Field，且没有显式前缀，则标记为隐式 this
-		rel.Mores[RelAssignReceiver] = "this"
+		rel.Mores[constants.RelAssignReceiver] = "this"
 	}
 
 	// --- 提取 Operator 和 Value ---
 	switch ctx.Kind() {
 	case "variable_declarator":
-		rel.Mores[RelAssignIsInitializer] = true
-		rel.Mores[RelAssignOperator] = "="
+		rel.Mores[constants.RelAssignIsInitializer] = true
+		rel.Mores[constants.RelAssignOperator] = "="
 		if val := ctx.ChildByFieldName("value"); val != nil {
-			rel.Mores[RelAssignValueExpression] = val.Utf8Text(src)
+			rel.Mores[constants.RelAssignValueExpression] = val.Utf8Text(src)
 		}
 	case "assignment_expression":
-		rel.Mores[RelAssignIsInitializer] = false
+		rel.Mores[constants.RelAssignIsInitializer] = false
 		if op := ctx.ChildByFieldName("operator"); op != nil {
-			rel.Mores[RelAssignOperator] = op.Utf8Text(src)
+			rel.Mores[constants.RelAssignOperator] = op.Utf8Text(src)
 		}
 		if right := ctx.ChildByFieldName("right"); right != nil {
-			rel.Mores[RelAssignValueExpression] = right.Utf8Text(src)
+			rel.Mores[constants.RelAssignValueExpression] = right.Utf8Text(src)
 		}
 	case "update_expression":
-		rel.Mores[RelAssignIsInitializer] = false
+		rel.Mores[constants.RelAssignIsInitializer] = false
 		// 处理 ++ / --
 		txt := ctx.Utf8Text(src)
 		if strings.Contains(txt, "++") {
-			rel.Mores[RelAssignOperator] = "++"
+			rel.Mores[constants.RelAssignOperator] = "++"
 		} else {
-			rel.Mores[RelAssignOperator] = "--"
+			rel.Mores[constants.RelAssignOperator] = "--"
 		}
 	}
 
@@ -272,7 +283,7 @@ func (e *RelMetadataEnricher) enrichAssignCore(rel *model.DependencyRelation, no
 		stopMarkers := []string{".lambda", ".anonymousClass", "$", ".block"}
 		for _, marker := range stopMarkers {
 			if idx := strings.Index(qn, marker); idx != -1 {
-				rel.Mores[RelAssignEnclosingMethod] = qn[:idx]
+				rel.Mores[constants.RelAssignEnclosingMethod] = qn[:idx]
 				break
 			}
 		}
@@ -281,7 +292,7 @@ func (e *RelMetadataEnricher) enrichAssignCore(rel *model.DependencyRelation, no
 		isTargetField := rel.Target != nil && rel.Target.Kind == model.Field
 
 		if isSubScope && isTargetField {
-			rel.Mores[RelAssignIsCapture] = true
+			rel.Mores[constants.RelAssignIsCapture] = true
 		}
 	}
 }
@@ -290,29 +301,29 @@ func (e *RelMetadataEnricher) enrichCastCore(rel *model.DependencyRelation, node
 	if ctx == nil {
 		return
 	}
-	rel.Mores[RelAstKind] = ctx.Kind()
-	rel.Mores[RelRawText] = ctx.Utf8Text(src)
-	rel.Mores[RelCastIsInstanceof] = ctx.Kind() == "instanceof_expression"
+	rel.Mores[constants.RelAstKind] = ctx.Kind()
+	rel.Mores[constants.RelRawText] = ctx.Utf8Text(src)
+	rel.Mores[constants.RelCastIsInstanceof] = ctx.Kind() == "instanceof_expression"
 }
 
 func (e *RelMetadataEnricher) enrichThrowCore(rel *model.DependencyRelation, node, ctx *sitter.Node, rawText string, src []byte) {
 	if node != nil {
-		rel.Mores[RelAstKind] = "throw_statement"
+		rel.Mores[constants.RelAstKind] = "throw_statement"
 		rel.Target.Name = Clean(rel.Target.Name)
 		rel.Target.QualifiedName = Clean(rel.Target.QualifiedName)
 		if node.Kind() == "type_identifier" || (node.Parent() != nil && node.Parent().Kind() == "object_creation_expression") {
-			rel.Mores[RelThrowIsRuntime] = true
+			rel.Mores[constants.RelThrowIsRuntime] = true
 		} else if node.Kind() == "identifier" {
-			rel.Mores[RelThrowIsRethrow] = true
+			rel.Mores[constants.RelThrowIsRethrow] = true
 		}
 		return
 	}
 	if rawText != "" && rel.Source != nil && rel.Source.Extra != nil {
-		if ths, ok := rel.Source.Extra.Mores[MethodThrowsTypes].([]string); ok {
+		if ths, ok := rel.Source.Extra.Mores[constants.MethodThrowsTypes].([]string); ok {
 			for i, ex := range ths {
 				if Clean(ex) == rel.Target.Name {
-					rel.Mores[RelThrowIndex] = i
-					rel.Mores[RelThrowIsSignature] = true
+					rel.Mores[constants.RelThrowIndex] = i
+					rel.Mores[constants.RelThrowIsSignature] = true
 					break
 				}
 			}
@@ -321,16 +332,16 @@ func (e *RelMetadataEnricher) enrichThrowCore(rel *model.DependencyRelation, nod
 }
 
 func (e *RelMetadataEnricher) enrichParameterCore(rel *model.DependencyRelation, rawText string) {
-	if params, ok := rel.Source.Extra.Mores[MethodParameters].([]string); ok {
+	if params, ok := rel.Source.Extra.Mores[constants.MethodParameters].([]string); ok {
 		for i, p := range params {
 			if strings.Contains(p, rel.Target.Name) || strings.Contains(p, rawText) {
-				rel.Mores[RelParameterIndex] = i
+				rel.Mores[constants.RelParameterIndex] = i
 				parts := strings.Fields(p)
 				if len(parts) >= 2 {
-					rel.Mores[RelParameterName] = parts[len(parts)-1]
+					rel.Mores[constants.RelParameterName] = parts[len(parts)-1]
 				}
 				if strings.Contains(p, "...") {
-					rel.Mores[RelParameterIsVarargs] = true
+					rel.Mores[constants.RelParameterIsVarargs] = true
 				}
 			}
 		}
@@ -338,13 +349,13 @@ func (e *RelMetadataEnricher) enrichParameterCore(rel *model.DependencyRelation,
 }
 
 func (e *RelMetadataEnricher) enrichReturnCore(rel *model.DependencyRelation, rawText string) {
-	rel.Mores[RelReturnIsPrimitive] = e.resolver.IsPrimitive(Clean(rawText))
-	rel.Mores[RelReturnIsArray] = strings.Contains(rawText, "[]")
+	rel.Mores[constants.RelReturnIsPrimitive] = e.resolver.IsPrimitive(Clean(rawText))
+	rel.Mores[constants.RelReturnIsArray] = strings.Contains(rawText, "[]")
 }
 
 func (e *RelMetadataEnricher) enrichAnnotationCore(rel *model.DependencyRelation) {
 	target := e._mapElementKindToAnnotationTarget(rel.Source)
-	rel.Mores[RelAnnotationTarget] = target
+	rel.Mores[constants.RelAnnotationTarget] = target
 	rel.Target.Name = strings.Split(rel.Target.Name, "(")[0]
 	rel.Target.QualifiedName = strings.Split(rel.Target.QualifiedName, "(")[0]
 }
@@ -354,22 +365,22 @@ func (e *RelMetadataEnricher) enrichUseCore(rel *model.DependencyRelation, node,
 		return
 	}
 
-	rel.Mores[RelUseTargetName] = node.Utf8Text(src)
-	rel.Mores[RelRawText] = ctx.Utf8Text(src)
-	rel.Mores[RelAstKind] = node.Kind()
+	rel.Mores[constants.RelUseTargetName] = node.Utf8Text(src)
+	rel.Mores[constants.RelRawText] = ctx.Utf8Text(src)
+	rel.Mores[constants.RelAstKind] = node.Kind()
 
 	// 1. 设置 Context 类型 (例如 field_access 或 assignment_expression)
-	rel.Mores[RelContext] = ctx.Kind()
+	rel.Mores[constants.RelContext] = ctx.Kind()
 
 	// 2. 提取并填充 Receiver 文本
 	parent := node.Parent()
 	if parent != nil && parent.Kind() == "field_access" {
 		if obj := parent.ChildByFieldName("object"); obj != nil {
-			rel.Mores[RelUseReceiver] = obj.Utf8Text(src)
+			rel.Mores[constants.RelUseReceiver] = obj.Utf8Text(src)
 		}
 	} else if rel.Target != nil && rel.Target.Kind == model.Field {
 		// 如果解析目标是 Field 且无显式前缀，标记为隐式 this
-		rel.Mores[RelUseReceiver] = "this"
+		rel.Mores[constants.RelUseReceiver] = "this"
 	}
 
 	// 3. 填充 ReceiverType
@@ -378,18 +389,18 @@ func (e *RelMetadataEnricher) enrichUseCore(rel *model.DependencyRelation, node,
 		qn := rel.Target.QualifiedName
 		if idx := strings.LastIndex(qn, "."); idx != -1 {
 			// 截取掉最后的字段名，保留类全路径
-			rel.Mores[RelUseReceiverType] = qn[:idx]
+			rel.Mores[constants.RelUseReceiverType] = qn[:idx]
 		}
 	}
 
 	// --- 提取接收者类型 QN ---
 	// 这里利用你之前从 Target.Extra 中收集到的 RawType
 	if rel.Target != nil && rel.Target.Extra != nil {
-		keys := []string{FieldRawType, VariableRawType}
+		keys := []string{constants.FieldRawType, constants.VariableRawType}
 		for _, k := range keys {
 			if rt, ok := rel.Target.Extra.Mores[k].(string); ok {
 				// e.clean 会去掉泛型和修饰符，保留纯粹的类型名
-				rel.Mores[RelUseReceiverType] = Clean(rt)
+				rel.Mores[constants.RelUseReceiverType] = Clean(rt)
 				break
 			}
 		}
@@ -403,7 +414,7 @@ func (e *RelMetadataEnricher) enrichUseCore(rel *model.DependencyRelation, node,
 		stopMarkers := []string{".lambda", ".anonymousClass", "$", ".block"}
 		for _, marker := range stopMarkers {
 			if idx := strings.Index(qn, marker); idx != -1 {
-				rel.Mores[RelUseEnclosingMethod] = qn[:idx]
+				rel.Mores[constants.RelUseEnclosingMethod] = qn[:idx]
 				break
 			}
 		}
@@ -412,7 +423,7 @@ func (e *RelMetadataEnricher) enrichUseCore(rel *model.DependencyRelation, node,
 		isSubScope := strings.Contains(qn, "lambda$") || strings.Contains(qn, ".anonymousClass")
 		if isSubScope {
 			if rel.Target.Kind == model.Field {
-				rel.Mores[RelUseIsCapture] = true
+				rel.Mores[constants.RelUseIsCapture] = true
 			}
 			if rel.Target.Kind == model.Variable && rel.Source.Location != nil && rel.Target.Location != nil {
 				if rel.Source.Location.FilePath == rel.Target.Location.FilePath {
@@ -420,7 +431,7 @@ func (e *RelMetadataEnricher) enrichUseCore(rel *model.DependencyRelation, node,
 					srcEnd := rel.Source.Location.EndLine
 					defLine := rel.Target.Location.StartLine
 					if defLine < srcStart || defLine > srcEnd {
-						rel.Mores[RelUseIsCapture] = true
+						rel.Mores[constants.RelUseIsCapture] = true
 					}
 				}
 			}
@@ -486,12 +497,12 @@ func (e *RelMetadataEnricher) _inferChainedCallReceiverType(node *sitter.Node, s
 	// 从 Target 的 Extra 中获取返回类型 QN
 	if target.Extra != nil {
 		// 优先使用带 QN 的返回类型
-		if returnTypeQN, ok := target.Extra.Mores[MethodReturnTypeWithQN].(string); ok {
+		if returnTypeQN, ok := target.Extra.Mores[constants.MethodReturnTypeWithQN].(string); ok {
 			return returnTypeQN
 		}
 
 		// 如果没有 QN，尝试从原始类型解析为 QN
-		if returnType, ok := target.Extra.Mores[MethodReturnType].(string); ok {
+		if returnType, ok := target.Extra.Mores[constants.MethodReturnType].(string); ok {
 			// 尝试将原始类型解析为 QN
 			if returnEle := e.resolver.Resolve(e.gCtx, e.fCtx, nil, "", returnType, model.Class); returnEle != nil {
 				return returnEle.QualifiedName
@@ -528,4 +539,27 @@ func (e *RelMetadataEnricher) _inferObjectCreationReceiverType(node *sitter.Node
 	}
 
 	return ""
+}
+
+// _normalizeReceiverText 标准化receiver文本（去除换行符和多余空格）
+
+// _normalizeReceiverText 标准化receiver文本（去除换行符和多余空格）
+func (e *RelMetadataEnricher) _normalizeReceiverText(raw string) string {
+	normalized := strings.ReplaceAll(raw, "\n", " ")
+	normalized = strings.ReplaceAll(normalized, "\r", " ")
+	return strings.Join(strings.Fields(normalized), " ")
+}
+
+// _calculateChainDepth 计算链式调用的深度
+func (e *RelMetadataEnricher) _calculateChainDepth(receiverText string) int {
+	depth := 0
+	for i := 0; i < len(receiverText); i++ {
+		if receiverText[i] == '.' {
+			depth++
+		}
+	}
+	if depth == 0 {
+		return 1
+	}
+	return depth + 1
 }

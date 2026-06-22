@@ -7,6 +7,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
 	"github.com/stretchr/testify/assert"
 )
@@ -37,7 +38,7 @@ func TestJavaExtractor_Return(t *testing.T) {
 			targetQN: "String",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				// 默认不标记 is_primitive 时，Extractor 应根据类型识别并填充
-				assert.Equal(t, false, m[java.RelReturnIsPrimitive])
+				assert.Equal(t, false, m[constants.RelReturnIsPrimitive])
 			},
 		},
 		// --- 2. 数组返回 ---
@@ -45,8 +46,8 @@ func TestJavaExtractor_Return(t *testing.T) {
 			sourceQN: "com.example.rel.ReturnRelationSuite.getBuffer",
 			targetQN: "byte",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, true, m[java.RelReturnIsArray])
-				assert.Equal(t, true, m[java.RelReturnIsPrimitive])
+				assert.Equal(t, true, m[constants.RelReturnIsArray])
+				assert.Equal(t, true, m[constants.RelReturnIsPrimitive])
 			},
 		},
 		// --- 3. 泛型复合返回 ---
@@ -60,7 +61,7 @@ func TestJavaExtractor_Return(t *testing.T) {
 			sourceQN: "com.example.rel.ReturnRelationSuite.getAge",
 			targetQN: "int",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, true, m[java.RelReturnIsPrimitive])
+				assert.Equal(t, true, m[constants.RelReturnIsPrimitive])
 			},
 		},
 		// --- 5. 嵌套数组返回 ---
@@ -68,7 +69,7 @@ func TestJavaExtractor_Return(t *testing.T) {
 			sourceQN: "com.example.rel.ReturnRelationSuite.getMatrix",
 			targetQN: "double",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, true, m[java.RelReturnIsArray])
+				assert.Equal(t, true, m[constants.RelReturnIsArray])
 			},
 		},
 	}

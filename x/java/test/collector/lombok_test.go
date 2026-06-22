@@ -6,6 +6,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
 )
 
@@ -960,7 +961,7 @@ func TestJavaCollector_LombokMultipleAnnotations(t *testing.T) {
 				}
 				// 验证字段类型是否为 Logger
 				if entry.Element.Extra != nil {
-					fieldType, ok := entry.Element.Extra.Mores[java.VariableRawType].(string)
+					fieldType, ok := entry.Element.Extra.Mores[constants.VariableRawType].(string)
 					if ok && fieldType != "org.slf4j.Logger" {
 						t.Errorf("'log' field should be of type 'org.slf4j.Logger', got '%s'", fieldType)
 					}
@@ -1115,7 +1116,7 @@ func TestJavaCollector_LombokSlf4j(t *testing.T) {
 			if entry.Element.QualifiedName == logFieldQN {
 				// 验证字段类型为 Logger
 				if entry.Element.Extra != nil {
-					fieldType, ok := entry.Element.Extra.Mores[java.VariableRawType].(string)
+					fieldType, ok := entry.Element.Extra.Mores[constants.VariableRawType].(string)
 					if !ok || fieldType == "" {
 						t.Errorf("'log' field should have raw_type in Extra.Mores")
 					}

@@ -6,6 +6,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -41,7 +42,7 @@ func (c *DeSugar) DesugarDefaultConstructor(elem *model.CodeElement, node *sitte
 			Extra: &model.Extra{
 				Modifiers:   make([]string, 0),
 				Annotations: make([]string, 0),
-				Mores:       map[string]interface{}{MethodIsConstructor: true, MethodIsImplicit: true},
+				Mores:       map[string]interface{}{constants.MethodIsConstructor: true, constants.MethodIsImplicit: true},
 			},
 			IsFormSugar: true,
 		}, elem.QualifiedName, node)
@@ -57,7 +58,7 @@ func (c *DeSugar) DesugarEnumMethods(elem *model.CodeElement, node *sitter.Node,
 			Extra: &model.Extra{
 				Modifiers:   make([]string, 0),
 				Annotations: make([]string, 0),
-				Mores:       map[string]interface{}{MethodIsImplicit: true},
+				Mores:       map[string]interface{}{constants.MethodIsImplicit: true},
 			},
 		}, elem.QualifiedName, node)
 	}
@@ -70,7 +71,7 @@ func (c *DeSugar) DesugarEnumMethods(elem *model.CodeElement, node *sitter.Node,
 			Extra: &model.Extra{
 				Modifiers:   make([]string, 0),
 				Annotations: make([]string, 0),
-				Mores:       map[string]interface{}{MethodIsImplicit: true},
+				Mores:       map[string]interface{}{constants.MethodIsImplicit: true},
 			},
 		}, elem.QualifiedName, node)
 	}
@@ -100,8 +101,8 @@ func (c *DeSugar) DesugarRecordMembers(elem *model.CodeElement, node *sitter.Nod
 			for _, d := range defs {
 				if d.Element.QualifiedName == fieldQN {
 					d.Element.Kind = model.Field
-					d.Element.Extra.Mores[FieldIsRecordComponent] = true
-					d.Element.Extra.Mores[FieldIsFinal] = true
+					d.Element.Extra.Mores[constants.FieldIsRecordComponent] = true
+					d.Element.Extra.Mores[constants.FieldIsFinal] = true
 				}
 			}
 		}
@@ -114,7 +115,7 @@ func (c *DeSugar) DesugarRecordMembers(elem *model.CodeElement, node *sitter.Nod
 				Extra: &model.Extra{
 					Modifiers:   make([]string, 0),
 					Annotations: make([]string, 0),
-					Mores:       map[string]interface{}{MethodIsImplicit: true},
+					Mores:       map[string]interface{}{constants.MethodIsImplicit: true},
 				},
 			}, elem.QualifiedName, node)
 		}
@@ -133,7 +134,7 @@ func (c *DeSugar) DesugarRecordMembers(elem *model.CodeElement, node *sitter.Nod
 			Extra: &model.Extra{
 				Modifiers:   make([]string, 0),
 				Annotations: make([]string, 0),
-				Mores:       map[string]interface{}{MethodIsConstructor: true, MethodIsImplicit: true},
+				Mores:       map[string]interface{}{constants.MethodIsConstructor: true, constants.MethodIsImplicit: true},
 			},
 		}, elem.QualifiedName, node)
 	}
@@ -216,11 +217,11 @@ func (c *DeSugar) _lombokSlf4j(elem *model.CodeElement, node *sitter.Node, fCtx 
 			Modifiers:   []string{"private", "static", "final"},
 			Annotations: make([]string, 0),
 			Mores: map[string]interface{}{
-				VariableRawType:         "org.slf4j.Logger",
-				FieldIsStatic:           true,
-				FieldIsFinal:            true,
-				MethodIsLombokGenerated: true,
-				LombokAnnotationType:    "Slf4j",
+				constants.VariableRawType:         "org.slf4j.Logger",
+				constants.FieldIsStatic:           true,
+				constants.FieldIsFinal:            true,
+				constants.MethodIsLombokGenerated: true,
+				constants.LombokAnnotationType:    "Slf4j",
 			},
 		},
 		IsFormSugar: true,
@@ -234,10 +235,10 @@ func (c *DeSugar) _lombokGetter(elem *model.CodeElement, node *sitter.Node, fCtx
 
 	for _, fieldEntry := range fields {
 		fieldName := fieldEntry.Element.Name
-		fieldType, _ := fieldEntry.Element.Extra.Mores[FieldRawType].(string)
+		fieldType, _ := fieldEntry.Element.Extra.Mores[constants.FieldRawType].(string)
 
 		// 跳过static字段
-		isStatic, _ := fieldEntry.Element.Extra.Mores[FieldIsStatic].(bool)
+		isStatic, _ := fieldEntry.Element.Extra.Mores[constants.FieldIsStatic].(bool)
 		if isStatic {
 			continue
 		}
@@ -268,9 +269,9 @@ func (c *DeSugar) _lombokGetter(elem *model.CodeElement, node *sitter.Node, fCtx
 				Modifiers:   []string{"public"},
 				Annotations: make([]string, 0),
 				Mores: map[string]interface{}{
-					MethodIsLombokGenerated: true,
-					LombokAnnotationType:    "Getter",
-					MethodReturnType:        fieldType,
+					constants.MethodIsLombokGenerated: true,
+					constants.LombokAnnotationType:    "Getter",
+					constants.MethodReturnType:        fieldType,
 				},
 			},
 			IsFormSugar: true,
@@ -285,16 +286,16 @@ func (c *DeSugar) _lombokSetter(elem *model.CodeElement, node *sitter.Node, fCtx
 
 	for _, fieldEntry := range fields {
 		fieldName := fieldEntry.Element.Name
-		fieldType, _ := fieldEntry.Element.Extra.Mores[FieldRawType].(string)
+		fieldType, _ := fieldEntry.Element.Extra.Mores[constants.FieldRawType].(string)
 
 		// 跳过static字段
-		isStatic, _ := fieldEntry.Element.Extra.Mores[FieldIsStatic].(bool)
+		isStatic, _ := fieldEntry.Element.Extra.Mores[constants.FieldIsStatic].(bool)
 		if isStatic {
 			continue
 		}
 
 		// 跳过final字段
-		isFinal, _ := fieldEntry.Element.Extra.Mores[FieldIsFinal].(bool)
+		isFinal, _ := fieldEntry.Element.Extra.Mores[constants.FieldIsFinal].(bool)
 		if isFinal {
 			continue
 		}
@@ -320,9 +321,9 @@ func (c *DeSugar) _lombokSetter(elem *model.CodeElement, node *sitter.Node, fCtx
 				Modifiers:   []string{"public"},
 				Annotations: make([]string, 0),
 				Mores: map[string]interface{}{
-					MethodIsLombokGenerated: true,
-					LombokAnnotationType:    "Setter",
-					MethodParameters:        []string{fieldType + " " + fieldName},
+					constants.MethodIsLombokGenerated: true,
+					constants.LombokAnnotationType:    "Setter",
+					constants.MethodParameters:        []string{fieldType + " " + fieldName},
 				},
 			},
 			IsFormSugar: true,
@@ -351,9 +352,9 @@ func (c *DeSugar) _lombokToString(elem *model.CodeElement, node *sitter.Node, fC
 			Modifiers:   []string{"public"},
 			Annotations: make([]string, 0),
 			Mores: map[string]interface{}{
-				MethodIsLombokGenerated: true,
-				LombokAnnotationType:    "ToString",
-				MethodReturnType:        "String",
+				constants.MethodIsLombokGenerated: true,
+				constants.LombokAnnotationType:    "ToString",
+				constants.MethodReturnType:        "String",
 			},
 		},
 		IsFormSugar: true,
@@ -377,10 +378,10 @@ func (c *DeSugar) _lombokEqualsAndHashCode(elem *model.CodeElement, node *sitter
 				Modifiers:   []string{"public"},
 				Annotations: make([]string, 0),
 				Mores: map[string]interface{}{
-					MethodIsLombokGenerated: true,
-					LombokAnnotationType:    "EqualsAndHashCode",
-					MethodReturnType:        "boolean",
-					MethodParameters:        []string{"Object obj"},
+					constants.MethodIsLombokGenerated: true,
+					constants.LombokAnnotationType:    "EqualsAndHashCode",
+					constants.MethodReturnType:        "boolean",
+					constants.MethodParameters:        []string{"Object obj"},
 				},
 			},
 			IsFormSugar: true,
@@ -401,9 +402,9 @@ func (c *DeSugar) _lombokEqualsAndHashCode(elem *model.CodeElement, node *sitter
 				Modifiers:   []string{"public"},
 				Annotations: make([]string, 0),
 				Mores: map[string]interface{}{
-					MethodIsLombokGenerated: true,
-					LombokAnnotationType:    "EqualsAndHashCode",
-					MethodReturnType:        "int",
+					constants.MethodIsLombokGenerated: true,
+					constants.LombokAnnotationType:    "EqualsAndHashCode",
+					constants.MethodReturnType:        "int",
 				},
 			},
 			IsFormSugar: true,
@@ -424,10 +425,10 @@ func (c *DeSugar) _lombokEqualsAndHashCode(elem *model.CodeElement, node *sitter
 				Modifiers:   []string{"protected"},
 				Annotations: make([]string, 0),
 				Mores: map[string]interface{}{
-					MethodIsLombokGenerated: true,
-					LombokAnnotationType:    "EqualsAndHashCode",
-					MethodReturnType:        "boolean",
-					MethodParameters:        []string{"Object obj"},
+					constants.MethodIsLombokGenerated: true,
+					constants.LombokAnnotationType:    "EqualsAndHashCode",
+					constants.MethodReturnType:        "boolean",
+					constants.MethodParameters:        []string{"Object obj"},
 				},
 			},
 			IsFormSugar: true,
@@ -456,9 +457,9 @@ func (c *DeSugar) _lombokNoArgsConstructor(elem *model.CodeElement, node *sitter
 			Modifiers:   []string{"public"},
 			Annotations: make([]string, 0),
 			Mores: map[string]interface{}{
-				MethodIsConstructor:     true,
-				MethodIsLombokGenerated: true,
-				LombokAnnotationType:    "NoArgsConstructor",
+				constants.MethodIsConstructor:     true,
+				constants.MethodIsLombokGenerated: true,
+				constants.LombokAnnotationType:    "NoArgsConstructor",
 			},
 		},
 		IsFormSugar: true,
@@ -473,7 +474,7 @@ func (c *DeSugar) _lombokAllArgsConstructor(elem *model.CodeElement, node *sitte
 	// 过滤掉static字段
 	var nonStaticFields []*core.DefinitionEntry
 	for _, field := range fields {
-		isStatic, _ := field.Element.Extra.Mores[FieldIsStatic].(bool)
+		isStatic, _ := field.Element.Extra.Mores[constants.FieldIsStatic].(bool)
 		if !isStatic {
 			nonStaticFields = append(nonStaticFields, field)
 		}
@@ -487,7 +488,7 @@ func (c *DeSugar) _lombokAllArgsConstructor(elem *model.CodeElement, node *sitte
 	var paramNames []string
 	var paramStrings []string
 	for _, field := range nonStaticFields {
-		fieldType, _ := field.Element.Extra.Mores[FieldRawType].(string)
+		fieldType, _ := field.Element.Extra.Mores[constants.FieldRawType].(string)
 		paramType := strings.TrimSpace(strings.Split(fieldType, "<")[0])
 		paramTypes = append(paramTypes, paramType)
 		paramNames = append(paramNames, field.Element.Name)
@@ -513,10 +514,10 @@ func (c *DeSugar) _lombokAllArgsConstructor(elem *model.CodeElement, node *sitte
 			Modifiers:   []string{"public"},
 			Annotations: make([]string, 0),
 			Mores: map[string]interface{}{
-				MethodIsConstructor:     true,
-				MethodIsLombokGenerated: true,
-				LombokAnnotationType:    "AllArgsConstructor",
-				MethodParameters:        paramStrings,
+				constants.MethodIsConstructor:     true,
+				constants.MethodIsLombokGenerated: true,
+				constants.LombokAnnotationType:    "AllArgsConstructor",
+				constants.MethodParameters:        paramStrings,
 			},
 		},
 		IsFormSugar: true,
@@ -531,8 +532,8 @@ func (c *DeSugar) _lombokRequiredArgsConstructor(elem *model.CodeElement, node *
 	// 只收集final且非static的字段
 	var finalFields []*core.DefinitionEntry
 	for _, field := range fields {
-		isStatic, _ := field.Element.Extra.Mores[FieldIsStatic].(bool)
-		isFinal, _ := field.Element.Extra.Mores[FieldIsFinal].(bool)
+		isStatic, _ := field.Element.Extra.Mores[constants.FieldIsStatic].(bool)
+		isFinal, _ := field.Element.Extra.Mores[constants.FieldIsFinal].(bool)
 		if !isStatic && isFinal {
 			finalFields = append(finalFields, field)
 		}
@@ -546,7 +547,7 @@ func (c *DeSugar) _lombokRequiredArgsConstructor(elem *model.CodeElement, node *
 	var paramNames []string
 	var paramStrings []string
 	for _, field := range finalFields {
-		fieldType, _ := field.Element.Extra.Mores[FieldRawType].(string)
+		fieldType, _ := field.Element.Extra.Mores[constants.FieldRawType].(string)
 		paramType := strings.TrimSpace(strings.Split(fieldType, "<")[0])
 		paramTypes = append(paramTypes, paramType)
 		paramNames = append(paramNames, field.Element.Name)
@@ -572,10 +573,10 @@ func (c *DeSugar) _lombokRequiredArgsConstructor(elem *model.CodeElement, node *
 			Modifiers:   []string{"public"},
 			Annotations: make([]string, 0),
 			Mores: map[string]interface{}{
-				MethodIsConstructor:     true,
-				MethodIsLombokGenerated: true,
-				LombokAnnotationType:    "RequiredArgsConstructor",
-				MethodParameters:        paramStrings,
+				constants.MethodIsConstructor:     true,
+				constants.MethodIsLombokGenerated: true,
+				constants.LombokAnnotationType:    "RequiredArgsConstructor",
+				constants.MethodParameters:        paramStrings,
 			},
 		},
 		IsFormSugar: true,
@@ -610,7 +611,7 @@ func (c *DeSugar) _lombokBuilder(elem *model.CodeElement, node *sitter.Node, fCt
 	// 过滤掉static字段
 	var nonStaticFields []*core.DefinitionEntry
 	for _, field := range fields {
-		isStatic, _ := field.Element.Extra.Mores[FieldIsStatic].(bool)
+		isStatic, _ := field.Element.Extra.Mores[constants.FieldIsStatic].(bool)
 		if !isStatic {
 			nonStaticFields = append(nonStaticFields, field)
 		}
@@ -632,9 +633,9 @@ func (c *DeSugar) _lombokBuilder(elem *model.CodeElement, node *sitter.Node, fCt
 				Modifiers:   []string{"public", "static"},
 				Annotations: make([]string, 0),
 				Mores: map[string]interface{}{
-					FieldIsStatic:           false,
-					MethodIsLombokGenerated: true,
-					LombokAnnotationType:    "Builder",
+					constants.FieldIsStatic:           false,
+					constants.MethodIsLombokGenerated: true,
+					constants.LombokAnnotationType:    "Builder",
 				},
 			},
 			IsFormSugar: true,
@@ -656,9 +657,9 @@ func (c *DeSugar) _lombokBuilder(elem *model.CodeElement, node *sitter.Node, fCt
 				Modifiers:   []string{"public", "static"},
 				Annotations: make([]string, 0),
 				Mores: map[string]interface{}{
-					MethodIsLombokGenerated: true,
-					LombokAnnotationType:    "Builder",
-					MethodReturnType:        builderClassName,
+					constants.MethodIsLombokGenerated: true,
+					constants.LombokAnnotationType:    "Builder",
+					constants.MethodReturnType:        builderClassName,
 				},
 			},
 			IsFormSugar: true,
@@ -668,7 +669,7 @@ func (c *DeSugar) _lombokBuilder(elem *model.CodeElement, node *sitter.Node, fCt
 	// 3. 在Builder类中生成链式setter方法
 	for _, field := range nonStaticFields {
 		fieldName := field.Element.Name
-		fieldType, _ := field.Element.Extra.Mores[FieldRawType].(string)
+		fieldType, _ := field.Element.Extra.Mores[constants.FieldRawType].(string)
 
 		setterQN := c.resolver.BuildQualifiedName(builderQN, fieldName+"("+fieldType+")")
 		if _, ok := fCtx.FindByQualifiedName(setterQN); !ok {
@@ -683,10 +684,10 @@ func (c *DeSugar) _lombokBuilder(elem *model.CodeElement, node *sitter.Node, fCt
 					Modifiers:   []string{"public"},
 					Annotations: make([]string, 0),
 					Mores: map[string]interface{}{
-						MethodIsLombokGenerated: true,
-						LombokAnnotationType:    "Builder",
-						MethodReturnType:        builderClassName,
-						MethodParameters:        []string{fieldType + " " + fieldName},
+						constants.MethodIsLombokGenerated: true,
+						constants.LombokAnnotationType:    "Builder",
+						constants.MethodReturnType:        builderClassName,
+						constants.MethodParameters:        []string{fieldType + " " + fieldName},
 					},
 				},
 				IsFormSugar: true,
@@ -708,9 +709,9 @@ func (c *DeSugar) _lombokBuilder(elem *model.CodeElement, node *sitter.Node, fCt
 				Modifiers:   []string{"public"},
 				Annotations: make([]string, 0),
 				Mores: map[string]interface{}{
-					MethodIsLombokGenerated: true,
-					LombokAnnotationType:    "Builder",
-					MethodReturnType:        elem.Name,
+					constants.MethodIsLombokGenerated: true,
+					constants.LombokAnnotationType:    "Builder",
+					constants.MethodReturnType:        elem.Name,
 				},
 			},
 			IsFormSugar: true,
@@ -732,10 +733,10 @@ func (c *DeSugar) _lombokBuilder(elem *model.CodeElement, node *sitter.Node, fCt
 				Modifiers:   []string{"private"},
 				Annotations: make([]string, 0),
 				Mores: map[string]interface{}{
-					MethodIsConstructor:     true,
-					MethodIsLombokGenerated: true,
-					LombokAnnotationType:    "Builder",
-					MethodParameters:        []string{builderClassName + " " + builderParam},
+					constants.MethodIsConstructor:     true,
+					constants.MethodIsLombokGenerated: true,
+					constants.LombokAnnotationType:    "Builder",
+					constants.MethodParameters:        []string{builderClassName + " " + builderParam},
 				},
 			},
 			IsFormSugar: true,

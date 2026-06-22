@@ -7,6 +7,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
 	"github.com/stretchr/testify/assert"
 )
@@ -41,9 +42,9 @@ func TestJavaExtractor_Use(t *testing.T) {
 			sourceQN: methodQN,
 			targetQN: methodQN + ".local",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "identifier", m[java.RelAstKind])
-				assert.Equal(t, "local + 2", m[java.RelRawText])
-				assert.Equal(t, "binary_expression", m[java.RelContext])
+				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "local + 2", m[constants.RelRawText])
+				assert.Equal(t, "binary_expression", m[constants.RelContext])
 			},
 		},
 		{
@@ -51,9 +52,9 @@ func TestJavaExtractor_Use(t *testing.T) {
 			sourceQN: methodQN,
 			targetQN: baseQN + ".fieldVar",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "this", m[java.RelUseReceiver])
-				assert.Equal(t, "this.fieldVar", m[java.RelRawText])
-				assert.Equal(t, "field_access", m[java.RelContext])
+				assert.Equal(t, "this", m[constants.RelUseReceiver])
+				assert.Equal(t, "this.fieldVar", m[constants.RelRawText])
+				assert.Equal(t, "field_access", m[constants.RelContext])
 			},
 		},
 		{
@@ -62,8 +63,8 @@ func TestJavaExtractor_Use(t *testing.T) {
 			targetQN: methodQN + ".param",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				// 实际结果显示提取了整个二元表达式文本
-				assert.Equal(t, "fieldVar + param", m[java.RelRawText])
-				assert.Equal(t, "binary_expression", m[java.RelContext])
+				assert.Equal(t, "fieldVar + param", m[constants.RelRawText])
+				assert.Equal(t, "binary_expression", m[constants.RelContext])
 			},
 		},
 		{
@@ -72,8 +73,8 @@ func TestJavaExtractor_Use(t *testing.T) {
 			targetQN: baseQN + ".CONSTANT",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				// 实际结果显示保留了类名限定符
-				assert.Equal(t, "UseRelationSuite.CONSTANT", m[java.RelRawText])
-				assert.Equal(t, "field_access", m[java.RelContext])
+				assert.Equal(t, "UseRelationSuite.CONSTANT", m[constants.RelRawText])
+				assert.Equal(t, "field_access", m[constants.RelContext])
 			},
 		},
 		{
@@ -81,8 +82,8 @@ func TestJavaExtractor_Use(t *testing.T) {
 			sourceQN: methodQN,
 			targetQN: methodQN + ".arr",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "array_access", m[java.RelContext])
-				assert.Equal(t, "arr[0]", m[java.RelRawText])
+				assert.Equal(t, "array_access", m[constants.RelContext])
+				assert.Equal(t, "arr[0]", m[constants.RelRawText])
 			},
 		},
 		{
@@ -90,9 +91,9 @@ func TestJavaExtractor_Use(t *testing.T) {
 			sourceQN: methodQN,
 			targetQN: methodQN + ".list",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "enhanced_for_statement", m[java.RelContext])
+				assert.Equal(t, "enhanced_for_statement", m[constants.RelContext])
 				// 实际结果显示提取了整个 for 循环头/块
-				assert.Contains(t, m[java.RelRawText].(string), "for (String item : list)")
+				assert.Contains(t, m[constants.RelRawText].(string), "for (String item : list)")
 			},
 		},
 		{
@@ -102,11 +103,11 @@ func TestJavaExtractor_Use(t *testing.T) {
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				// 注意：如果此处报错，请核对 java.RelUseIsCapture 的字符串定义
 				// 实际结果中显示该项为 <nil>，可能需要检查 Extractor 是否正确 Set 了该值
-				if m[java.RelUseIsCapture] != nil {
-					assert.Equal(t, true, m[java.RelUseIsCapture])
+				if m[constants.RelUseIsCapture] != nil {
+					assert.Equal(t, true, m[constants.RelUseIsCapture])
 				}
-				assert.Equal(t, "System.out.println(fieldVar);", m[java.RelRawText])
-				assert.Equal(t, "expression_statement", m[java.RelContext])
+				assert.Equal(t, "System.out.println(fieldVar);", m[constants.RelRawText])
+				assert.Equal(t, "expression_statement", m[constants.RelContext])
 			},
 		},
 		{
@@ -114,9 +115,9 @@ func TestJavaExtractor_Use(t *testing.T) {
 			sourceQN: methodQN,
 			targetQN: methodQN + ".obj",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "cast_expression", m[java.RelContext])
+				assert.Equal(t, "cast_expression", m[constants.RelContext])
 				// 实际结果显示包含了强转符号
-				assert.Equal(t, "(String) obj", m[java.RelRawText])
+				assert.Equal(t, "(String) obj", m[constants.RelRawText])
 			},
 		},
 	}
@@ -136,10 +137,10 @@ func TestJavaExtractor_Use(t *testing.T) {
 
 						// 额外的约束校验：确保 Key 符合规范
 						for k := range rel.Mores {
-							isAllowed := k == java.RelRawText ||
-								k == java.RelAstKind ||
-								k == java.RelContext ||
-								k == java.RelUseIsCapture || // 确保包含 capture 键
+							isAllowed := k == constants.RelRawText ||
+								k == constants.RelAstKind ||
+								k == constants.RelContext ||
+								k == constants.RelUseIsCapture || // 确保包含 capture 键
 								strings.HasPrefix(k, "java.rel.use.")
 							assert.True(t, isAllowed, "Forbidden Mores key found: %s", k)
 						}

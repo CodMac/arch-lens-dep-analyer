@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
 )
 
@@ -38,7 +39,7 @@ func TestJavaCollector_NotificationException(t *testing.T) {
 		elem := defs[0].Element
 
 		// 验证 SuperClass 字段 (对应 java.class.superclass)
-		super, ok := elem.Extra.Mores[java.ClassSuperClass].(string)
+		super, ok := elem.Extra.Mores[constants.ClassSuperClass].(string)
 		if !ok || super != "Exception" {
 			t.Errorf("Expected superclass 'Exception', got '%v'", super)
 		}
@@ -54,12 +55,12 @@ func TestJavaCollector_NotificationException(t *testing.T) {
 		elem := defs[0].Element
 
 		// 验证常量属性 (static + final)
-		isConstant := elem.Extra.Mores[java.FieldIsConstant].(bool)
+		isConstant := elem.Extra.Mores[constants.FieldIsConstant].(bool)
 		if !isConstant {
 			t.Error("serialVersionUID should be identified as a constant")
 		}
 
-		fieldType := elem.Extra.Mores[java.FieldRawType].(string)
+		fieldType := elem.Extra.Mores[constants.FieldRawType].(string)
 		if fieldType != "long" {
 			t.Errorf("Expected type long, got %s", fieldType)
 		}
@@ -73,7 +74,7 @@ func TestJavaCollector_NotificationException(t *testing.T) {
 		if len(defsA) == 0 {
 			t.Fatalf("Constructor (String, Throwable) not found")
 		}
-		if !defsA[0].Element.Extra.Mores[java.MethodIsConstructor].(bool) {
+		if !defsA[0].Element.Extra.Mores[constants.MethodIsConstructor].(bool) {
 			t.Error("Should be marked as constructor")
 		}
 
@@ -85,7 +86,7 @@ func TestJavaCollector_NotificationException(t *testing.T) {
 		}
 
 		// 验证参数元数据
-		params, _ := defsB[0].Element.Extra.Mores[java.MethodParameters].([]string)
+		params, _ := defsB[0].Element.Extra.Mores[constants.MethodParameters].([]string)
 		if len(params) != 1 || !strings.Contains(params[0], "ErrorCode code") {
 			t.Errorf("Incorrect parameters metadata: %v", params)
 		}

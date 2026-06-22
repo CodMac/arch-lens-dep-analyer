@@ -7,6 +7,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
 )
 
@@ -64,7 +65,7 @@ func TestJavaCollector_AbstractBaseEntity(t *testing.T) {
 			t.Errorf("Expected Kind CLASS, got %s", elem.Kind)
 		}
 
-		if isAbs, ok := elem.Extra.Mores[java.ClassIsAbstract].(bool); !ok || !isAbs {
+		if isAbs, ok := elem.Extra.Mores[constants.ClassIsAbstract].(bool); !ok || !isAbs {
 			t.Error("Expected java.class.is_abstract to be true")
 		}
 
@@ -88,7 +89,7 @@ func TestJavaCollector_AbstractBaseEntity(t *testing.T) {
 			t.Errorf("Expected Field, got %s", elem.Kind)
 		}
 
-		if tpe := elem.Extra.Mores[java.FieldRawType]; tpe != "ID" {
+		if tpe := elem.Extra.Mores[constants.FieldRawType]; tpe != "ID" {
 			t.Errorf("Expected type ID, got %v", tpe)
 		}
 
@@ -106,7 +107,7 @@ func TestJavaCollector_AbstractBaseEntity(t *testing.T) {
 		}
 
 		elem := defs[0].Element
-		if tpe := elem.Extra.Mores[java.FieldRawType]; tpe != "Date" {
+		if tpe := elem.Extra.Mores[constants.FieldRawType]; tpe != "Date" {
 			t.Errorf("Expected type Date, got %v", tpe)
 		}
 
@@ -125,7 +126,7 @@ func TestJavaCollector_AbstractBaseEntity(t *testing.T) {
 		}
 
 		getElem := getDefs[0].Element
-		if ret := getElem.Extra.Mores[java.MethodReturnType]; ret != "ID" {
+		if ret := getElem.Extra.Mores[constants.MethodReturnType]; ret != "ID" {
 			t.Errorf("getId expected return ID, got %v", ret)
 		}
 
@@ -137,7 +138,7 @@ func TestJavaCollector_AbstractBaseEntity(t *testing.T) {
 		}
 
 		setElem := setDefs[0].Element
-		if ret := setElem.Extra.Mores[java.MethodReturnType]; ret != "void" {
+		if ret := setElem.Extra.Mores[constants.MethodReturnType]; ret != "void" {
 			t.Errorf("setId expected return void, got %v", ret)
 		}
 	})
@@ -163,7 +164,7 @@ func TestJavaCollector_AbstractBaseEntity(t *testing.T) {
 		}
 
 		fieldElem := fieldDefs[0].Element
-		if tpe := fieldElem.Extra.Mores[java.FieldRawType]; tpe != "String" {
+		if tpe := fieldElem.Extra.Mores[constants.FieldRawType]; tpe != "String" {
 			t.Errorf("tableName expected String, got %v", tpe)
 		}
 	})
@@ -205,13 +206,13 @@ func TestJavaCollector_BaseClassHierarchy(t *testing.T) {
 		}
 
 		// 断言 2: Abstract 属性与接口
-		if isAbs, ok := elem.Extra.Mores[java.ClassIsAbstract].(bool); !ok || !isAbs {
+		if isAbs, ok := elem.Extra.Mores[constants.ClassIsAbstract].(bool); !ok || !isAbs {
 			t.Error("Expected java.class.is_abstract to be true")
 		}
 
-		interfaces, ok := elem.Extra.Mores[java.ClassImplementedInterfaces].([]string)
+		interfaces, ok := elem.Extra.Mores[constants.ClassImplementedInterfaces].([]string)
 		if !ok || !contains(interfaces, "Serializable") {
-			t.Errorf("Expected Serializable interface, got %v", elem.Extra.Mores[java.ClassImplementedInterfaces])
+			t.Errorf("Expected Serializable interface, got %v", elem.Extra.Mores[constants.ClassImplementedInterfaces])
 		}
 	})
 
@@ -235,18 +236,18 @@ func TestJavaCollector_BaseClassHierarchy(t *testing.T) {
 		}
 
 		// 断言 3: Final 属性
-		if isFinal, ok := elem.Extra.Mores[java.ClassIsFinal].(bool); !ok || !isFinal {
+		if isFinal, ok := elem.Extra.Mores[constants.ClassIsFinal].(bool); !ok || !isFinal {
 			t.Error("Expected java.class.is_final to be true")
 		}
 
 		// 断言 3: 父类验证
-		super, _ := elem.Extra.Mores[java.ClassSuperClass].(string)
+		super, _ := elem.Extra.Mores[constants.ClassSuperClass].(string)
 		if !strings.Contains(super, "BaseClass") {
 			t.Errorf("Expected super class BaseClass, got %q", super)
 		}
 
 		// 断言 3: 多接口验证
-		interfaces, _ := elem.Extra.Mores[java.ClassImplementedInterfaces].([]string)
+		interfaces, _ := elem.Extra.Mores[constants.ClassImplementedInterfaces].([]string)
 		if len(interfaces) < 2 || !contains(interfaces, "Cloneable") || !contains(interfaces, "Runnable") {
 			t.Errorf("Expected multiple interfaces (Cloneable, Runnable), got %v", interfaces)
 		}
@@ -305,7 +306,7 @@ func TestJavaCollector_CallbackManager(t *testing.T) {
 		if len(methodDefs) == 0 {
 			t.Errorf("Method isValid() not found in local class")
 		}
-		if methodDefs[0].Element.Extra.Mores[java.MethodParameters] != nil {
+		if methodDefs[0].Element.Extra.Mores[constants.MethodParameters] != nil {
 			t.Errorf("Method isValid() found params")
 		}
 	})
@@ -319,7 +320,7 @@ func TestJavaCollector_CallbackManager(t *testing.T) {
 		}
 
 		elem := defs[0].Element
-		if tpe := elem.Extra.Mores[java.VariableRawType]; tpe != "Runnable" {
+		if tpe := elem.Extra.Mores[constants.VariableRawType]; tpe != "Runnable" {
 			t.Errorf("Expected type Runnable, got %v", tpe)
 		}
 	})
@@ -370,7 +371,7 @@ func TestJavaCollector_ConfigService(t *testing.T) {
 		}
 
 		elem := defs[0].Element
-		params, ok := elem.Extra.Mores[java.MethodParameters].([]string)
+		params, ok := elem.Extra.Mores[constants.MethodParameters].([]string)
 		if !ok || len(params) != 2 {
 			t.Fatalf("Expected 2 parameters, got %v", params)
 		}
@@ -437,7 +438,7 @@ func TestJavaCollector_ConfigService(t *testing.T) {
 		}
 
 		vElem := vDefs[0].Element
-		if tpe := vElem.Extra.Mores[java.VariableRawType]; tpe != "Object..." {
+		if tpe := vElem.Extra.Mores[constants.VariableRawType]; tpe != "Object..." {
 			t.Errorf("Expected type Object..., got %v", tpe)
 		}
 	})
@@ -471,7 +472,7 @@ func TestJavaCollector_DataProcessor(t *testing.T) {
 
 		elem := defs[0].Element
 		// 验证接口继承
-		ifaces, _ := elem.Extra.Mores[java.InterfaceImplementedInterfaces].([]string)
+		ifaces, _ := elem.Extra.Mores[constants.InterfaceImplementedInterfaces].([]string)
 		expectedIfaces := []string{"Runnable", "AutoCloseable"}
 		for _, expected := range expectedIfaces {
 			if !contains(ifaces, expected) {
@@ -495,7 +496,7 @@ func TestJavaCollector_DataProcessor(t *testing.T) {
 		}
 
 		elem := defs[0].Element
-		throws, _ := elem.Extra.Mores[java.MethodThrowsTypes].([]string)
+		throws, _ := elem.Extra.Mores[constants.MethodThrowsTypes].([]string)
 
 		expectedThrows := []string{"RuntimeException", "Exception"}
 		if len(throws) != 2 {
@@ -574,10 +575,10 @@ func TestJavaCollector_User(t *testing.T) {
 		elem := defs[0].Element
 
 		// 验证元数据中的常量标记
-		if isConst, _ := elem.Extra.Mores[java.FieldIsConstant].(bool); !isConst {
+		if isConst, _ := elem.Extra.Mores[constants.FieldIsConstant].(bool); !isConst {
 			t.Error("DEFAULT_ID should be identified as a Constant (static + final)")
 		}
-		if fType := elem.Extra.Mores[java.FieldRawType].(string); fType != "String" {
+		if fType := elem.Extra.Mores[constants.FieldRawType].(string); fType != "String" {
 			t.Errorf("Expected field type String, got %s", fType)
 		}
 	})
@@ -661,12 +662,12 @@ func TestJavaCollector_UserServiceImpl(t *testing.T) {
 		}
 
 		// 验证泛型父类
-		if super := elem.Extra.Mores[java.ClassSuperClass].(string); super != "AbstractBaseEntity<String>" {
+		if super := elem.Extra.Mores[constants.ClassSuperClass].(string); super != "AbstractBaseEntity<String>" {
 			t.Errorf("Expected superclass AbstractBaseEntity<String>, got %s", super)
 		}
 
 		// 验证泛型接口实现 (DataProcessor<AbstractBaseEntity<String>>)
-		ifaces, ok := elem.Extra.Mores[java.ClassImplementedInterfaces].([]string)
+		ifaces, ok := elem.Extra.Mores[constants.ClassImplementedInterfaces].([]string)
 		if !ok || !contains(ifaces, "DataProcessor<AbstractBaseEntity<String>>") {
 			t.Errorf("Expected interface DataProcessor<AbstractBaseEntity<String>> in %v", ifaces)
 		}
@@ -688,12 +689,12 @@ func TestJavaCollector_UserServiceImpl(t *testing.T) {
 		elem := defs[0].Element
 
 		// 验证泛型返回值
-		if ret := elem.Extra.Mores[java.MethodReturnType].(string); ret != "List<AbstractBaseEntity<String>>" {
+		if ret := elem.Extra.Mores[constants.MethodReturnType].(string); ret != "List<AbstractBaseEntity<String>>" {
 			t.Errorf("Expected return type List<AbstractBaseEntity<String>>, got %s", ret)
 		}
 
 		// 验证 Throws 声明
-		throws, ok := elem.Extra.Mores[java.MethodThrowsTypes].([]string)
+		throws, ok := elem.Extra.Mores[constants.MethodThrowsTypes].([]string)
 		if !ok || !contains(throws, "RuntimeException") {
 			t.Errorf("Expected throws RuntimeException, got %v", throws)
 		}
@@ -717,7 +718,7 @@ func TestJavaCollector_UserServiceImpl(t *testing.T) {
 		if len(rDefs) == 0 {
 			t.Errorf("Local variable 'results' not found with QN: %s", resultsQN)
 		} else {
-			vType := rDefs[0].Element.Extra.Mores[java.VariableRawType].(string)
+			vType := rDefs[0].Element.Extra.Mores[constants.VariableRawType].(string)
 			if vType != "List<AbstractBaseEntity<String>>" {
 				t.Errorf("Incorrect type for results: %s", vType)
 			}
@@ -729,7 +730,7 @@ func TestJavaCollector_UserServiceImpl(t *testing.T) {
 		if len(cDefs) == 0 {
 			t.Errorf("Local variable 'converted' not found")
 		} else {
-			vType := cDefs[0].Element.Extra.Mores[java.VariableRawType].(string)
+			vType := cDefs[0].Element.Extra.Mores[constants.VariableRawType].(string)
 			if vType != "String" {
 				t.Errorf("Expected type String for 'converted', got %s", vType)
 			}
@@ -746,7 +747,7 @@ func TestJavaCollector_UserServiceImpl(t *testing.T) {
 		}
 
 		elem := defs[0].Element
-		if !elem.Extra.Mores[java.MethodIsConstructor].(bool) {
+		if !elem.Extra.Mores[constants.MethodIsConstructor].(bool) {
 			t.Error("Should be identified as a constructor")
 		}
 	})

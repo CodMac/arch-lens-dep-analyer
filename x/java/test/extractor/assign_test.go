@@ -8,6 +8,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
 	"github.com/stretchr/testify/assert"
 )
@@ -38,10 +39,10 @@ func TestJavaExtractor_Assign(t *testing.T) {
 			sourceMatch: "AssignRelationSuite.count",
 			targetMatch: "count",
 			matchMores: func(m map[string]interface{}) bool {
-				return m[java.RelAssignIsInitializer] == true
+				return m[constants.RelAssignIsInitializer] == true
 			},
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "0", m[java.RelAssignValueExpression])
+				assert.Equal(t, "0", m[constants.RelAssignValueExpression])
 			},
 		},
 		// 2. 静态块赋值
@@ -49,7 +50,7 @@ func TestJavaExtractor_Assign(t *testing.T) {
 			sourceMatch: "$static$1",
 			targetMatch: "status",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "\"INIT\"", m[java.RelAssignValueExpression])
+				assert.Equal(t, "\"INIT\"", m[constants.RelAssignValueExpression])
 			},
 		},
 		// 3. 局部变量基础赋值
@@ -57,7 +58,7 @@ func TestJavaExtractor_Assign(t *testing.T) {
 			sourceMatch: "testAssignments(int)",
 			targetMatch: "local",
 			matchMores: func(m map[string]interface{}) bool {
-				return m[java.RelAssignIsInitializer] == true
+				return m[constants.RelAssignIsInitializer] == true
 			},
 		},
 		// 6. 链式赋值 (b)
@@ -65,7 +66,7 @@ func TestJavaExtractor_Assign(t *testing.T) {
 			sourceMatch: "testAssignments(int)",
 			targetMatch: "b",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "c = 50", m[java.RelAssignValueExpression])
+				assert.Equal(t, "c = 50", m[constants.RelAssignValueExpression])
 			},
 		},
 		// 8. 数组元素赋值 (Target 应该是数组变量名)
@@ -73,7 +74,7 @@ func TestJavaExtractor_Assign(t *testing.T) {
 			sourceMatch: "testAssignments(int)",
 			targetMatch: "arr",
 			matchMores: func(m map[string]interface{}) bool {
-				return strings.Contains(fmt.Sprintf("%v", m[java.RelRawText]), "arr[0]")
+				return strings.Contains(fmt.Sprintf("%v", m[constants.RelRawText]), "arr[0]")
 			},
 		},
 		// 9. Lambda 内部赋值
@@ -81,7 +82,7 @@ func TestJavaExtractor_Assign(t *testing.T) {
 			sourceMatch: "lambda$1",
 			targetMatch: "count",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "300", m[java.RelAssignValueExpression])
+				assert.Equal(t, "300", m[constants.RelAssignValueExpression])
 			},
 		},
 	}
@@ -145,7 +146,7 @@ func TestJavaExtractor_AssignClass(t *testing.T) {
 			targetName: "com.example.rel.AssignRelationForClassSuite.count",
 			value:      "0",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, true, m[java.RelAssignIsInitializer])
+				assert.Equal(t, true, m[constants.RelAssignIsInitializer])
 			},
 		},
 		// 1. 局部变量初始化 (local = 10)
@@ -155,7 +156,7 @@ func TestJavaExtractor_AssignClass(t *testing.T) {
 			targetName: "com.example.rel.AssignRelationForClassSuite.testAssignments(int).local",
 			value:      "10",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, true, m[java.RelAssignIsInitializer])
+				assert.Equal(t, true, m[constants.RelAssignIsInitializer])
 			},
 		},
 		// 2. 隐式 this 字段赋值 (count += 5)
@@ -164,8 +165,8 @@ func TestJavaExtractor_AssignClass(t *testing.T) {
 			targetName: "com.example.rel.AssignRelationForClassSuite.count",
 			value:      "5",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "+=", m[java.RelAssignOperator])
-				assert.Equal(t, "this", m[java.RelAssignReceiver])
+				assert.Equal(t, "+=", m[constants.RelAssignOperator])
+				assert.Equal(t, "this", m[constants.RelAssignReceiver])
 			},
 		},
 		// 3. 显式 this 字段赋值 (this.count = 100)
@@ -174,7 +175,7 @@ func TestJavaExtractor_AssignClass(t *testing.T) {
 			targetName: "com.example.rel.AssignRelationForClassSuite.count",
 			value:      "100",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "this", m[java.RelAssignReceiver])
+				assert.Equal(t, "this", m[constants.RelAssignReceiver])
 			},
 		},
 		// 4. 静态字段赋值 (AssignRelationForClassSuite.TAG = "UPDATED")
@@ -183,7 +184,7 @@ func TestJavaExtractor_AssignClass(t *testing.T) {
 			targetName: "com.example.rel.AssignRelationForClassSuite.TAG",
 			value:      "\"UPDATED\"",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "AssignRelationForClassSuite", m[java.RelAssignReceiver])
+				assert.Equal(t, "AssignRelationForClassSuite", m[constants.RelAssignReceiver])
 			},
 		},
 		// 5. 跨对象字段赋值 (node.name = "NewName")
@@ -193,7 +194,7 @@ func TestJavaExtractor_AssignClass(t *testing.T) {
 			targetName: "com.example.rel.AssignRelationForClassSuite.DataNode.name",
 			value:      "\"NewName\"",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "node", m[java.RelAssignReceiver])
+				assert.Equal(t, "node", m[constants.RelAssignReceiver])
 			},
 		},
 		// 6. 参数二次赋值 (param = 200)
@@ -202,7 +203,7 @@ func TestJavaExtractor_AssignClass(t *testing.T) {
 			targetName: "com.example.rel.AssignRelationForClassSuite.testAssignments(int).param",
 			value:      "200",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, false, m[java.RelAssignIsInitializer])
+				assert.Equal(t, false, m[constants.RelAssignIsInitializer])
 			},
 		},
 	}
@@ -210,7 +211,7 @@ func TestJavaExtractor_AssignClass(t *testing.T) {
 	for _, exp := range expectedRels {
 		found := false
 		for _, rel := range allRelations {
-			relValue, _ := rel.Mores[java.RelAssignValueExpression].(string)
+			relValue, _ := rel.Mores[constants.RelAssignValueExpression].(string)
 
 			// 匹配逻辑：
 			// Source QN 使用 strings.Contains (防止由于空格等引起的微小不一致)
@@ -260,8 +261,8 @@ func TestJavaExtractor_AssignDataFlow(t *testing.T) {
 			targetName: "data",
 			value:      "\"CONST\"",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "identifier", m[java.RelAstKind])
-				assert.Equal(t, "=", m[java.RelAssignOperator])
+				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "=", m[constants.RelAssignOperator])
 			},
 		},
 		// --- 2. 返回值流向 (Object localObj = fetch()) ---
@@ -270,8 +271,8 @@ func TestJavaExtractor_AssignDataFlow(t *testing.T) {
 			targetName: "localObj",
 			value:      "fetch()",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "identifier", m[java.RelAstKind])
-				assert.Equal(t, true, m[java.RelAssignIsInitializer])
+				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, true, m[constants.RelAssignIsInitializer])
 			},
 		},
 		// --- 3. 转换流向 (String msg = (String) localObj) ---
@@ -280,9 +281,9 @@ func TestJavaExtractor_AssignDataFlow(t *testing.T) {
 			targetName: "msg",
 			value:      "(String) localObj",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "identifier", m[java.RelAstKind])
-				assert.Equal(t, true, m[java.RelAssignIsInitializer])
-				assert.Equal(t, "msg", m[java.RelAssignTargetName])
+				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, true, m[constants.RelAssignIsInitializer])
+				assert.Equal(t, "msg", m[constants.RelAssignTargetName])
 			},
 		},
 	}
@@ -292,7 +293,7 @@ func TestJavaExtractor_AssignDataFlow(t *testing.T) {
 		found := false
 		for _, rel := range allRelations {
 			// 获取当前关系的 ValueExpression 以便精确定位
-			relValue, _ := rel.Mores[java.RelAssignValueExpression].(string)
+			relValue, _ := rel.Mores[constants.RelAssignValueExpression].(string)
 
 			// 匹配 ASSIGN 类型，且 Source QN、Target Name 和 Value 对齐
 			if rel.Type == model.Assign &&

@@ -6,6 +6,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
 )
 
@@ -55,7 +56,7 @@ func TestJavaCollector_AnonymousAndNested(t *testing.T) {
 			t.Fatalf("Inner class not found")
 		}
 
-		isStatic := defs[0].Element.Extra.Mores[java.ClassIsStatic].(bool)
+		isStatic := defs[0].Element.Extra.Mores[constants.ClassIsStatic].(bool)
 		if !isStatic {
 			t.Errorf("Expected Inner class to be static")
 		}
