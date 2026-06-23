@@ -36,13 +36,6 @@ func IsPotentialClassName(s string) bool {
 	return false
 }
 
-func GetNodeContent(n *sitter.Node, src []byte) string {
-	if n == nil {
-		return ""
-	}
-	return n.Utf8Text(src)
-}
-
 func Contains(s []string, str string) bool {
 	for _, v := range s {
 		if v == str {
@@ -71,6 +64,13 @@ func Clean(s string) string {
 // =============================================================================
 // tree-sitter 节点相关
 // =============================================================================
+
+func GetNodeContent(n *sitter.Node, src []byte) string {
+	if n == nil {
+		return ""
+	}
+	return n.Utf8Text(src)
+}
 
 func FindNamedChildOfType(n *sitter.Node, nodeType string) *sitter.Node {
 	for i := 0; i < int(n.NamedChildCount()); i++ {

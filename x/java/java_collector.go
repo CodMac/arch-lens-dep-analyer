@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/enricher/ele"
+
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/desugar"
@@ -156,10 +158,10 @@ func (c *Collector) refineVariableScopes(fCtx *core.FileContext) {
 }
 
 func (c *Collector) enrichMetadata(fCtx *core.FileContext) {
-	enricher := EleMetadataEnricher{fCtx: fCtx}
+	enricher := ele.NewEnricher(fCtx)
 
 	for _, entry := range fCtx.Definitions {
-		enricher.ProcessMetadataForEntry(entry)
+		enricher.EnrichMetadata(entry)
 	}
 }
 

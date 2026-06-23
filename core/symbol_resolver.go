@@ -14,15 +14,21 @@ type SymbolResolver interface {
 	// (Java 用 ".", C++ 用 "::")
 	BuildQualifiedName(parentQN, name string) string
 
-	// Resolve 具体的解析逻辑：处理局部、导入、通配符等逻辑
-	Resolve(gc *GlobalContext, fc *FileContext, node *sitter.Node, receiver, symbol string, kind model.ElementKind) *model.CodeElement
-
 	// RegisterPackage 注册包/命名空间逻辑
 	// (Java 需要拆分点号，Go 只需要单层)
 	RegisterPackage(gc *GlobalContext, packageName string)
 
 	// IsPrimitive 是否为基础类型
 	IsPrimitive(t string) bool
+
+	// ResolveType 解析结构体符号(Package、Class、Interface、AnonymousClass、Enum......), 如果上下文没找到，则返回kind类型的外部实体
+	ResolveType(gc *GlobalContext, fc *FileContext, symbol string, kind model.ElementKind) *model.CodeElement
+
+	// ResolveFunc 解析方法符号(Method、MethodRef)
+	ResolveFunc(gc *GlobalContext, fc *FileContext, node *sitter.Node, receiver, symbol string) *model.CodeElement
+
+	// ResolveVar 解析变量符号(Field、Variable)
+	ResolveVar(gc *GlobalContext, fc *FileContext, node *sitter.Node, receiver, symbol string) *model.CodeElement
 }
 
 var symbolResolverMap = make(map[Language]SymbolResolver)

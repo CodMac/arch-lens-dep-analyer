@@ -91,7 +91,7 @@ func (ccr *ChainedCallResolver) reResolveCallWithChainedReceiver(rel *model.Depe
 
 	// 使用正确的receiver类型重新解析目标方法
 	methodName := rel.Target.Name
-	newTarget := ccr.resolver.Resolve(ccr.gCtx, ccr.fCtx, node, receiverTypeQN, methodName, model.Method)
+	newTarget := ccr.resolver.ResolveFunc(ccr.gCtx, ccr.fCtx, node, receiverTypeQN, methodName)
 
 	if newTarget != nil {
 		rel.Target = newTarget
@@ -258,7 +258,7 @@ func (ccr *ChainedCallResolver) resolveObjectCreationExpression(expr string) str
 	}
 
 	// 解析类型
-	if typeEle := ccr.resolver.Resolve(ccr.gCtx, ccr.fCtx, nil, "", typeName, model.Class); typeEle != nil {
+	if typeEle := ccr.resolver.ResolveType(ccr.gCtx, ccr.fCtx, typeName, model.Class); typeEle != nil {
 		return typeEle.QualifiedName
 	}
 
@@ -287,7 +287,7 @@ func (ccr *ChainedCallResolver) resolveSimpleReceiver(receiverExpr string) strin
 	}
 
 	// 尝试解析为类名（静态调用）
-	if typeEle := ccr.resolver.Resolve(ccr.gCtx, ccr.fCtx, nil, "", receiverExpr, model.Class); typeEle != nil {
+	if typeEle := ccr.resolver.ResolveType(ccr.gCtx, ccr.fCtx, receiverExpr, model.Class); typeEle != nil {
 		return typeEle.QualifiedName
 	}
 
@@ -305,7 +305,7 @@ func (ccr *ChainedCallResolver) _resolveVariableType(varName string) string {
 						return typeQN
 					}
 					if rawType, ok := entry.Element.Extra.Mores[constants.VariableRawType].(string); ok {
-						if typeEle := ccr.resolver.Resolve(ccr.gCtx, ccr.fCtx, nil, "", rawType, model.Class); typeEle != nil {
+						if typeEle := ccr.resolver.ResolveType(ccr.gCtx, ccr.fCtx, rawType, model.Class); typeEle != nil {
 							return typeEle.QualifiedName
 						}
 						return rawType

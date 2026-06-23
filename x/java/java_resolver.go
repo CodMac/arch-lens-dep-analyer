@@ -18,9 +18,10 @@ func NewJavaSymbolResolver() *SymbolResolver {
 }
 
 // =============================================================================
-// 1. 基础接口实现 (Basic Interface)
+// 接口实现
 // =============================================================================
 
+// BuildQualifiedName 根据父节点和当前名构建 QN
 func (j *SymbolResolver) BuildQualifiedName(parentQN, name string) string {
 	if parentQN == "" || parentQN == "." {
 		return name
@@ -28,6 +29,7 @@ func (j *SymbolResolver) BuildQualifiedName(parentQN, name string) string {
 	return parentQN + "." + name
 }
 
+// RegisterPackage 注册包
 func (j *SymbolResolver) RegisterPackage(gc *core.GlobalContext, packageName string) {
 	parts := strings.Split(packageName, ".")
 	var current []string
@@ -43,27 +45,7 @@ func (j *SymbolResolver) RegisterPackage(gc *core.GlobalContext, packageName str
 	}
 }
 
-// Resolve 为外部统一入口
-//
-// kind 为 model.Variable 类型 	-> 必须：node, receiver, symbol
-//
-// kind 为 model.Method 类型 	-> 必须：node, receiver, symbol
-//
-// kind 为 others 类型 			-> 必须：symbol
-func (j *SymbolResolver) Resolve(gc *core.GlobalContext, fc *core.FileContext, node *sitter.Node, receiver, symbol string, kind model.ElementKind) *model.CodeElement {
-	cleanReceiver := helper.Clean(receiver)
-	cleanSymbol := helper.Clean(symbol)
-
-	switch kind {
-	case model.Variable:
-		return j.resolveVariable(gc, fc, node, cleanReceiver, cleanSymbol)
-	case model.Method:
-		return j.resolveMethod(gc, fc, node, cleanReceiver, cleanSymbol)
-	default:
-		return j.resolveStructure(gc, fc, cleanSymbol, kind)
-	}
-}
-
+// IsPrimitive 是否为基础类型
 func (j *SymbolResolver) IsPrimitive(typeName string) bool {
 	switch typeName {
 	case "int", "long", "short", "byte", "char", "boolean", "float", "double":
@@ -72,12 +54,26 @@ func (j *SymbolResolver) IsPrimitive(typeName string) bool {
 	return false
 }
 
-// =============================================================================
-// 2. 核心查找流程 (Core Resolution Flow)
-// =============================================================================
+// ResolveType 解析结构体符号(Package、Class、Interface、AnonymousClass、Enum......), 如果上下文没找到，则返回kind类型的外部实体
+func (j *SymbolResolver) ResolveType(gc *core.GlobalContext, fc *core.FileContext, symbol string, kind model.ElementKind) *model.CodeElement {
+	symbol = helper.Clean(symbol)
 
-// resolveVariable 处理变量查找，支持本地作用域回溯和类成员继承查找
-func (j *SymbolResolver) resolveVariable(gc *core.GlobalContext, fc *core.FileContext, node *sitter.Node, receiver string, symbol string) *model.CodeElement {
+	// 从上下文精确查找符号
+	if entries := j.preciseResolve(gc, fc, symbol); len(entries) > 0 {
+		return entries[0].Element
+	}
+
+	// 找不到明确实体，则尝试根据Imports升级符号，返回一个外部实体
+	qualifiedName := symbol
+	if imps, ok := fc.Imports[symbol]; ok && len(imps) > 0 {
+		qualifiedName = imps[0].RawImportPath
+	}
+	return &model.CodeElement{Name: symbol, QualifiedName: qualifiedName, Kind: kind, IsFormExternal: true}
+}
+
+// ResolveVar 处理变量查找，支持本地作用域回溯和类成员继承查找
+func (j *SymbolResolver) ResolveVar(gc *core.GlobalContext, fc *core.FileContext, node *sitter.Node, receiver string, symbol string) *model.CodeElement {
+	receiver, symbol = helper.Clean(receiver), helper.Clean(symbol)
 	isStatic := false
 
 	if receiver != "" {
@@ -109,7 +105,7 @@ func (j *SymbolResolver) resolveVariable(gc *core.GlobalContext, fc *core.FileCo
 
 		// 场景 C: 跨对象访问 (data.age)
 		// 先解析 receiver 变量本身拿到它的类型
-		receiverEle := j.resolveVariable(gc, fc, node, "", receiver)
+		receiverEle := j.ResolveVar(gc, fc, node, "", receiver)
 		if receiverEle != nil && receiverEle.Extra != nil {
 			if typeQN, ok := receiverEle.Extra.Mores[constants.VariableTypeWithQN].(string); ok {
 				if entries := j.preciseResolve(gc, fc, typeQN); len(entries) > 0 {
@@ -127,12 +123,16 @@ func (j *SymbolResolver) resolveVariable(gc *core.GlobalContext, fc *core.FileCo
 	if container == nil {
 		return nil
 	}
+
 	isStatic = slices.Contains(container.Extra.Modifiers, "static")
 	return j.resolveInScopeHierarchy(gc, fc, container.QualifiedName, symbol, isStatic, container)
 }
 
-// resolveMethod 处理方法查找：容器定位 -> 继承链搜索 -> 重载消解
-func (j *SymbolResolver) resolveMethod(gc *core.GlobalContext, fc *core.FileContext, node *sitter.Node, receiver string, symbol string) *model.CodeElement {
+// ResolveFunc 处理方法查找：容器定位 -> 继承链搜索 -> 重载消解
+func (j *SymbolResolver) ResolveFunc(gc *core.GlobalContext, fc *core.FileContext, node *sitter.Node, receiver string, symbol string) *model.CodeElement {
+	receiver = helper.Clean(receiver)
+	symbol = helper.Clean(symbol)
+
 	var container *model.CodeElement
 	var isStaticCall bool
 
@@ -167,7 +167,7 @@ func (j *SymbolResolver) resolveMethod(gc *core.GlobalContext, fc *core.FileCont
 
 		// 场景 C: 实例变量调用 (obj.method)
 		if container == nil {
-			if recvVar := j.resolveVariable(gc, fc, node, "", receiver); recvVar != nil {
+			if recvVar := j.ResolveVar(gc, fc, node, "", receiver); recvVar != nil {
 				// 利用 Binder 补全的 QN 定位类
 				typeQN, _ := recvVar.Extra.Mores[constants.VariableTypeWithQN].(string)
 				if typeQN == "" {
@@ -218,19 +218,29 @@ func (j *SymbolResolver) resolveMethod(gc *core.GlobalContext, fc *core.FileCont
 	}
 }
 
-// resolveStructure 处理类、接口、包等结构性符号
-func (j *SymbolResolver) resolveStructure(gc *core.GlobalContext, fc *core.FileContext, symbol string, kind model.ElementKind) *model.CodeElement {
-	if entries := j.preciseResolve(gc, fc, symbol); len(entries) > 0 {
-		return entries[0].Element
-	}
+// =============================================================================
+// Java通用解析方法
+// =============================================================================
 
-	// 符号升级
-	qualifiedName := symbol
-	if imps, ok := fc.Imports[symbol]; ok && len(imps) > 0 {
-		qualifiedName = imps[0].RawImportPath
-	}
+// GetPackageForQn 获取QN的包
+func (j *SymbolResolver) GetPackageForQn(qn string, gc *core.GlobalContext) string {
+	curr := qn
+	for {
+		idx := strings.LastIndex(curr, ".")
+		if idx == -1 {
+			return ""
+		}
+		curr = curr[:idx]
 
-	return &model.CodeElement{Name: symbol, QualifiedName: qualifiedName, Kind: kind, IsFormExternal: true}
+		if entry, ok := gc.FindByQualifiedName(curr); ok {
+			if entry.Element.Kind == model.Package {
+				return curr
+			}
+		} else {
+			// 如果全局上下文没找到，继续向上找，直到匹配已知的 Package 模式
+			continue
+		}
+	}
 }
 
 // =============================================================================
@@ -483,7 +493,7 @@ func (j *SymbolResolver) checkVisibility(gc *core.GlobalContext, fc *core.FileCo
 
 	// 4. 包级私有 (Default/Package-Private) 判定
 	// 注意：getPackageFromQN 应该确保拿到真正的 Java Package 名
-	targetPkg := j.getRealJavaPackage(target.Element.QualifiedName, gc)
+	targetPkg := j.GetPackageForQn(target.Element.QualifiedName, gc)
 	if targetPkg == fc.PackageName {
 		return true
 	}
@@ -497,6 +507,7 @@ func (j *SymbolResolver) checkVisibility(gc *core.GlobalContext, fc *core.FileCo
 	return false
 }
 
+// preciseResolve 从上下文精确查找符号
 func (j *SymbolResolver) preciseResolve(gc *core.GlobalContext, fc *core.FileContext, symbol string) []*core.DefinitionEntry {
 	gc.RLock()
 	defer gc.RUnlock()
@@ -580,27 +591,6 @@ func (j *SymbolResolver) getOutermostClassQN(qn string) string {
 		}
 	}
 	return ""
-}
-
-// 从 QN 中剥离出真实的 Package
-func (j *SymbolResolver) getRealJavaPackage(qn string, gc *core.GlobalContext) string {
-	curr := qn
-	for {
-		idx := strings.LastIndex(curr, ".")
-		if idx == -1 {
-			return ""
-		}
-		curr = curr[:idx]
-
-		if entry, ok := gc.FindByQualifiedName(curr); ok {
-			if entry.Element.Kind == model.Package {
-				return curr
-			}
-		} else {
-			// 如果全局上下文没找到，继续向上找，直到匹配已知的 Package 模式
-			continue
-		}
-	}
 }
 
 func (j *SymbolResolver) isSubClassOf(gc *core.GlobalContext, fc *core.FileContext, sub, super string) bool {

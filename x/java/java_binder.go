@@ -80,6 +80,6 @@ func (b *Binder) resolveToQN(gc *core.GlobalContext, fCtx *core.FileContext, raw
 		return rawType
 	}
 
-	ele := b.resolver.Resolve(gc, fCtx, nil, "", rawType, model.Class)
+	ele := b.resolver.ResolveType(gc, fCtx, rawType, model.Class)
 	return ele.QualifiedName
 }

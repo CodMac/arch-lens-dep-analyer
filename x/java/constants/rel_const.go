@@ -9,14 +9,14 @@ const (
 	RelRawText               = "java.rel.raw_text"                // 完整的赋值语句源码 (eg,: data.name = "Hi")
 	RelAstKind               = "java.rel.ast_kind"                // 触发该关系的那个 AST 节点的类型 (eg,: assignment_expression)
 	RelContext               = "java.rel.context"                 // 该动作发生的大环境或语句容器 (eg,: expression_statement 或 method_declaration)
-	RelCallReceiverRaw       = "java.rel.call.receiver_raw"       //
-	RelCallReceiver          = "java.rel.call.receiver"           // 谁发起的调用 (如 "this", "super", 或变量名)
-	RelCallReceiverType      = "java.rel.call.receiver_type"      // 发起调用的静态类名 (QN)
+	RelCallReceiverRaw       = "java.rel.call.receiver_raw"       // 原始receiver表达式expression (用于链式调用再解析)
+	RelCallReceiver          = "java.rel.call.receiver"           // 谁发起的调用 (如 "this", "super", 或变量名，或函数调用链)
+	RelCallReceiverType      = "java.rel.call.receiver_type"      // 发起调用的类名 (QN)
 	RelCallIsStatic          = "java.rel.call.is_static"          // 是否为静态方法调用
 	RelCallIsConstructor     = "java.rel.call.is_constructor"     // 是否为构造函数调用 (new 或 explicit this/super)
 	RelCallIsChained         = "java.rel.call.is_chained"         // 是否属于调用链的一部分
+	RelCallChainDepth        = "java.rel.call.chain_depth"        // 链式调用的深度
 	RelCallIsFunctional      = "java.rel.call.is_functional"      // 是否为方法引用 (eg,: this::simpleMethod)
-	RelCallChainDepth        = "java.rel.call.chain_depth"        //
 	RelCallEnclosingMethod   = "java.rel.call.enclosing_method"   // 调用发生的外部方法 QN (常用于 Lambda/内部类溯源)
 	RelAssignReceiver        = "java.rel.assign.receiver"         // 赋值接收者 (如 "this", "super", 或变量名)
 	RelAssignTargetName      = "java.rel.assign.target_name"      // 赋值语句目标 (谁被改变了)
@@ -48,7 +48,6 @@ const (
 
 // --- Extended属性 (这里是定义的一些属性增强，建议按业务需求定制提取)  ---
 const (
-	RelCallReceiverExpression    = "java.rel.call.receiver_expression"     // 链式调用中产生接收者的表达式文本 (如 "getList()")
 	RelCallIsInherited           = "java.rel.call.is_inherited"            // 调用的是否为继承自父类的方法
 	RelCallTypeArguments         = "java.rel.call.type_arguments"          // 调用的泛型实参文本 (如 "String")
 	RelAssignIsCompound          = "java.rel.assign.is_compound"           // 是否为复合赋值 (如 +=, -=)
