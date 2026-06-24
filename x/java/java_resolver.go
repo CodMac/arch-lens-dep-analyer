@@ -54,32 +54,17 @@ func (j *SymbolResolver) IsPrimitive(typeName string) bool {
 	return false
 }
 
-// ResolveType 解析结构体符号(Package、Class、Interface、AnonymousClass、Enum......), 如果上下文没找到，则返回kind类型的外部实体
-func (j *SymbolResolver) ResolveType(gc *core.GlobalContext, fc *core.FileContext, symbol string, kind model.ElementKind) *model.CodeElement {
-	symbol = helper.Clean(symbol)
-
-	// 从上下文精确查找符号
-	if entries := j.preciseResolve(gc, fc, symbol); len(entries) > 0 {
-		return entries[0].Element
-	}
-
-	// 找不到明确实体，则尝试根据Imports升级符号，返回一个外部实体
-	qualifiedName := symbol
-	if imps, ok := fc.Imports[symbol]; ok && len(imps) > 0 {
-		qualifiedName = imps[0].RawImportPath
-	}
-	return &model.CodeElement{Name: symbol, QualifiedName: qualifiedName, Kind: kind, IsFormExternal: true}
-}
-
 // ResolveVar 处理变量查找，支持本地作用域回溯和类成员继承查找
 func (j *SymbolResolver) ResolveVar(gc *core.GlobalContext, fc *core.FileContext, node *sitter.Node, receiver string, symbol string) *model.CodeElement {
-	receiver, symbol = helper.Clean(receiver), helper.Clean(symbol)
+	receiver = helper.Clean(receiver)
+	symbol = helper.Clean(symbol)
+
 	isStatic := false
 
 	if receiver != "" {
 		// 场景 A: this 或 super
 		if receiver == "this" || receiver == "super" {
-			container := j.determinePreciseContainer(fc, node, []model.ElementKind{model.Class, model.AnonymousClass})
+			container := helper.GetBestElement(fc, node, []model.ElementKind{model.Class, model.AnonymousClass})
 			if container == nil {
 				return nil
 			}
@@ -95,7 +80,7 @@ func (j *SymbolResolver) ResolveVar(gc *core.GlobalContext, fc *core.FileContext
 
 		// 场景 B: 尝试解析为类名 (静态访问)
 		// 先清理 receiver (如 List<String> -> List)
-		if entries := j.preciseResolve(gc, fc, receiver); len(entries) > 0 {
+		if entries := helper.PreciseResolve(gc, fc, receiver); len(entries) > 0 {
 			// 如果解析结果是类/接口，则按静态字段查找
 			receiverEle := entries[0].Element
 			if receiverEle.Kind == model.Class || receiverEle.Kind == model.Interface || receiverEle.Kind == model.AnonymousClass {
@@ -108,7 +93,7 @@ func (j *SymbolResolver) ResolveVar(gc *core.GlobalContext, fc *core.FileContext
 		receiverEle := j.ResolveVar(gc, fc, node, "", receiver)
 		if receiverEle != nil && receiverEle.Extra != nil {
 			if typeQN, ok := receiverEle.Extra.Mores[constants.VariableTypeWithQN].(string); ok {
-				if entries := j.preciseResolve(gc, fc, typeQN); len(entries) > 0 {
+				if entries := helper.PreciseResolve(gc, fc, typeQN); len(entries) > 0 {
 					receiverTypeEle := entries[0].Element
 					if receiverTypeEle.Kind == model.Class || receiverTypeEle.Kind == model.Interface || receiverTypeEle.Kind == model.AnonymousClass {
 						return j.resolveInScopeHierarchy(gc, fc, receiverTypeEle.QualifiedName, symbol, false, receiverEle)
@@ -119,11 +104,10 @@ func (j *SymbolResolver) ResolveVar(gc *core.GlobalContext, fc *core.FileContext
 	}
 
 	// 无 receiver：按原有作用域链查找
-	container := j.determinePreciseContainer(fc, node, []model.ElementKind{model.Method, model.Class, model.ScopeBlock})
+	container := helper.GetBestElement(fc, node, []model.ElementKind{model.Method, model.Class, model.ScopeBlock})
 	if container == nil {
 		return nil
 	}
-
 	isStatic = slices.Contains(container.Extra.Modifiers, "static")
 	return j.resolveInScopeHierarchy(gc, fc, container.QualifiedName, symbol, isStatic, container)
 }
@@ -139,7 +123,7 @@ func (j *SymbolResolver) ResolveFunc(gc *core.GlobalContext, fc *core.FileContex
 	// 1. 确定搜索的起始容器
 	if receiver != "" {
 		// 场景 A: 静态调用 (类名.method)
-		if entries := j.preciseResolve(gc, fc, receiver); len(entries) > 0 {
+		if entries := helper.PreciseResolve(gc, fc, receiver); len(entries) > 0 {
 			first := entries[0].Element
 			switch first.Kind {
 			case model.Class:
@@ -154,11 +138,11 @@ func (j *SymbolResolver) ResolveFunc(gc *core.GlobalContext, fc *core.FileContex
 
 		// 场景 B: this/super 调用
 		if container == nil && (receiver == "this" || receiver == "super") {
-			container = j.determinePreciseContainer(fc, node, []model.ElementKind{model.Class, model.AnonymousClass})
+			container = helper.GetBestElement(fc, node, []model.ElementKind{model.Class, model.AnonymousClass})
 			if receiver == "super" && container != nil {
 				// 如果是 super，容器直接指向父类
 				if sc, ok := container.Extra.Mores[constants.ClassSuperClass].(string); ok && sc != "" {
-					if parents := j.preciseResolve(gc, fc, helper.Clean(sc)); len(parents) > 0 {
+					if parents := helper.PreciseResolve(gc, fc, helper.Clean(sc)); len(parents) > 0 {
 						container = parents[0].Element
 					}
 				}
@@ -174,7 +158,7 @@ func (j *SymbolResolver) ResolveFunc(gc *core.GlobalContext, fc *core.FileContex
 					typeQN, _ = recvVar.Extra.Mores[constants.VariableRawType].(string)
 				}
 				if typeQN != "" {
-					if ents := j.preciseResolve(gc, fc, helper.Clean(typeQN)); len(ents) > 0 {
+					if ents := helper.PreciseResolve(gc, fc, helper.Clean(typeQN)); len(ents) > 0 {
 						container = ents[0].Element
 					}
 				}
@@ -184,7 +168,7 @@ func (j *SymbolResolver) ResolveFunc(gc *core.GlobalContext, fc *core.FileContex
 
 	// 场景 D: 无 receiver，从当前代码位置寻找最近的类
 	if container == nil {
-		container = j.determinePreciseContainer(fc, node, []model.ElementKind{model.Class, model.AnonymousClass})
+		container = helper.GetBestElement(fc, node, []model.ElementKind{model.Class, model.AnonymousClass})
 	}
 
 	if container == nil {
@@ -218,33 +202,41 @@ func (j *SymbolResolver) ResolveFunc(gc *core.GlobalContext, fc *core.FileContex
 	}
 }
 
-// =============================================================================
-// Java通用解析方法
-// =============================================================================
+// ResolveType 解析结构体符号(Package、Class、Interface、AnonymousClass、Enum......), 如果上下文没找到，则返回kind类型的外部实体
+func (j *SymbolResolver) ResolveType(gc *core.GlobalContext, fc *core.FileContext, symbol string, kind model.ElementKind) *model.CodeElement {
+	symbol = helper.Clean(symbol)
 
-// GetPackageForQn 获取QN的包
-func (j *SymbolResolver) GetPackageForQn(qn string, gc *core.GlobalContext) string {
-	curr := qn
-	for {
-		idx := strings.LastIndex(curr, ".")
-		if idx == -1 {
-			return ""
-		}
-		curr = curr[:idx]
+	if entries := helper.PreciseResolve(gc, fc, symbol); len(entries) > 0 {
+		return entries[0].Element
+	}
 
-		if entry, ok := gc.FindByQualifiedName(curr); ok {
-			if entry.Element.Kind == model.Package {
-				return curr
-			}
-		} else {
-			// 如果全局上下文没找到，继续向上找，直到匹配已知的 Package 模式
-			continue
-		}
+	// 找不到明确实体，则尝试根据Imports升级符号，返回一个外部实体
+	qualifiedName := symbol
+	if imps, ok := fc.Imports[symbol]; ok && len(imps) > 0 {
+		qualifiedName = imps[0].RawImportPath
+	}
+	return &model.CodeElement{Name: symbol, QualifiedName: qualifiedName, Kind: kind, IsFormExternal: true}
+}
+
+// ResolveAction 统一的动作解析入口，根据目标节点和上下文节点提取文本和接收者，然后调用对应的解析方法
+func (j *SymbolResolver) ResolveAction(gc *core.GlobalContext, fc *core.FileContext, targetNode *sitter.Node, ctxNode *sitter.Node, relType model.DependencyType) *model.CodeElement {
+	src := *fc.SourceBytes
+	symbol := targetNode.Utf8Text(src)
+
+	switch relType {
+	case model.Call:
+		receiverText := j.extractReceiverFromCallCtx(ctxNode, src)
+		return j.ResolveFunc(gc, fc, targetNode, receiverText, symbol)
+	case model.Assign, model.Use:
+		receiverText := j.extractReceiverFromFieldAccess(fc, targetNode, src)
+		return j.ResolveVar(gc, fc, targetNode, receiverText, symbol)
+	default:
+		return j.ResolveType(gc, fc, symbol, model.Class)
 	}
 }
 
 // =============================================================================
-// 3. 递归查找逻辑 (Hierarchical Search)
+// 查找逻辑
 // =============================================================================
 
 // resolveInScopeHierarchy 递归向上查找容器及继承链
@@ -297,7 +289,7 @@ func (j *SymbolResolver) resolveFromInheritance(gc *core.GlobalContext, fc *core
 
 	for _, rawSuperName := range superTargets {
 		cleanSuperName := strings.Split(rawSuperName, "<")[0]
-		parentEntries := j.preciseResolve(gc, fc, cleanSuperName)
+		parentEntries := helper.PreciseResolve(gc, fc, cleanSuperName)
 
 		if len(parentEntries) > 0 {
 			parentElem := parentEntries[0].Element
@@ -353,7 +345,7 @@ func (j *SymbolResolver) searchMethodInHierarchy(gc *core.GlobalContext, fc *cor
 
 	// C. 当前类没找到，递归查找父类 (Extends)
 	if sc, ok := currContainer.Extra.Mores[constants.ClassSuperClass].(string); ok && sc != "" {
-		if parents := j.preciseResolve(gc, fc, helper.Clean(sc)); len(parents) > 0 {
+		if parents := helper.PreciseResolve(gc, fc, helper.Clean(sc)); len(parents) > 0 {
 			if res := j.searchMethodInHierarchy(gc, fc, parents[0].Element, symbol, argCount, inferredTypes, isStaticCall, source); res != nil {
 				return res
 			}
@@ -363,7 +355,7 @@ func (j *SymbolResolver) searchMethodInHierarchy(gc *core.GlobalContext, fc *cor
 	// D. 递归查找接口 (Implements)
 	if itfs, ok := currContainer.Extra.Mores[constants.ClassImplementedInterfaces].([]string); ok {
 		for _, itf := range itfs {
-			if parents := j.preciseResolve(gc, fc, helper.Clean(itf)); len(parents) > 0 {
+			if parents := helper.PreciseResolve(gc, fc, helper.Clean(itf)); len(parents) > 0 {
 				if res := j.searchMethodInHierarchy(gc, fc, parents[0].Element, symbol, argCount, inferredTypes, isStaticCall, source); res != nil {
 					return res
 				}
@@ -476,8 +468,8 @@ func (j *SymbolResolver) checkVisibility(gc *core.GlobalContext, fc *core.FileCo
 	}
 
 	// 2. 检查是否属于同一个顶层类 (处理内部类、匿名类)
-	containerOutermost := j.getOutermostClassQN(container.QualifiedName)
-	targetOutermost := j.getOutermostClassQN(target.Element.QualifiedName)
+	containerOutermost := helper.GetOutermostClassQN(container.QualifiedName)
+	targetOutermost := helper.GetOutermostClassQN(target.Element.QualifiedName)
 	if containerOutermost != "" && containerOutermost == targetOutermost {
 		return true
 	}
@@ -493,63 +485,27 @@ func (j *SymbolResolver) checkVisibility(gc *core.GlobalContext, fc *core.FileCo
 
 	// 4. 包级私有 (Default/Package-Private) 判定
 	// 注意：getPackageFromQN 应该确保拿到真正的 Java Package 名
-	targetPkg := j.GetPackageForQn(target.Element.QualifiedName, gc)
+	targetPkg := helper.GetRealPackage(gc, target.Element)
 	if targetPkg == fc.PackageName {
 		return true
 	}
 
 	// 5. Protected: 检查子类关系
 	if slices.Contains(mods, "protected") {
-		sourceClass := j.getOwnerClassQN(gc, container)
+		sourceClass := helper.GetOwnerClassQN(gc, container)
 		return j.isSubClassOf(gc, fc, sourceClass, target.ParentQN)
 	}
 
 	return false
 }
 
-// preciseResolve 从上下文精确查找符号
-func (j *SymbolResolver) preciseResolve(gc *core.GlobalContext, fc *core.FileContext, symbol string) []*core.DefinitionEntry {
-	gc.RLock()
-	defer gc.RUnlock()
-
-	if defs, ok := fc.FindByShortName(symbol); ok {
-		return defs
-	}
-	if imps, ok := fc.Imports[symbol]; ok {
-		for _, imp := range imps {
-			if def, found := gc.FindByQualifiedName(imp.RawImportPath); found {
-				return []*core.DefinitionEntry{def}
-			}
-		}
-	}
-	pkgQN := j.BuildQualifiedName(fc.PackageName, symbol)
-	if def, ok := gc.FindByQualifiedName(pkgQN); ok {
-		return []*core.DefinitionEntry{def}
-	}
-
-	for _, imps := range fc.Imports {
-		for _, imp := range imps {
-			if imp.IsWildcard {
-				basePath := strings.TrimSuffix(imp.RawImportPath, "*")
-				if def, ok := gc.FindByQualifiedName(basePath + symbol); ok {
-					return []*core.DefinitionEntry{def}
-				}
-			}
-		}
-	}
-	if def, ok := gc.FindByQualifiedName(symbol); ok {
-		return []*core.DefinitionEntry{def}
-	}
-	return nil
-}
-
-func (j *SymbolResolver) determinePreciseContainer(fc *core.FileContext, n *sitter.Node, kinds []model.ElementKind) *model.CodeElement {
-	if n == nil {
+func (j *SymbolResolver) determinePreciseContainer(fc *core.FileContext, node *sitter.Node, kinds []model.ElementKind) *model.CodeElement {
+	if node == nil {
 		return nil
 	}
 	var best *model.CodeElement
 	var minSize uint32 = 0xFFFFFFFF
-	row := int(n.StartPosition().Row + 1)
+	row := int(node.StartPosition().Row + 1)
 	for _, entry := range fc.Definitions {
 		if slices.Contains(kinds, entry.Element.Kind) {
 			if row >= entry.Element.Location.StartLine && row <= entry.Element.Location.EndLine {
@@ -563,36 +519,6 @@ func (j *SymbolResolver) determinePreciseContainer(fc *core.FileContext, n *sitt
 	return best
 }
 
-func (j *SymbolResolver) getOwnerClassQN(gc *core.GlobalContext, elem *model.CodeElement) string {
-	curr := elem
-	for curr != nil {
-		if curr.Kind == model.Class || curr.Kind == model.Interface {
-			return curr.QualifiedName
-		}
-		if entry, ok := gc.FindByQualifiedName(curr.QualifiedName); ok && entry.ParentQN != "" {
-			if next, ok := gc.FindByQualifiedName(entry.ParentQN); ok {
-				curr = next.Element
-				continue
-			}
-		}
-		break
-	}
-	return ""
-}
-
-// 获取最外层的类名 (例如把 A.B.C$1 还原为 A)
-func (j *SymbolResolver) getOutermostClassQN(qn string) string {
-	// 逻辑：在 Java 中，类名通常是大写开头
-	parts := strings.Split(qn, ".")
-	for i, part := range parts {
-		// 简单判定：首字母大写通常是类名 (Java 规范)
-		if len(part) > 0 && part[0] >= 'A' && part[0] <= 'Z' {
-			return strings.Join(parts[:i+1], ".")
-		}
-	}
-	return ""
-}
-
 func (j *SymbolResolver) isSubClassOf(gc *core.GlobalContext, fc *core.FileContext, sub, super string) bool {
 	if sub == "" || super == "" || sub == super {
 		return sub == super
@@ -602,7 +528,7 @@ func (j *SymbolResolver) isSubClassOf(gc *core.GlobalContext, fc *core.FileConte
 		return false
 	}
 	if sc, ok := entry.Element.Extra.Mores[constants.ClassSuperClass].(string); ok && sc != "" {
-		parents := j.preciseResolve(gc, fc, strings.Split(sc, "<")[0])
+		parents := helper.PreciseResolve(gc, fc, strings.Split(sc, "<")[0])
 		for _, p := range parents {
 			if p.Element.QualifiedName == super || j.isSubClassOf(gc, fc, p.Element.QualifiedName, super) {
 				return true
@@ -623,4 +549,33 @@ func (j *SymbolResolver) findInvocationNode(n *sitter.Node) *sitter.Node {
 		}
 	}
 	return nil
+}
+
+// extractReceiverFromCallCtx 从调用上下文中提取接收者对象
+func (j *SymbolResolver) extractReceiverFromCallCtx(ctxNode *sitter.Node, src []byte) string {
+	if ctxNode == nil {
+		return ""
+	}
+	if obj := ctxNode.ChildByFieldName("object"); obj != nil {
+		return obj.Utf8Text(src)
+	}
+	return ""
+}
+
+// extractReceiverFromFieldAccess 从字段访问上下文中提取接收者对象
+func (j *SymbolResolver) extractReceiverFromFieldAccess(fc *core.FileContext, targetNode *sitter.Node, src []byte) string {
+	if targetNode == nil {
+		return ""
+	}
+
+	parent := targetNode.Parent()
+	if parent != nil && parent.Kind() == "field_access" {
+		if obj := parent.ChildByFieldName("object"); obj != nil {
+			receiverText := obj.Utf8Text(src)
+			if obj.Id() != targetNode.Id() {
+				return receiverText
+			}
+		}
+	}
+	return ""
 }

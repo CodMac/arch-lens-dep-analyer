@@ -29,6 +29,9 @@ type SymbolResolver interface {
 
 	// ResolveVar 解析变量符号(Field、Variable)
 	ResolveVar(gc *GlobalContext, fc *FileContext, node *sitter.Node, receiver, symbol string) *model.CodeElement
+
+	// ResolveAction 统一的动作解析入口，根据目标节点、上下文节点和关系类型进行解析
+	ResolveAction(gc *GlobalContext, fc *FileContext, targetNode *sitter.Node, ctxNode *sitter.Node, relType model.DependencyType) *model.CodeElement
 }
 
 var symbolResolverMap = make(map[Language]SymbolResolver)

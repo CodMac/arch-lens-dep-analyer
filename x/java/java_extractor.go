@@ -209,21 +209,15 @@ func (e *Extractor) discoverActionRelations(fCtx *core.FileContext, gCtx *core.G
 					continue
 				}
 
-				// 2. 这里的 at.Target 已经在 mapAction 中经过了过滤和 resolve
-				ctxNode := at.ContextNode
-				if ctxNode == nil {
-					ctxNode = at.TargetNode.Parent()
-				}
-
 				rels = append(rels, &model.DependencyRelation{
 					Type:     at.RelType,
 					Source:   sourceElem,
 					Target:   at.Target, // 使用 mapAction resolve 好的对象
 					Location: helper.ExtractLocation(at.TargetNode, fCtx.FilePath),
 					Mores: map[string]interface{}{
-						constants.RelRawText: ctxNode.Utf8Text(*fCtx.SourceBytes),
+						constants.RelRawText: at.ContextNode.Utf8Text(*fCtx.SourceBytes),
 						constants.TmpNode:    at.TargetNode,
-						constants.TmpStmt:    ctxNode,
+						constants.TmpStmt:    at.ContextNode,
 					},
 				})
 			}
@@ -352,82 +346,67 @@ type ActionTarget struct {
 }
 
 func (e *Extractor) mapAction(capName string, node *sitter.Node, fCtx *core.FileContext, gCtx *core.GlobalContext) []ActionTarget {
-	src := *fCtx.SourceBytes
-	text := node.Utf8Text(src)
+	var ctxNode *sitter.Node
 
 	switch capName {
 	case "call_target", "ref_target":
-		ctx := helper.FindNearestKind(node, "method_invocation", "method_reference", "explicit_constructor_invocation", "object_creation_expression")
-		var receiverText string
-		if ctx != nil {
-			if obj := ctx.ChildByFieldName("object"); obj != nil {
-				receiverText = obj.Utf8Text(src)
-			}
+		ctxNode = helper.FindNearestKind(node, "method_invocation", "method_reference", "explicit_constructor_invocation", "object_creation_expression")
+		if ctxNode == nil {
+			return nil
 		}
-		return []ActionTarget{{model.Call, node, ctx, e.resolver.ResolveFunc(gCtx, fCtx, node, receiverText, text)}}
+		return []ActionTarget{{RelType: model.Call, TargetNode: node, ContextNode: ctxNode, Target: e.resolver.ResolveAction(gCtx, fCtx, node, ctxNode, model.Call)}}
 
 	case "create_target":
-		ctx := helper.FindNearestKind(node, "object_creation_expression", "array_creation_expression")
-		return []ActionTarget{
-			{model.Create, node, ctx, e.resolver.ResolveType(gCtx, fCtx, text, model.Class)},
-			{model.Call, node, ctx, e.resolver.ResolveFunc(gCtx, fCtx, node, "", text)},
+		ctxNode = helper.FindNearestKind(node, "object_creation_expression", "array_creation_expression")
+		if ctxNode == nil {
+			return nil
 		}
-
-	case "explicit_constructor_stmt":
 		return []ActionTarget{
-			{model.Call, node, node, e.resolver.ResolveFunc(gCtx, fCtx, node, "", text)},
-			{model.Create, node, node, e.resolver.ResolveType(gCtx, fCtx, text, model.Class)},
+			{model.Create, node, ctxNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxNode, model.Create)},
+			{model.Call, node, ctxNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxNode, model.Call)},
 		}
 
 	case "cast_target":
-		ctx := helper.FindNearestKind(node, "cast_expression", "instanceof_expression")
-		return []ActionTarget{{model.Cast, node, ctx, e.resolver.ResolveType(gCtx, fCtx, text, model.Class)}}
+		ctxNode = helper.FindNearestKind(node, "cast_expression", "instanceof_expression")
+		if ctxNode == nil {
+			return nil
+		}
+		return []ActionTarget{{model.Cast, node, ctxNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxNode, model.Cast)}}
 
 	case "assign_target":
-		// 1. 向上寻找赋值的上下文容器
-		ctx := helper.FindNearestKind(node, "assignment_expression", "variable_declarator", "update_expression")
-		if ctx == nil {
+		ctxNode = helper.FindNearestKind(node, "assignment_expression", "variable_declarator", "update_expression")
+		if ctxNode == nil {
 			return nil
 		}
-
-		// 2. 识别 Receiver
-		receiverText := ""
-		parent := node.Parent()
-		if parent != nil && parent.Kind() == "field_access" {
-			// 在 field_access 结构中，field 属性是我们当前的 node，object 属性是 receiver
-			if obj := parent.ChildByFieldName("object"); obj != nil {
-				receiverText = obj.Utf8Text(src)
-			}
-		}
-
-		return []ActionTarget{{model.Assign, node, ctx, e.resolver.ResolveVar(gCtx, fCtx, node, receiverText, text)}}
+		return []ActionTarget{{model.Assign, node, ctxNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxNode, model.Assign)}}
 
 	case "id_atom":
-		// 1. 向上寻找赋值的上下文容器
-		ctx := helper.FindNearestKind(node, "expression_statement", "local_variable_declaration", "enhanced_for_statement", "binary_expression", "cast_expression", "array_access", "parenthesized_expression", "field_access", "lambda_expression", "assignment_expression")
-		if ctx == nil {
+		ctxNode = helper.FindNearestKind(node, "expression_statement", "local_variable_declaration", "enhanced_for_statement", "binary_expression", "cast_expression", "array_access", "parenthesized_expression", "field_access", "lambda_expression", "assignment_expression")
+		if ctxNode == nil {
 			return nil
 		}
-
-		// 2. 识别 Receiver
-		var receiverText string
-		parent := node.Parent()
-		if parent != nil && parent.Kind() == "field_access" {
-			if obj := parent.ChildByFieldName("object"); obj != nil && obj != node {
-				receiverText = obj.Utf8Text(src)
-			}
-		}
-
-		target := e.resolver.ResolveVar(gCtx, fCtx, node, receiverText, text)
+		target := e.resolver.ResolveAction(gCtx, fCtx, node, ctxNode, model.Use)
 		if !e.isUseRel(node, target) {
 			return nil
 		}
-
-		return []ActionTarget{{model.Use, node, ctx, target}}
+		return []ActionTarget{{model.Use, node, ctxNode, target}}
 
 	case "throw_target":
-		ctx := helper.FindNearestKind(node, "throw_statement")
-		return []ActionTarget{{model.Throw, node, ctx, e.resolver.ResolveType(gCtx, fCtx, text, model.Class)}}
+		ctxNode = helper.FindNearestKind(node, "throw_statement")
+		if ctxNode == nil {
+			return nil
+		}
+		return []ActionTarget{{model.Throw, node, ctxNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxNode, model.Throw)}}
+
+	case "explicit_constructor_stmt":
+		ctxNode = node
+		if ctxNode == nil {
+			return nil
+		}
+		return []ActionTarget{
+			{model.Call, node, ctxNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxNode, model.Call)},
+			{model.Create, node, ctxNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxNode, model.Create)},
+		}
 
 	default:
 		return nil
