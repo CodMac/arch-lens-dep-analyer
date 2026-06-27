@@ -24,6 +24,9 @@ func GetJavaParser(t *testing.T) parser.Parser {
 	return javaParser
 }
 
+const outputAst = false
+const formatAst = false
+
 func RunPhase1Collection(t *testing.T, files []string) *core.GlobalContext {
 	resolver, err := core.GetSymbolResolver(core.LangJava)
 	if err != nil {
@@ -42,7 +45,7 @@ func RunPhase1Collection(t *testing.T, files []string) *core.GlobalContext {
 	}
 
 	for _, file := range files {
-		rootNode, sourceBytes, err := javaParser.ParseFile(file, false, true)
+		rootNode, sourceBytes, err := javaParser.ParseFile(file, outputAst, formatAst)
 		if err != nil {
 			t.Fatalf("Failed to parse file %s: %v", file, err)
 		}

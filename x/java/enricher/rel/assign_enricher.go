@@ -14,7 +14,7 @@ type AssignEnricher struct {
 }
 
 func (e *AssignEnricher) EnrichMetadata(rel *model.DependencyRelation) {
-	node, _, ctx := GetRelTmpValue(rel)
+	node, ctx := GetRelTmpValue(rel)
 	src := *e.fCtx.SourceBytes
 
 	// --- 基础信息补全 ---

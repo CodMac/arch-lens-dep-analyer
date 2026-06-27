@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
+
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/parser"
@@ -46,17 +48,22 @@ func (fp *FileProcessor) ProcessFiles(rootPath string, filePaths []string) ([]*m
 	// --- 阶段 1: 并行收集 (Collector) ---
 	start := time.Now()
 	err = fp.runParallel(filePaths, func(path string, p parser.Parser) error {
+		// file -> ast
 		root, source, err := p.ParseFile(path, fp.OutputAST, fp.FormatAST)
 		if err != nil {
 			return err
 		}
 
+		// absPath -> relPath
+		relPath, _ := filepath.Rel(absRoot, path)
+
+		// collector
 		cot, err := core.GetCollector(fp.Language)
 		if err != nil {
 			return err
 		}
 
-		relPath, _ := filepath.Rel(absRoot, path)
+		// collect
 		fc, err := cot.CollectDefinitions(root, relPath, source)
 		if err != nil {
 			return err
@@ -83,12 +90,16 @@ func (fp *FileProcessor) ProcessFiles(rootPath string, filePaths []string) ([]*m
 	start = time.Now()
 	var mu sync.Mutex
 	err = fp.runParallel(filePaths, func(path string, p parser.Parser) error {
+		// extractor
 		ext, err := core.GetExtractor(fp.Language)
 		if err != nil {
 			return err
 		}
 
+		// absPath -> relPath
 		relPath, _ := filepath.Rel(absRoot, path)
+
+		// extract
 		rels, err := ext.Extract(relPath, gc)
 		if err != nil {
 			return err
@@ -97,13 +108,13 @@ func (fp *FileProcessor) ProcessFiles(rootPath string, filePaths []string) ([]*m
 		mu.Lock()
 		defer mu.Unlock()
 		for _, rel := range rels {
-			if rel.Location != nil && filepath.IsAbs(rel.Location.FilePath) {
-				if rPath, err := filepath.Rel(absRoot, rel.Location.FilePath); err == nil {
-					rel.Location.FilePath = rPath
-				}
-			}
+			// 清理临时字段
+			delete(rel.Mores, constants.TmpCtxNode)
+			delete(rel.Mores, constants.TmpNode)
+
 			allRelations = append(allRelations, rel)
 		}
+
 		return nil
 	})
 	if err != nil {

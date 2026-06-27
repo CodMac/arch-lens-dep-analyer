@@ -13,13 +13,13 @@ type CastEnricher struct {
 }
 
 func (e *CastEnricher) EnrichMetadata(rel *model.DependencyRelation) {
-	_, _, stmt := GetRelTmpValue(rel)
+	_, ctx := GetRelTmpValue(rel)
 	src := *e.fCtx.SourceBytes
 
-	if stmt == nil {
+	if ctx == nil {
 		return
 	}
-	rel.Mores[constants.RelAstKind] = stmt.Kind()
-	rel.Mores[constants.RelRawText] = stmt.Utf8Text(src)
-	rel.Mores[constants.RelCastIsInstanceof] = stmt.Kind() == "instanceof_expression"
+	rel.Mores[constants.RelAstKind] = ctx.Kind()
+	rel.Mores[constants.RelRawText] = ctx.Utf8Text(src)
+	rel.Mores[constants.RelCastIsInstanceof] = ctx.Kind() == "instanceof_expression"
 }

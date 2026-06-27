@@ -6,10 +6,6 @@ package constants
 
 // --- Core属性 (java_extractor 默认提取的属性) ---
 const (
-	RelRawText               = "java.rel.raw_text"                // 完整的赋值语句源码 (eg,: data.name = "Hi")
-	RelAstKind               = "java.rel.ast_kind"                // 触发该关系的那个 AST 节点的类型 (eg,: assignment_expression)
-	RelContext               = "java.rel.context"                 // 该动作发生的大环境或语句容器 (eg,: expression_statement 或 method_declaration)
-	RelCallReceiverRaw       = "java.rel.call.receiver_raw"       // 原始receiver表达式expression (用于链式调用再解析)
 	RelCallReceiver          = "java.rel.call.receiver"           // 谁发起的调用 (如 "this", "super", 或变量名，或函数调用链)
 	RelCallReceiverType      = "java.rel.call.receiver_type"      // 发起调用的类名 (QN)
 	RelCallIsStatic          = "java.rel.call.is_static"          // 是否为静态方法调用

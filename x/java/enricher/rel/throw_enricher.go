@@ -14,10 +14,11 @@ type ThrowEnricher struct {
 }
 
 func (e *ThrowEnricher) EnrichMetadata(rel *model.DependencyRelation) {
-	node, rawText, _ := GetRelTmpValue(rel)
+	node, _ := GetRelTmpValue(rel)
 
 	if node != nil {
-		rel.Mores[constants.RelAstKind] = "throw_statement"
+		//rel.Mores[constants.RelAstKind] = "throw_statement"
+		rel.Mores[constants.RelAstKind] = node.Kind()
 		rel.Target.Name = helper.Clean(rel.Target.Name)
 		rel.Target.QualifiedName = helper.Clean(rel.Target.QualifiedName)
 		if node.Kind() == "type_identifier" || (node.Parent() != nil && node.Parent().Kind() == "object_creation_expression") {
@@ -28,6 +29,7 @@ func (e *ThrowEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 		return
 	}
 
+	rawText := rel.Mores[constants.RelRawText].(string)
 	if rawText != "" && rel.Source != nil && rel.Source.Extra != nil {
 		if ths, ok := rel.Source.Extra.Mores[constants.MethodThrowsTypes].([]string); ok {
 			for i, ex := range ths {

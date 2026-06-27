@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/resolver"
+
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/enricher/rel"
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
-	"github.com/CodMac/arch-lens-dep-analyer/x/java/chained"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -142,7 +143,7 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gCtx *core.GlobalC
 					target := e.resolver.ResolveType(gCtx, fCtx, helper.Clean(typePart), model.Class)
 					rels = append(rels, &model.DependencyRelation{
 						Type: model.Parameter, Source: elem, Target: target,
-						Mores: map[string]interface{}{constants.TmpRaw: p},
+						Mores: map[string]interface{}{constants.RelRawText: p},
 					})
 				}
 			}
@@ -150,7 +151,7 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gCtx *core.GlobalC
 				target := e.resolver.ResolveType(gCtx, fCtx, helper.Clean(rt), model.Class)
 				rels = append(rels, &model.DependencyRelation{
 					Type: model.Return, Source: elem, Target: target,
-					Mores: map[string]interface{}{constants.TmpRaw: rt},
+					Mores: map[string]interface{}{constants.RelRawText: rt},
 				})
 			}
 			if ths, ok := elem.Extra.Mores[constants.MethodThrowsTypes].([]string); ok {
@@ -158,7 +159,7 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gCtx *core.GlobalC
 					target := e.resolver.ResolveType(gCtx, fCtx, helper.Clean(ex), model.Class)
 					rels = append(rels, &model.DependencyRelation{
 						Type: model.Throw, Source: elem, Target: target,
-						Mores: map[string]interface{}{constants.TmpRaw: ex},
+						Mores: map[string]interface{}{constants.RelRawText: ex},
 					})
 				}
 			}
@@ -215,9 +216,9 @@ func (e *Extractor) discoverActionRelations(fCtx *core.FileContext, gCtx *core.G
 					Target:   at.Target, // 使用 mapAction resolve 好的对象
 					Location: helper.ExtractLocation(at.TargetNode, fCtx.FilePath),
 					Mores: map[string]interface{}{
-						constants.RelRawText: at.ContextNode.Utf8Text(*fCtx.SourceBytes),
+						constants.RelRawText: resolver.GetRawTextForAction(string(at.RelType), at.TargetNode, at.ContextNode, fCtx.SourceBytes),
 						constants.TmpNode:    at.TargetNode,
-						constants.TmpStmt:    at.ContextNode,
+						constants.TmpCtxNode: at.ContextNode,
 					},
 				})
 			}
@@ -235,7 +236,7 @@ func (e *Extractor) enrichRelMetadata(enhanceTargets []*model.DependencyRelation
 }
 
 func (e *Extractor) processChainRels(actionRels []*model.DependencyRelation, fCtx *core.FileContext, gCtx *core.GlobalContext) {
-	chainedCallResolver := chained.NewChainedCallResolver(e.resolver, gCtx, fCtx)
+	chainedCallResolver := resolver.NewChainedCallResolver(e.resolver, gCtx, fCtx)
 
 	for _, rel := range actionRels {
 		if rel.Type != model.Call || rel.Target == nil {
@@ -346,18 +347,20 @@ type ActionTarget struct {
 }
 
 func (e *Extractor) mapAction(capName string, node *sitter.Node, fCtx *core.FileContext, gCtx *core.GlobalContext) []ActionTarget {
-	var ctxNode *sitter.Node
+	// 创建上下文解析器
+	ctxResolver := resolver.NewNodeContextResolver()
 
 	switch capName {
 	case "call_target", "ref_target":
-		ctxNode = helper.FindNearestKind(node, "method_invocation", "method_reference", "explicit_constructor_invocation", "object_creation_expression")
+		// CALL保持原逻辑，因为它已经正确
+		ctxNode := helper.FindNearestKind(node, "method_invocation", "method_reference", "explicit_constructor_invocation", "object_creation_expression")
 		if ctxNode == nil {
 			return nil
 		}
 		return []ActionTarget{{RelType: model.Call, TargetNode: node, ContextNode: ctxNode, Target: e.resolver.ResolveAction(gCtx, fCtx, node, ctxNode, model.Call)}}
 
 	case "create_target":
-		ctxNode = helper.FindNearestKind(node, "object_creation_expression", "array_creation_expression")
+		ctxNode := helper.FindNearestKind(node, "object_creation_expression", "array_creation_expression")
 		if ctxNode == nil {
 			return nil
 		}
@@ -367,39 +370,42 @@ func (e *Extractor) mapAction(capName string, node *sitter.Node, fCtx *core.File
 		}
 
 	case "cast_target":
-		ctxNode = helper.FindNearestKind(node, "cast_expression", "instanceof_expression")
+		ctxNode := helper.FindNearestKind(node, "cast_expression", "instanceof_expression")
 		if ctxNode == nil {
 			return nil
 		}
 		return []ActionTarget{{model.Cast, node, ctxNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxNode, model.Cast)}}
 
 	case "assign_target":
-		ctxNode = helper.FindNearestKind(node, "assignment_expression", "variable_declarator", "update_expression")
-		if ctxNode == nil {
+		// 使用新的上下文解析器
+		result := ctxResolver.ResolveContext("ASSIGN", node)
+		if result == nil || result.ContextNode == nil {
 			return nil
 		}
-		return []ActionTarget{{model.Assign, node, ctxNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxNode, model.Assign)}}
+		return []ActionTarget{{model.Assign, node, result.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, result.ContextNode, model.Assign)}}
 
 	case "id_atom":
-		ctxNode = helper.FindNearestKind(node, "expression_statement", "local_variable_declaration", "enhanced_for_statement", "binary_expression", "cast_expression", "array_access", "parenthesized_expression", "field_access", "lambda_expression", "assignment_expression")
-		if ctxNode == nil {
+		// 使用新的上下文解析器
+		result := ctxResolver.ResolveContext("USE", node)
+		if result == nil || result.ContextNode == nil {
 			return nil
 		}
-		target := e.resolver.ResolveAction(gCtx, fCtx, node, ctxNode, model.Use)
+
+		target := e.resolver.ResolveAction(gCtx, fCtx, node, result.ContextNode, model.Use)
 		if !e.isUseRel(node, target) {
 			return nil
 		}
-		return []ActionTarget{{model.Use, node, ctxNode, target}}
+		return []ActionTarget{{model.Use, node, result.ContextNode, target}}
 
 	case "throw_target":
-		ctxNode = helper.FindNearestKind(node, "throw_statement")
+		ctxNode := helper.FindNearestKind(node, "throw_statement")
 		if ctxNode == nil {
 			return nil
 		}
 		return []ActionTarget{{model.Throw, node, ctxNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxNode, model.Throw)}}
 
 	case "explicit_constructor_stmt":
-		ctxNode = node
+		ctxNode := node
 		if ctxNode == nil {
 			return nil
 		}

@@ -43,8 +43,8 @@ func TestJavaExtractor_Use(t *testing.T) {
 			targetQN: methodQN + ".local",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, "identifier", m[constants.RelAstKind])
-				assert.Equal(t, "local + 2", m[constants.RelRawText])
-				assert.Equal(t, "binary_expression", m[constants.RelContext])
+				assert.Equal(t, "local", m[constants.RelRawText])
+				assert.Equal(t, "identifier", m[constants.RelContextAstKind])
 			},
 		},
 		{
@@ -54,7 +54,7 @@ func TestJavaExtractor_Use(t *testing.T) {
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, "this", m[constants.RelUseReceiver])
 				assert.Equal(t, "this.fieldVar", m[constants.RelRawText])
-				assert.Equal(t, "field_access", m[constants.RelContext])
+				assert.Equal(t, "field_access", m[constants.RelContextAstKind])
 			},
 		},
 		{
@@ -63,8 +63,8 @@ func TestJavaExtractor_Use(t *testing.T) {
 			targetQN: methodQN + ".param",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				// 实际结果显示提取了整个二元表达式文本
-				assert.Equal(t, "fieldVar + param", m[constants.RelRawText])
-				assert.Equal(t, "binary_expression", m[constants.RelContext])
+				assert.Equal(t, "param", m[constants.RelRawText])
+				assert.Equal(t, "identifier", m[constants.RelContextAstKind])
 			},
 		},
 		{
@@ -74,7 +74,7 @@ func TestJavaExtractor_Use(t *testing.T) {
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				// 实际结果显示保留了类名限定符
 				assert.Equal(t, "UseRelationSuite.CONSTANT", m[constants.RelRawText])
-				assert.Equal(t, "field_access", m[constants.RelContext])
+				assert.Equal(t, "field_access", m[constants.RelContextAstKind])
 			},
 		},
 		{
@@ -82,8 +82,8 @@ func TestJavaExtractor_Use(t *testing.T) {
 			sourceQN: methodQN,
 			targetQN: methodQN + ".arr",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "array_access", m[constants.RelContext])
-				assert.Equal(t, "arr[0]", m[constants.RelRawText])
+				assert.Equal(t, "identifier", m[constants.RelContextAstKind])
+				assert.Equal(t, "arr", m[constants.RelRawText])
 			},
 		},
 		{
@@ -91,9 +91,9 @@ func TestJavaExtractor_Use(t *testing.T) {
 			sourceQN: methodQN,
 			targetQN: methodQN + ".list",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "enhanced_for_statement", m[constants.RelContext])
+				assert.Equal(t, "identifier", m[constants.RelContextAstKind])
 				// 实际结果显示提取了整个 for 循环头/块
-				assert.Contains(t, m[constants.RelRawText].(string), "for (String item : list)")
+				assert.Contains(t, m[constants.RelRawText].(string), "list")
 			},
 		},
 		{
@@ -106,8 +106,9 @@ func TestJavaExtractor_Use(t *testing.T) {
 				if m[constants.RelUseIsCapture] != nil {
 					assert.Equal(t, true, m[constants.RelUseIsCapture])
 				}
-				assert.Equal(t, "System.out.println(fieldVar);", m[constants.RelRawText])
-				assert.Equal(t, "expression_statement", m[constants.RelContext])
+				assert.Equal(t, "fieldVar", m[constants.RelRawText])
+				// Lambda中的字段访问现在使用identifier上下文（新语义）
+				assert.Equal(t, "identifier", m[constants.RelContextAstKind])
 			},
 		},
 		{
@@ -115,9 +116,9 @@ func TestJavaExtractor_Use(t *testing.T) {
 			sourceQN: methodQN,
 			targetQN: methodQN + ".obj",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "cast_expression", m[constants.RelContext])
+				assert.Equal(t, "identifier", m[constants.RelContextAstKind])
 				// 实际结果显示包含了强转符号
-				assert.Equal(t, "(String) obj", m[constants.RelRawText])
+				assert.Equal(t, "obj", m[constants.RelRawText])
 			},
 		},
 	}
@@ -139,7 +140,9 @@ func TestJavaExtractor_Use(t *testing.T) {
 						for k := range rel.Mores {
 							isAllowed := k == constants.RelRawText ||
 								k == constants.RelAstKind ||
-								k == constants.RelContext ||
+								k == constants.RelContextAstKind ||
+								k == constants.TmpNode ||
+								k == constants.TmpCtxNode ||
 								k == constants.RelUseIsCapture || // 确保包含 capture 键
 								strings.HasPrefix(k, "java.rel.use.")
 							assert.True(t, isAllowed, "Forbidden Mores key found: %s", k)

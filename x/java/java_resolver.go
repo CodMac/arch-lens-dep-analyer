@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/resolver"
+
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
@@ -55,151 +57,84 @@ func (j *SymbolResolver) IsPrimitive(typeName string) bool {
 }
 
 // ResolveVar 处理变量查找，支持本地作用域回溯和类成员继承查找
+// 使用新的Receiver架构
 func (j *SymbolResolver) ResolveVar(gc *core.GlobalContext, fc *core.FileContext, node *sitter.Node, receiver string, symbol string) *model.CodeElement {
-	receiver = helper.Clean(receiver)
-	symbol = helper.Clean(symbol)
+	// 创建变量解析器
+	varResolver := resolver.NewVariableResolver(gc, fc, node)
 
-	isStatic := false
-
+	// 解析receiver
+	var parsedReceiver *resolver.Receiver
 	if receiver != "" {
-		// 场景 A: this 或 super
-		if receiver == "this" || receiver == "super" {
-			container := helper.GetBestElement(fc, node, []model.ElementKind{model.Class, model.AnonymousClass})
-			if container == nil {
-				return nil
-			}
-			isStatic = slices.Contains(container.Extra.Modifiers, "static")
-
-			startEntry := container
-			if receiver == "super" {
-				return j.resolveFromInheritance(gc, fc, container, symbol, isStatic, container)
-			}
-
-			return j.resolveInScopeHierarchy(gc, fc, startEntry.QualifiedName, symbol, isStatic, container)
-		}
-
-		// 场景 B: 尝试解析为类名 (静态访问)
-		// 先清理 receiver (如 List<String> -> List)
-		if entries := helper.PreciseResolve(gc, fc, receiver); len(entries) > 0 {
-			// 如果解析结果是类/接口，则按静态字段查找
-			receiverEle := entries[0].Element
-			if receiverEle.Kind == model.Class || receiverEle.Kind == model.Interface || receiverEle.Kind == model.AnonymousClass {
-				return j.resolveInScopeHierarchy(gc, fc, receiverEle.QualifiedName, symbol, true, receiverEle)
-			}
-		}
-
-		// 场景 C: 跨对象访问 (data.age)
-		// 先解析 receiver 变量本身拿到它的类型
-		receiverEle := j.ResolveVar(gc, fc, node, "", receiver)
-		if receiverEle != nil && receiverEle.Extra != nil {
-			if typeQN, ok := receiverEle.Extra.Mores[constants.VariableTypeWithQN].(string); ok {
-				if entries := helper.PreciseResolve(gc, fc, typeQN); len(entries) > 0 {
-					receiverTypeEle := entries[0].Element
-					if receiverTypeEle.Kind == model.Class || receiverTypeEle.Kind == model.Interface || receiverTypeEle.Kind == model.AnonymousClass {
-						return j.resolveInScopeHierarchy(gc, fc, receiverTypeEle.QualifiedName, symbol, false, receiverEle)
-					}
-				}
-			}
-		}
+		// 尝试从文本构建简单的Receiver
+		parsedReceiver = j.parseSimpleTextReceiver(receiver, node, fc)
 	}
 
-	// 无 receiver：按原有作用域链查找
-	container := helper.GetBestElement(fc, node, []model.ElementKind{model.Method, model.Class, model.ScopeBlock})
-	if container == nil {
-		return nil
+	// 使用新的解析逻辑
+	result := varResolver.ResolveWithReceiver(parsedReceiver, symbol)
+
+	// 如果解析失败，回退到旧逻辑
+	if result == nil {
+		return j.fallbackResolveVar(gc, fc, node, receiver, symbol)
 	}
-	isStatic = slices.Contains(container.Extra.Modifiers, "static")
-	return j.resolveInScopeHierarchy(gc, fc, container.QualifiedName, symbol, isStatic, container)
+
+	return result
+}
+
+// fallbackResolveVar 降级的变量解析逻辑
+func (j *SymbolResolver) fallbackResolveVar(gc *core.GlobalContext, fc *core.FileContext, node *sitter.Node, receiver string, symbol string) *model.CodeElement {
+	// 简化的降级逻辑：创建新的解析器
+	varResolver := resolver.NewVariableResolver(gc, fc, node)
+	return varResolver.ResolveInCurrentScope(symbol)
+}
+
+// parseSimpleTextReceiver 从简单文本解析Receiver（用于兼容旧的接口）
+func (j *SymbolResolver) parseSimpleTextReceiver(text string, node *sitter.Node, fc *core.FileContext) *resolver.Receiver {
+	text = helper.Clean(text)
+	if text == "" {
+		return &resolver.Receiver{Type: resolver.ReceiverNone}
+	}
+
+	// 检查特殊情况
+	switch text {
+	case "this":
+		return &resolver.Receiver{Type: resolver.ReceiverThis, RawText: text}
+	case "super":
+		return &resolver.Receiver{Type: resolver.ReceiverSuper, RawText: text}
+	}
+
+	// 默认作为变量名处理（如果后续需要可以从上下文解析）
+	return &resolver.Receiver{Type: resolver.ReceiverVariable, RawText: text}
 }
 
 // ResolveFunc 处理方法查找：容器定位 -> 继承链搜索 -> 重载消解
+// 使用新的Receiver架构
 func (j *SymbolResolver) ResolveFunc(gc *core.GlobalContext, fc *core.FileContext, node *sitter.Node, receiver string, symbol string) *model.CodeElement {
-	receiver = helper.Clean(receiver)
-	symbol = helper.Clean(symbol)
+	// 创建方法解析器
+	methodResolver := resolver.NewMethodResolver(gc, fc, node)
 
-	var container *model.CodeElement
-	var isStaticCall bool
-
-	// 1. 确定搜索的起始容器
+	// 解析receiver
+	var parsedReceiver *resolver.Receiver
 	if receiver != "" {
-		// 场景 A: 静态调用 (类名.method)
-		if entries := helper.PreciseResolve(gc, fc, receiver); len(entries) > 0 {
-			first := entries[0].Element
-			switch first.Kind {
-			case model.Class:
-				container = first
-				isStaticCall = true
-			case model.Interface:
-				container = first
-			case model.Enum:
-				container = first
-			}
-		}
-
-		// 场景 B: this/super 调用
-		if container == nil && (receiver == "this" || receiver == "super") {
-			container = helper.GetBestElement(fc, node, []model.ElementKind{model.Class, model.AnonymousClass})
-			if receiver == "super" && container != nil {
-				// 如果是 super，容器直接指向父类
-				if sc, ok := container.Extra.Mores[constants.ClassSuperClass].(string); ok && sc != "" {
-					if parents := helper.PreciseResolve(gc, fc, helper.Clean(sc)); len(parents) > 0 {
-						container = parents[0].Element
-					}
-				}
-			}
-		}
-
-		// 场景 C: 实例变量调用 (obj.method)
-		if container == nil {
-			if recvVar := j.ResolveVar(gc, fc, node, "", receiver); recvVar != nil {
-				// 利用 Binder 补全的 QN 定位类
-				typeQN, _ := recvVar.Extra.Mores[constants.VariableTypeWithQN].(string)
-				if typeQN == "" {
-					typeQN, _ = recvVar.Extra.Mores[constants.VariableRawType].(string)
-				}
-				if typeQN != "" {
-					if ents := helper.PreciseResolve(gc, fc, helper.Clean(typeQN)); len(ents) > 0 {
-						container = ents[0].Element
-					}
-				}
-			}
-		}
+		// 尝试从文本构建简单的Receiver
+		parsedReceiver = j.parseSimpleTextReceiver(receiver, node, fc)
 	}
 
-	// 场景 D: 无 receiver，从当前代码位置寻找最近的类
-	if container == nil {
-		container = helper.GetBestElement(fc, node, []model.ElementKind{model.Class, model.AnonymousClass})
+	// 使用新的解析逻辑
+	result := methodResolver.ResolveWithReceiver(parsedReceiver, symbol)
+
+	// 如果解析失败，回退到旧逻辑
+	if result == nil {
+		return j.fallbackResolveFunc(gc, fc, node, receiver, symbol)
 	}
 
-	if container == nil {
-		return &model.CodeElement{Name: symbol, Kind: model.Method, IsFormExternal: true}
-	}
+	return result
+}
 
-	// 2. 准备调用处的实参信息 (用于重载匹配)
-	argCount := 0
-	var inferredArgTypes []string
-	if node != nil {
-		if invNode := j.findInvocationNode(node); invNode != nil {
-			if args := invNode.ChildByFieldName("arguments"); args != nil {
-				argCount = int(args.NamedChildCount())
-				inferredArgTypes = j.inferArgumentTypes(args, fc)
-			}
-		}
-	}
-
-	// 3. 沿继承链向上搜索
-	result := j.searchMethodInHierarchy(gc, fc, container, symbol, argCount, inferredArgTypes, isStaticCall, container)
-	if result != nil {
-		return result
-	}
-
-	// 4. 最终找不到，返回外部符号
-	return &model.CodeElement{
-		Name:           symbol,
-		QualifiedName:  symbol, // 或者是 container.QN + "." + symbol
-		Kind:           model.Method,
-		IsFormExternal: true,
-	}
+// fallbackResolveFunc 降级的方法解析逻辑
+func (j *SymbolResolver) fallbackResolveFunc(gc *core.GlobalContext, fc *core.FileContext, node *sitter.Node, receiver string, symbol string) *model.CodeElement {
+	// 简化的降级逻辑：创建新的解析器
+	methodResolver := resolver.NewMethodResolver(gc, fc, node)
+	return methodResolver.ResolveInCurrentClass(symbol)
 }
 
 // ResolveType 解析结构体符号(Package、Class、Interface、AnonymousClass、Enum......), 如果上下文没找到，则返回kind类型的外部实体
@@ -225,14 +160,55 @@ func (j *SymbolResolver) ResolveAction(gc *core.GlobalContext, fc *core.FileCont
 
 	switch relType {
 	case model.Call:
+		// 尝试使用基于AST的Receiver解析
+		receiver := j.parseReceiverFromAST(ctxNode, fc, gc)
+		if receiver != nil && receiver.Type == resolver.ReceiverChained {
+			// 使用新的链式调用解析逻辑
+			methodResolver := resolver.NewMethodResolver(gc, fc, targetNode)
+			result := methodResolver.ResolveWithReceiver(receiver, symbol)
+			if result != nil {
+				return result
+			}
+		}
+
+		// 降级到旧逻辑
 		receiverText := j.extractReceiverFromCallCtx(ctxNode, src)
 		return j.ResolveFunc(gc, fc, targetNode, receiverText, symbol)
 	case model.Assign, model.Use:
+		// 尝试使用基于AST的Receiver解析
+		receiver := j.parseReceiverFromAST(ctxNode, fc, gc)
+		if receiver != nil && receiver.Type == resolver.ReceiverChained {
+			// 使用新的链式调用解析逻辑
+			varResolver := resolver.NewVariableResolver(gc, fc, targetNode)
+			result := varResolver.ResolveWithReceiver(receiver, symbol)
+			if result != nil {
+				return result
+			}
+		}
+
+		// 降级到旧逻辑
 		receiverText := j.extractReceiverFromFieldAccess(fc, targetNode, src)
 		return j.ResolveVar(gc, fc, targetNode, receiverText, symbol)
 	default:
 		return j.ResolveType(gc, fc, symbol, model.Class)
 	}
+}
+
+// parseReceiverFromAST 从AST节点解析Receiver
+func (j *SymbolResolver) parseReceiverFromAST(node *sitter.Node, fc *core.FileContext, gc *core.GlobalContext) *resolver.Receiver {
+	if node == nil {
+		return &resolver.Receiver{Type: resolver.ReceiverNone}
+	}
+
+	parser := resolver.NewChainParser(gc, fc)
+	receiver := parser.ParseReceiverFromNode(node)
+
+	// 如果不是链式调用或解析失败，返回nil让调用者使用旧逻辑
+	if receiver.Type != resolver.ReceiverChained {
+		return &resolver.Receiver{Type: resolver.ReceiverNone}
+	}
+
+	return receiver
 }
 
 // =============================================================================
@@ -367,7 +343,7 @@ func (j *SymbolResolver) searchMethodInHierarchy(gc *core.GlobalContext, fc *cor
 }
 
 // =============================================================================
-// 4. 重载与类型匹配辅助 (Overload & Type Inference)
+// 重载与类型
 // =============================================================================
 
 // pickBestOverloadEnhanced 结合参数数量和启发式类型匹配选择最优重载
@@ -458,7 +434,7 @@ func (j *SymbolResolver) inferArgumentTypes(argsNode *sitter.Node, fc *core.File
 }
 
 // =============================================================================
-// 5. 校验与底层工具 (Utilities)
+//工具
 // =============================================================================
 
 func (j *SymbolResolver) checkVisibility(gc *core.GlobalContext, fc *core.FileContext, container *model.CodeElement, target *core.DefinitionEntry) bool {
@@ -493,62 +469,10 @@ func (j *SymbolResolver) checkVisibility(gc *core.GlobalContext, fc *core.FileCo
 	// 5. Protected: 检查子类关系
 	if slices.Contains(mods, "protected") {
 		sourceClass := helper.GetOwnerClassQN(gc, container)
-		return j.isSubClassOf(gc, fc, sourceClass, target.ParentQN)
+		return helper.IsSubClassOf(gc, fc, sourceClass, target.ParentQN)
 	}
 
 	return false
-}
-
-func (j *SymbolResolver) determinePreciseContainer(fc *core.FileContext, node *sitter.Node, kinds []model.ElementKind) *model.CodeElement {
-	if node == nil {
-		return nil
-	}
-	var best *model.CodeElement
-	var minSize uint32 = 0xFFFFFFFF
-	row := int(node.StartPosition().Row + 1)
-	for _, entry := range fc.Definitions {
-		if slices.Contains(kinds, entry.Element.Kind) {
-			if row >= entry.Element.Location.StartLine && row <= entry.Element.Location.EndLine {
-				size := uint32(entry.Element.Location.EndLine - entry.Element.Location.StartLine)
-				if size < minSize {
-					minSize, best = size, entry.Element
-				}
-			}
-		}
-	}
-	return best
-}
-
-func (j *SymbolResolver) isSubClassOf(gc *core.GlobalContext, fc *core.FileContext, sub, super string) bool {
-	if sub == "" || super == "" || sub == super {
-		return sub == super
-	}
-	entry, ok := gc.FindByQualifiedName(sub)
-	if !ok || entry.Element.Extra == nil {
-		return false
-	}
-	if sc, ok := entry.Element.Extra.Mores[constants.ClassSuperClass].(string); ok && sc != "" {
-		parents := helper.PreciseResolve(gc, fc, strings.Split(sc, "<")[0])
-		for _, p := range parents {
-			if p.Element.QualifiedName == super || j.isSubClassOf(gc, fc, p.Element.QualifiedName, super) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func (j *SymbolResolver) findInvocationNode(n *sitter.Node) *sitter.Node {
-	for curr := n; curr != nil; curr = curr.Parent() {
-		k := curr.Kind()
-		if k == "method_invocation" || k == "object_creation_expression" || k == "explicit_constructor_invocation" {
-			return curr
-		}
-		if strings.HasSuffix(k, "_statement") {
-			break
-		}
-	}
-	return nil
 }
 
 // extractReceiverFromCallCtx 从调用上下文中提取接收者对象

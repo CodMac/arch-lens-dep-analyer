@@ -16,7 +16,7 @@ type UseEnricher struct {
 }
 
 func (e *UseEnricher) EnrichMetadata(rel *model.DependencyRelation) {
-	node, _, ctx := GetRelTmpValue(rel)
+	node, ctx := GetRelTmpValue(rel)
 	src := *e.fCtx.SourceBytes
 
 	if node == nil || ctx == nil {
@@ -28,7 +28,7 @@ func (e *UseEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 	rel.Mores[constants.RelAstKind] = node.Kind()
 
 	// 1. 设置 Context 类型 (例如 field_access 或 assignment_expression)
-	rel.Mores[constants.RelContext] = ctx.Kind()
+	rel.Mores[constants.RelContextAstKind] = ctx.Kind()
 
 	// 2. 提取并填充 Receiver 文本
 	parent := node.Parent()

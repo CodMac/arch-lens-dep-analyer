@@ -16,7 +16,9 @@ type ReturnEnricher struct {
 }
 
 func (e *ReturnEnricher) EnrichMetadata(rel *model.DependencyRelation) {
-	_, rawText, _ := GetRelTmpValue(rel)
+	rawText := rel.Mores[constants.RelRawText].(string)
+
+	//_, rawText, _ := GetRelTmpValue(rel)
 	isPrimitive := e.resolver.IsPrimitive(helper.Clean(rawText))
 	rel.Mores[constants.RelReturnIsPrimitive] = isPrimitive
 	rel.Mores[constants.RelReturnIsArray] = strings.Contains(rawText, "[]")

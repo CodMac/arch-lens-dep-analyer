@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
+
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -133,4 +135,26 @@ func GetOutermostClassQN(qn string) string {
 		}
 	}
 	return ""
+}
+
+// IsSubClassOf 是否子类
+func IsSubClassOf(gc *core.GlobalContext, fc *core.FileContext, subQN, superQN string) bool {
+	if subQN == "" || superQN == "" || subQN == superQN {
+		return subQN == superQN
+	}
+
+	entry, ok := gc.FindByQualifiedName(subQN)
+	if !ok || entry.Element.Extra == nil {
+		return false
+	}
+
+	if sc, ok := entry.Element.Extra.Mores[constants.ClassSuperClass].(string); ok && sc != "" {
+		parents := PreciseResolve(gc, fc, Clean(sc))
+		for _, p := range parents {
+			if p.Element.QualifiedName == superQN || IsSubClassOf(gc, fc, p.Element.QualifiedName, superQN) {
+				return true
+			}
+		}
+	}
+	return false
 }

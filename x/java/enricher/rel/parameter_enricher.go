@@ -1,10 +1,11 @@
 package rel
 
 import (
+	"strings"
+
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
-	"strings"
 )
 
 type ParameterEnricher struct {
@@ -14,19 +15,23 @@ type ParameterEnricher struct {
 }
 
 func (e *ParameterEnricher) EnrichMetadata(rel *model.DependencyRelation) {
-	_, rawText, _ := GetRelTmpValue(rel)
+	params, ok := rel.Source.Extra.Mores[constants.MethodParameters].([]string)
+	if !ok {
+		return
+	}
 
-	if params, ok := rel.Source.Extra.Mores[constants.MethodParameters].([]string); ok {
-		for i, p := range params {
-			if strings.Contains(p, rel.Target.Name) || strings.Contains(p, rawText) {
-				rel.Mores[constants.RelParameterIndex] = i
-				parts := strings.Fields(p)
-				if len(parts) >= 2 {
-					rel.Mores[constants.RelParameterName] = parts[len(parts)-1]
-				}
-				if strings.Contains(p, "...") {
-					rel.Mores[constants.RelParameterIsVarargs] = true
-				}
+	paramName := rel.Target.Name
+	for i, paramTypeAndName := range params {
+		if strings.Contains(paramTypeAndName, paramName) {
+			rel.Mores[constants.RelParameterIndex] = i
+
+			parts := strings.Fields(paramTypeAndName)
+			if len(parts) >= 2 {
+				rel.Mores[constants.RelParameterName] = parts[len(parts)-1]
+			}
+
+			if strings.Contains(paramTypeAndName, "...") {
+				rel.Mores[constants.RelParameterIsVarargs] = true
 			}
 		}
 	}

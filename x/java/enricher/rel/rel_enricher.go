@@ -3,13 +3,8 @@ package rel
 import (
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	sitter "github.com/tree-sitter/go-tree-sitter"
-)
-
-const (
-	TmpNode = "tmp_node"
-	TmpRaw  = "tmp_raw"
-	TmpStmt = "tmp_stmt"
 )
 
 type IEnricher interface {
@@ -48,20 +43,14 @@ func (e *Enricher) EnrichCoreMetadata(rel *model.DependencyRelation) {
 	if enricher, ok := e.enricherMap[rel.Type]; ok {
 		enricher.EnrichMetadata(rel)
 	}
-
-	// 清理临时字段
-	delete(rel.Mores, TmpNode)
-	delete(rel.Mores, TmpRaw)
-	delete(rel.Mores, TmpStmt)
 }
 
 // =============================================================================
 // 包级公开辅助函数
 // =============================================================================
 
-func GetRelTmpValue(rel *model.DependencyRelation) (*sitter.Node, string, *sitter.Node) {
-	node, _ := rel.Mores[TmpNode].(*sitter.Node)
-	rawText, _ := rel.Mores[TmpRaw].(string)
-	stmt, _ := rel.Mores[TmpStmt].(*sitter.Node)
-	return node, rawText, stmt
+func GetRelTmpValue(rel *model.DependencyRelation) (*sitter.Node, *sitter.Node) {
+	node, _ := rel.Mores[constants.TmpNode].(*sitter.Node)
+	ctxNode, _ := rel.Mores[constants.TmpCtxNode].(*sitter.Node)
+	return node, ctxNode
 }

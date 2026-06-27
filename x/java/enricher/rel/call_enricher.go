@@ -15,13 +15,13 @@ type CallEnricher struct {
 }
 
 func (e *CallEnricher) EnrichMetadata(rel *model.DependencyRelation) {
-	node, _, stmt := GetRelTmpValue(rel)
+	node, ctx := GetRelTmpValue(rel)
 	src := *e.fCtx.SourceBytes
 
 	// 基础元数据
 	rel.Mores[constants.RelAstKind] = node.Kind()
-	rel.Mores[constants.RelRawText] = stmt.Utf8Text(src)
-	rel.Mores[constants.RelContext] = stmt.Kind()
+	rel.Mores[constants.RelRawText] = ctx.Utf8Text(src)
+	rel.Mores[constants.RelContextAstKind] = ctx.Kind()
 	rel.Mores[constants.RelCallIsStatic] = false
 	rel.Mores[constants.RelCallIsConstructor] = false
 	rel.Mores[constants.RelCallIsChained] = false
@@ -46,7 +46,6 @@ func (e *CallEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 	case "method_invocation": // 函数调用
 		if objectNode := callNode.ChildByFieldName("object"); objectNode != nil {
 			receiverRaw := objectNode.Utf8Text(src)
-			rel.Mores[constants.RelCallReceiverRaw] = receiverRaw
 			rel.Mores[constants.RelCallReceiver] = e._normalizeReceiverText(receiverRaw)
 
 			// 判定静态调用，必须排除 getList() 这种带括号的 receiver
@@ -96,7 +95,6 @@ func (e *CallEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 
 		if typeNode := callNode.ChildByFieldName("type"); typeNode != nil {
 			typeName := typeNode.Utf8Text(src)
-			rel.Mores[constants.RelCallReceiverRaw] = typeName
 			rel.Mores[constants.RelCallReceiver] = e._normalizeReceiverText(typeName)
 
 			typeEle := e.resolver.ResolveType(e.gCtx, e.fCtx, typeName, model.Class)
@@ -110,7 +108,6 @@ func (e *CallEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 
 		if objectNode := callNode.ChildByFieldName("object"); objectNode != nil {
 			receiverRaw := objectNode.Utf8Text(src)
-			rel.Mores[constants.RelCallReceiverRaw] = receiverRaw
 			rel.Mores[constants.RelCallReceiver] = e._normalizeReceiverText(receiverRaw)
 
 			if helper.IsPotentialClassName(receiverRaw) {
@@ -140,10 +137,10 @@ func (e *CallEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 
 // _normalizeReceiverText 标准化receiver文本（去除换行符和多余空格）
 func (e *CallEnricher) _normalizeReceiverText(raw string) string {
-	// 去除换行符
-	normalized := strings.ReplaceAll(raw, "\n", " ")
-	normalized = strings.ReplaceAll(normalized, "\r", " ")
+	normalized := ""
+	for _, step := range strings.Split(raw, ".") {
+		normalized += "." + strings.TrimSpace(step)
+	}
 
-	// 压缩多个空格为一个空格
-	return strings.Join(strings.Fields(normalized), " ")
+	return strings.TrimLeft(normalized, ".")
 }

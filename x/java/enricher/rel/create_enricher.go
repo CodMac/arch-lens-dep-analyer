@@ -14,21 +14,21 @@ type CreateEnricher struct {
 }
 
 func (e *CreateEnricher) EnrichMetadata(rel *model.DependencyRelation) {
-	_, _, stmt := GetRelTmpValue(rel)
+	_, ctx := GetRelTmpValue(rel)
 	src := *e.fCtx.SourceBytes
 
-	if stmt == nil {
+	if ctx == nil {
 		return
 	}
 
 	// 1. 通用属性
-	rel.Mores[constants.RelAstKind] = stmt.Kind()
-	rel.Mores[constants.RelRawText] = stmt.Utf8Text(src)
+	rel.Mores[constants.RelAstKind] = ctx.Kind()
+	rel.Mores[constants.RelRawText] = ctx.Utf8Text(src)
 
 	// 2. 专用属性提取：变量名 (RelCreateVariableName)
-	contextNode := stmt
-	if stmt.Kind() == "object_creation_expression" || stmt.Kind() == "array_creation_expression" {
-		if p := stmt.Parent(); p != nil && p.Kind() == "variable_declarator" {
+	contextNode := ctx
+	if ctx.Kind() == "object_creation_expression" || ctx.Kind() == "array_creation_expression" {
+		if p := ctx.Parent(); p != nil && p.Kind() == "variable_declarator" {
 			contextNode = p
 		}
 	}
@@ -39,12 +39,12 @@ func (e *CreateEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 	}
 
 	// 3. 专用属性提取：数组 (RelCreateIsArray)
-	if stmt.Kind() == "array_creation_expression" {
+	if ctx.Kind() == "array_creation_expression" {
 		rel.Mores[constants.RelCreateIsArray] = true
 	}
 
 	// 4. 特殊处理 super() -> Object 的情况
-	if stmt.Kind() == "explicit_constructor_invocation" && strings.Contains(stmt.Utf8Text(src), "super") {
+	if ctx.Kind() == "explicit_constructor_invocation" && strings.Contains(ctx.Utf8Text(src), "super") {
 		rel.Target.Name = "Object"
 		rel.Target.QualifiedName = "Object"
 	}
