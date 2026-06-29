@@ -24,7 +24,7 @@ func TestJavaExtractor_Call(t *testing.T) {
 		t.Fatalf("Extraction failed: %v", err)
 	}
 
-	test.PrintRelations(allRelations)
+	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Call})
 
 	// 2. 定义断言数据集
 	expectedRels := []struct {
@@ -145,7 +145,7 @@ func TestJavaExtractor_Call_Chained(t *testing.T) {
 	}
 
 	// 2. 打印所有关系（方便调试）
-	test.PrintRelations(allRelations)
+	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Call})
 
 	// 3. 验证链式调用的提取
 	t.Run("Verify_Common_Builder_Pattern", func(t *testing.T) {

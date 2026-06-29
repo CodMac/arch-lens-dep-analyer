@@ -1,6 +1,7 @@
 package resolver
 
 import (
+	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
@@ -21,7 +22,7 @@ type Result struct {
 }
 
 // ResolveContext 统一的上下文解析入口
-func (r *NodeContextResolver) ResolveContext(actionType string, node *sitter.Node) *Result {
+func (r *NodeContextResolver) ResolveContext(actionType model.DependencyType, node *sitter.Node) *Result {
 	if node == nil {
 		return nil
 	}
@@ -35,12 +36,18 @@ func (r *NodeContextResolver) ResolveContext(actionType string, node *sitter.Nod
 	}
 
 	switch actionType {
-	case "USE":
+	case model.Use:
 		return r.resolveUseContext(node)
-	case "ASSIGN":
+	case model.Assign:
 		return r.resolveAssignContext(node)
-	case "CALL":
+	case model.Call:
 		return r.resolveCallContext(node)
+	case model.Create:
+		return r.resolveCreateContext(node)
+	case model.Cast:
+		return r.resolveCastContext(node)
+	case model.Throw:
+		return r.resolveThrowContext(node)
 	default:
 		return r.resolveGenericContext(node)
 	}
@@ -116,6 +123,60 @@ func (r *NodeContextResolver) resolveCallContext(node *sitter.Node) *Result {
 		ContextNode: ctxNode,
 		ContextKind: ctxNode.Kind(),
 		IsChain:     true,
+	}
+}
+
+// resolveCreateContext 解析CREATE关系的上下文
+func (r *NodeContextResolver) resolveCreateContext(node *sitter.Node) *Result {
+	ctxNode := r.findCreateContextNode(node)
+	if ctxNode == nil {
+		return &Result{
+			ContextNode: node,
+			ContextKind: node.Kind(),
+			IsChain:     false,
+		}
+	}
+
+	return &Result{
+		ContextNode: ctxNode,
+		ContextKind: ctxNode.Kind(),
+		IsChain:     r.isChainNode(ctxNode),
+	}
+}
+
+// resolveCastContext 解析CAST关系的上下文
+func (r *NodeContextResolver) resolveCastContext(node *sitter.Node) *Result {
+	ctxNode := r.findCastContextNode(node)
+	if ctxNode == nil {
+		return &Result{
+			ContextNode: node,
+			ContextKind: node.Kind(),
+			IsChain:     false,
+		}
+	}
+
+	return &Result{
+		ContextNode: ctxNode,
+		ContextKind: ctxNode.Kind(),
+		IsChain:     false,
+	}
+}
+
+// resolveThrowContext 解析THROW关系的上下文
+func (r *NodeContextResolver) resolveThrowContext(node *sitter.Node) *Result {
+	ctxNode := r.findThrowContextNode(node)
+	if ctxNode == nil {
+		return &Result{
+			ContextNode: node,
+			ContextKind: node.Kind(),
+			IsChain:     false,
+		}
+	}
+
+	return &Result{
+		ContextNode: ctxNode,
+		ContextKind: ctxNode.Kind(),
+		IsChain:     false,
 	}
 }
 
@@ -210,6 +271,67 @@ func (r *NodeContextResolver) findCallContextNode(node *sitter.Node) *sitter.Nod
 			return parent
 		}
 		parent = parent.Parent()
+	}
+	return nil
+}
+
+// findCreateContextNode 为创建对象查找上下文
+func (r *NodeContextResolver) findCreateContextNode(node *sitter.Node) *sitter.Node {
+	parent := node.Parent()
+	for parent != nil {
+		kind := parent.Kind()
+
+		switch kind {
+		case "object_creation_expression", "array_creation_expression":
+			return parent
+		case "type", "generic_type", "argument_list", "arguments", "inferred_parameters":
+			parent = parent.Parent()
+		default:
+			if r.canContainChain(parent) {
+				parent = parent.Parent()
+			} else {
+				return nil
+			}
+		}
+	}
+	return nil
+}
+
+// findCastContextNode 为类型转换查找上下文
+func (r *NodeContextResolver) findCastContextNode(node *sitter.Node) *sitter.Node {
+	parent := node.Parent()
+	for parent != nil {
+		kind := parent.Kind()
+
+		switch kind {
+		case "cast_expression", "instanceof_expression":
+			return parent
+		case "argument_list", "arguments", "parenthesized_expression":
+			parent = parent.Parent()
+		default:
+			if r.canContainChain(parent) {
+				parent = parent.Parent()
+			} else {
+				return nil
+			}
+		}
+	}
+	return nil
+}
+
+// findThrowContextNode 为抛出异常查找上下文
+func (r *NodeContextResolver) findThrowContextNode(node *sitter.Node) *sitter.Node {
+	parent := node.Parent()
+	for parent != nil {
+		kind := parent.Kind()
+
+		if kind == "throw_statement" {
+			return parent
+		} else if r.canContainChain(parent) || kind == "object_creation_expression" || kind == "argument_list" || kind == "arguments" {
+			parent = parent.Parent()
+		} else {
+			return nil
+		}
 	}
 	return nil
 }
@@ -342,13 +464,24 @@ func GetRawTextForAction(actionType string, targetNode, contextNode *sitter.Node
 	switch actionType {
 	case "ASSIGN":
 		if targetNode != nil {
-			// 复用helper.GetNodeContent
 			return helper.GetNodeContent(targetNode, *src)
+		}
+		return ""
+	case "CREATE", "CALL", "THROW":
+		if contextNode != nil {
+			return helper.GetNodeContent(contextNode, *src)
+		}
+		if targetNode != nil {
+			return helper.GetNodeContent(targetNode, *src)
+		}
+		return ""
+	case "CAST":
+		if contextNode != nil {
+			return helper.GetNodeContent(contextNode, *src)
 		}
 		return ""
 	default:
 		if contextNode != nil {
-			// 复用helper.GetNodeContent
 			return helper.GetNodeContent(contextNode, *src)
 		}
 		return ""

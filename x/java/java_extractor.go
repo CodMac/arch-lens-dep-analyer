@@ -352,67 +352,59 @@ func (e *Extractor) mapAction(capName string, node *sitter.Node, fCtx *core.File
 
 	switch capName {
 	case "call_target", "ref_target":
-		// CALL保持原逻辑，因为它已经正确
-		ctxNode := helper.FindNearestKind(node, "method_invocation", "method_reference", "explicit_constructor_invocation", "object_creation_expression")
-		if ctxNode == nil {
+		ctxRe := ctxResolver.ResolveContext(model.Call, node)
+		if ctxRe == nil || ctxRe.ContextNode == nil {
 			return nil
 		}
-		return []ActionTarget{{RelType: model.Call, TargetNode: node, ContextNode: ctxNode, Target: e.resolver.ResolveAction(gCtx, fCtx, node, ctxNode, model.Call)}}
 
-	case "create_target":
-		ctxNode := helper.FindNearestKind(node, "object_creation_expression", "array_creation_expression")
-		if ctxNode == nil {
+		return []ActionTarget{{RelType: model.Call, TargetNode: node, ContextNode: ctxRe.ContextNode, Target: e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Call)}}
+
+	case "create_target", "explicit_constructor_stmt":
+		ctxRe := ctxResolver.ResolveContext(model.Create, node)
+		if ctxRe == nil || ctxRe.ContextNode == nil {
 			return nil
 		}
+
 		return []ActionTarget{
-			{model.Create, node, ctxNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxNode, model.Create)},
-			{model.Call, node, ctxNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxNode, model.Call)},
+			{model.Create, node, ctxRe.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Create)},
+			{model.Call, node, ctxRe.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Call)},
 		}
 
 	case "cast_target":
-		ctxNode := helper.FindNearestKind(node, "cast_expression", "instanceof_expression")
-		if ctxNode == nil {
+		ctxRe := ctxResolver.ResolveContext(model.Cast, node)
+		if ctxRe == nil || ctxRe.ContextNode == nil {
 			return nil
 		}
-		return []ActionTarget{{model.Cast, node, ctxNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxNode, model.Cast)}}
+
+		return []ActionTarget{{model.Cast, node, ctxRe.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Cast)}}
 
 	case "assign_target":
-		// 使用新的上下文解析器
-		result := ctxResolver.ResolveContext("ASSIGN", node)
-		if result == nil || result.ContextNode == nil {
+		ctxRe := ctxResolver.ResolveContext(model.Assign, node)
+		if ctxRe == nil || ctxRe.ContextNode == nil {
 			return nil
 		}
-		return []ActionTarget{{model.Assign, node, result.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, result.ContextNode, model.Assign)}}
+
+		return []ActionTarget{{model.Assign, node, ctxRe.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Assign)}}
 
 	case "id_atom":
-		// 使用新的上下文解析器
-		result := ctxResolver.ResolveContext("USE", node)
-		if result == nil || result.ContextNode == nil {
+		ctxRe := ctxResolver.ResolveContext(model.Use, node)
+		if ctxRe == nil || ctxRe.ContextNode == nil {
 			return nil
 		}
 
-		target := e.resolver.ResolveAction(gCtx, fCtx, node, result.ContextNode, model.Use)
+		target := e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Use)
 		if !e.isUseRel(node, target) {
 			return nil
 		}
-		return []ActionTarget{{model.Use, node, result.ContextNode, target}}
+		return []ActionTarget{{model.Use, node, ctxRe.ContextNode, target}}
 
 	case "throw_target":
-		ctxNode := helper.FindNearestKind(node, "throw_statement")
-		if ctxNode == nil {
+		ctxRe := ctxResolver.ResolveContext(model.Throw, node)
+		if ctxRe == nil || ctxRe.ContextNode == nil {
 			return nil
 		}
-		return []ActionTarget{{model.Throw, node, ctxNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxNode, model.Throw)}}
 
-	case "explicit_constructor_stmt":
-		ctxNode := node
-		if ctxNode == nil {
-			return nil
-		}
-		return []ActionTarget{
-			{model.Call, node, ctxNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxNode, model.Call)},
-			{model.Create, node, ctxNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxNode, model.Create)},
-		}
+		return []ActionTarget{{model.Throw, node, ctxRe.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Throw)}}
 
 	default:
 		return nil

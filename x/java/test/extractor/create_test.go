@@ -23,7 +23,7 @@ func TestJavaExtractor_Create(t *testing.T) {
 		t.Fatalf("Extraction failed: %v", err)
 	}
 
-	test.PrintRelations(allRelations)
+	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Create})
 
 	// 预定义基础路径
 	baseQN := "com.example.rel.CreateRelationSuite"

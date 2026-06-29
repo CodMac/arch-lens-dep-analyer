@@ -24,7 +24,7 @@ func TestJavaExtractor_Throw(t *testing.T) {
 		t.Fatalf("Extraction failed: %v", err)
 	}
 
-	test.PrintRelations(allRelations)
+	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Throw})
 
 	// 2. 定义断言数据集
 	expectedRels := []struct {
@@ -58,7 +58,7 @@ func TestJavaExtractor_Throw(t *testing.T) {
 			},
 		},
 		{
-			sourceQN: "com.example.rel.ThrowRelationSuite.ThrowRelationSuite", // 改掉 <init>
+			sourceQN: "com.example.rel.ThrowRelationSuite.ThrowRelationSuite",
 			targetQN: "Exception",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, true, m[constants.RelThrowIsSignature])

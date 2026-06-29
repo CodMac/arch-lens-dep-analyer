@@ -110,3 +110,18 @@ func TestJavaCollector_Annotation(t *testing.T) {
 		}
 	})
 }
+
+//📁 extractor
+//📄 annotation_test.go
+//📄 assign_test.go
+//📄 call_test.go
+//📄 capture_test.go
+//📄 cast_test.go
+//📄 create_test.go
+//📄 extend_test.go
+//📄 implement_test.go
+//📄 parameter_test.go
+//📄 return_test.go
+//📄 throw_test.go
+//📄 type_arg_test.go
+//📄 use_test.go

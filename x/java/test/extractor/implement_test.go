@@ -23,7 +23,7 @@ func TestJavaExtractor_Implement(t *testing.T) {
 		t.Fatalf("Extraction failed: %v", err)
 	}
 
-	test.PrintRelations(allRelations)
+	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Implement})
 
 	basePkg := "com.example.rel"
 

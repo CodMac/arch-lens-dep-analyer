@@ -24,7 +24,7 @@ func TestJavaExtractor_Return(t *testing.T) {
 		t.Fatalf("Extraction failed: %v", err)
 	}
 
-	test.PrintRelations(allRelations)
+	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Return})
 
 	// 2. 定义断言数据集
 	expectedRels := []struct {

@@ -37,7 +37,7 @@ func TestChainParser_ForCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extraction failed: %v", err)
 	}
-	test.PrintRelations(allRelations)
+	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Call})
 
 	fCtx := gCtx.FileContexts[files[0]]
 	chainParser := resolver.NewChainParser(gCtx, fCtx)

@@ -23,7 +23,7 @@ func TestJavaExtractor_Cast(t *testing.T) {
 		t.Fatalf("Extraction failed: %v", err)
 	}
 
-	test.PrintRelations(allRelations) // 调试时打开
+	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Cast})
 
 	// 定义公共的 Source 方法名
 	sourceMethodQN := "com.example.rel.CastRelationSuite.testCastCases(Object)"

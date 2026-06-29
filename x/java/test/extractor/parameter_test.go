@@ -23,7 +23,7 @@ func TestJavaExtractor_Parameter(t *testing.T) {
 		t.Fatalf("Extraction failed: %v", err)
 	}
 
-	test.PrintRelations(allRelations)
+	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Parameter})
 
 	expectedRels := []struct {
 		sourceQN   string

@@ -24,7 +24,7 @@ func TestJavaExtractor_Use(t *testing.T) {
 		t.Fatalf("Extraction failed: %v", err)
 	}
 
-	test.PrintRelations(allRelations)
+	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Use})
 
 	// 基础 QN 定义
 	baseQN := "com.example.rel.UseRelationSuite"
@@ -338,7 +338,7 @@ func TestJavaExtractor_Use_Advanced(t *testing.T) {
 			allRelations, err := extractor.Extract(tc.targetFile, gCtx)
 			assert.NoError(t, err)
 
-			test.PrintRelations(allRelations)
+			test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Use})
 
 			for _, exp := range tc.expected {
 				found := false

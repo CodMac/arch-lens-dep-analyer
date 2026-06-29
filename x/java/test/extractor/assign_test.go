@@ -25,7 +25,7 @@ func TestJavaExtractor_Assign(t *testing.T) {
 		t.Fatalf("Extraction failed: %v", err)
 	}
 
-	test.PrintRelations(allRelations)
+	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Assign})
 
 	// 2. 定义断言数据集
 	expectedRels := []struct {
@@ -42,7 +42,7 @@ func TestJavaExtractor_Assign(t *testing.T) {
 				return m[constants.RelAssignIsInitializer] == true
 			},
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "0", m[constants.RelAssignValueExpression])
+				assert.Equal(t, "0", m[constants.RelAssignRightExpression])
 			},
 		},
 		// 2. 静态块赋值
@@ -50,7 +50,7 @@ func TestJavaExtractor_Assign(t *testing.T) {
 			sourceMatch: "$static$1",
 			targetMatch: "status",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "\"INIT\"", m[constants.RelAssignValueExpression])
+				assert.Equal(t, "\"INIT\"", m[constants.RelAssignRightExpression])
 			},
 		},
 		// 3. 局部变量基础赋值
@@ -66,7 +66,7 @@ func TestJavaExtractor_Assign(t *testing.T) {
 			sourceMatch: "testAssignments(int)",
 			targetMatch: "b",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "c = 50", m[constants.RelAssignValueExpression])
+				assert.Equal(t, "c = 50", m[constants.RelAssignRightExpression])
 			},
 		},
 		// 8. 数组元素赋值 (Target 应该是数组变量名)
@@ -82,7 +82,7 @@ func TestJavaExtractor_Assign(t *testing.T) {
 			sourceMatch: "lambda$1",
 			targetMatch: "count",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "300", m[constants.RelAssignValueExpression])
+				assert.Equal(t, "300", m[constants.RelAssignRightExpression])
 			},
 		},
 	}
@@ -131,7 +131,7 @@ func TestJavaExtractor_AssignClass(t *testing.T) {
 		t.Fatalf("Extraction failed: %v", err)
 	}
 
-	test.PrintRelations(allRelations)
+	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Assign})
 
 	expectedRels := []struct {
 		sourceQN   string
@@ -211,7 +211,7 @@ func TestJavaExtractor_AssignClass(t *testing.T) {
 	for _, exp := range expectedRels {
 		found := false
 		for _, rel := range allRelations {
-			relValue, _ := rel.Mores[constants.RelAssignValueExpression].(string)
+			relValue, _ := rel.Mores[constants.RelAssignRightExpression].(string)
 
 			// 匹配逻辑：
 			// Source QN 使用 strings.Contains (防止由于空格等引起的微小不一致)
@@ -246,7 +246,7 @@ func TestJavaExtractor_AssignDataFlow(t *testing.T) {
 	}
 
 	// 打印结果便于调试
-	test.PrintRelations(allRelations)
+	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Assign})
 
 	// 3. 定义预期关系
 	expectedRels := []struct {
@@ -293,7 +293,7 @@ func TestJavaExtractor_AssignDataFlow(t *testing.T) {
 		found := false
 		for _, rel := range allRelations {
 			// 获取当前关系的 ValueExpression 以便精确定位
-			relValue, _ := rel.Mores[constants.RelAssignValueExpression].(string)
+			relValue, _ := rel.Mores[constants.RelAssignRightExpression].(string)
 
 			// 匹配 ASSIGN 类型，且 Source QN、Target Name 和 Value 对齐
 			if rel.Type == model.Assign &&

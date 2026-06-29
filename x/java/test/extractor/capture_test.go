@@ -23,8 +23,7 @@ func TestJavaExtractor_Capture(t *testing.T) {
 		t.Fatalf("Extraction failed: %v", err)
 	}
 
-	// test.PrintRelations(allRelations) // 调试时可开启
-
+	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Capture})
 	// 2. 定义期望的 Capture 关系
 	// 注意：Capture 关系的 Target 是被捕获的变量/字段，Source 是 Lambda/匿名类
 	basePkg := "com.example.rel.CaptureRelationSuite"

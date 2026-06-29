@@ -3,7 +3,10 @@ package test
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"testing"
+
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
@@ -88,13 +91,53 @@ func PrintRelations(relations []*model.DependencyRelation) {
 	}
 	fmt.Printf("\n--- Found %d relations ---\n", len(relations))
 	for _, rel := range relations {
-		fmt.Printf("[%s] %s (%s) --> %s (%s)\n",
+		startLine := "-"
+		if rel.Location != nil {
+			startLine = strconv.FormatInt(int64(rel.Location.StartLine), 10)
+		}
+
+		fmt.Printf("[%s] %s (%s) --> %s (%s)\n	Line: %s\n",
 			rel.Type,
 			rel.Source.QualifiedName, rel.Source.Kind,
-			rel.Target.QualifiedName, rel.Target.Kind)
+			rel.Target.QualifiedName, rel.Target.Kind,
+			startLine)
 		if len(rel.Mores) > 0 {
 			for k, v := range rel.Mores {
+				if k == constants.TmpCtxNode || k == constants.TmpNode {
+					continue
+				}
 				fmt.Printf("    Mores[%v] -> %v\n", k, v)
+			}
+		}
+	}
+}
+
+func PrintRelationsOnKinds(relations []*model.DependencyRelation, kinds []model.DependencyType) {
+	if !printRel {
+		return
+	}
+	fmt.Printf("\n--- Found %d relations ---\n", len(relations))
+	for _, rel := range relations {
+		for _, kind := range kinds {
+			if kind == rel.Type {
+				startLine := "-"
+				if rel.Location != nil {
+					startLine = strconv.FormatInt(int64(rel.Location.StartLine), 10)
+				}
+
+				fmt.Printf("[%s] %s (%s) --> %s (%s)\n	Line: %s\n",
+					rel.Type,
+					rel.Source.QualifiedName, rel.Source.Kind,
+					rel.Target.QualifiedName, rel.Target.Kind,
+					startLine)
+				if len(rel.Mores) > 0 {
+					for k, v := range rel.Mores {
+						if k == constants.TmpCtxNode || k == constants.TmpNode {
+							continue
+						}
+						fmt.Printf("    Mores[%v] -> %v\n", k, v)
+					}
+				}
 			}
 		}
 	}

@@ -23,7 +23,7 @@ func TestJavaExtractor_Annotation(t *testing.T) {
 		t.Fatalf("Extraction failed: %v", err)
 	}
 
-	test.PrintRelations(allRelations)
+	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Annotation})
 
 	expectedRels := []struct {
 		relType    model.DependencyType
