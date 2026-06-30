@@ -7,7 +7,7 @@ import java.util.ArrayList;
  * 链式调用复杂场景测试用例
  * 涵盖各种混合链式调用模式
  */
-public class ChainCallComplexCase {
+public class ChainParserCase {
 
     // ==================== 相关类定义 ====================
 
@@ -132,10 +132,7 @@ public class ChainCallComplexCase {
 
         // method1().obj1.method2() 模式
         // getInnerList().get(0).inner2.transform()
-        String result = container.getInnerList()
-                               .get(0)
-                               .inner2
-                               .transform();
+        String result = container.getInnerList().get(0).inner2.transform();
     }
 
     /**
@@ -149,10 +146,7 @@ public class ChainCallComplexCase {
         container.inner1.inner2.value = "secondary";
 
         // 多层链式调用与方法返回值处理
-        String processed = container.getInner1().processData()
-                                   .concat("_" + container.getInner1().getInner2().transform())
-                                   .toUpperCase()
-                                   .trim();
+        String processed = container.getInner1().processData().concat("_" + container.getInner1().getInner2().transform()).toUpperCase().trim();
     }
 
     /**

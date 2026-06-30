@@ -1,6 +1,7 @@
 package resolver
 
 import (
+	"fmt"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -73,18 +74,30 @@ func (r *NodeContextResolver) resolveUseContext(node *sitter.Node) *Result {
 
 // resolveAssignContext 解析ASSIGN关系的上下文
 func (r *NodeContextResolver) resolveAssignContext(node *sitter.Node) *Result {
-	// 复用helper中的FindNearestKind方法
 	assignExpr := helper.FindNearestKind(node, "assignment_expression")
 	if assignExpr == nil {
-		return r.resolveGenericContext(node)
+		ctx := r.resolveGenericContext(node)
+		fmt.Printf("[DEBUG ASSIGN] assignExpr == nil, then resolveGenericContext. \n ctx.Kind()=%s, leftNode.Kind()=%s\n", node.Kind(), ctx.ContextKind)
+		return ctx
 	}
 
 	leftNode := assignExpr.ChildByFieldName("left")
 	if leftNode == nil {
-		return r.resolveGenericContext(node)
+		ctx := r.resolveGenericContext(node)
+		fmt.Printf("[DEBUG ASSIGN] leftNode == nil, then resolveGenericContext. \n ctx.Kind()=%s, leftNode.Kind()=%s\n", node.Kind(), ctx.ContextKind)
+		return ctx
 	}
 
-	ctxNode := r.findOuterChainNode(leftNode)
+	// DEBUG: 打印调试信息
+	fmt.Printf("[DEBUG ASSIGN] capturedNode.Kind()=%s, leftNode.Kind()=%s\n", node.Kind(), leftNode.Kind())
+	ctxNode := r.findAssignLeftChainNodeFromIdentifier(node, leftNode)
+
+	// DEBUG: 打印结果
+	fmt.Printf("[DEBUG ASSIGN] ctxNode=%v\n", ctxNode != nil)
+	if ctxNode != nil {
+		fmt.Printf("[DEBUG ASSIGN] ctxNode.Kind()=%s\n", ctxNode.Kind())
+	}
+
 	if ctxNode == nil {
 		return &Result{
 			ContextNode: leftNode,
@@ -319,6 +332,208 @@ func (r *NodeContextResolver) findCastContextNode(node *sitter.Node) *sitter.Nod
 	return nil
 }
 
+// findAssignLeftChainNode 专门为ASSIGN左值查找链式上下文
+func (r *NodeContextResolver) findAssignLeftChainNode(leftNode *sitter.Node) *sitter.Node {
+	if leftNode == nil {
+		return nil
+	}
+
+	leftValueNode := leftNode
+	parent := leftValueNode.Parent()
+	var outermostChain *sitter.Node
+
+	for parent != nil {
+		kind := parent.Kind()
+
+		switch kind {
+		case "assignment_expression":
+			return outermostChain
+
+		case "field_access":
+			fieldNode := parent.ChildByFieldName("field")
+			if fieldNode != nil {
+				if fieldNode.Id() == leftValueNode.Id() || outermostChain == fieldNode {
+					outermostChain = parent
+					leftValueNode = parent
+					parent = leftValueNode.Parent()
+					continue
+				}
+			}
+			return outermostChain
+
+		case "method_invocation":
+			objectNode := parent.ChildByFieldName("object")
+			if objectNode != nil && objectNode.Id() == leftValueNode.Id() {
+				outermostChain = parent
+				leftValueNode = parent
+				parent = leftValueNode.Parent()
+				continue
+			}
+			nameNode := parent.ChildByFieldName("name")
+			if nameNode != nil && nameNode.Id() == leftValueNode.Id() {
+				outermostChain = parent
+				leftValueNode = parent
+				parent = leftValueNode.Parent()
+				continue
+			}
+			return outermostChain
+
+		case "array_access":
+			objectNode := parent.ChildByFieldName("object")
+			if objectNode != nil && r.isNodeContained(objectNode, leftValueNode) {
+				outermostChain = parent
+				leftValueNode = parent
+				parent = leftValueNode.Parent()
+				continue
+			}
+			return outermostChain
+
+		default:
+			if r.canContainChain(parent) {
+				parent = parent.Parent()
+			} else {
+				return outermostChain
+			}
+		}
+	}
+
+	return outermostChain
+}
+
+// findAssignLeftChainNodeFromIdentifier 从捕获的标识符开始查找完整的链式左值
+func (r *NodeContextResolver) findAssignLeftChainNodeFromIdentifier(capturedNode, leftNode *sitter.Node) *sitter.Node {
+	if capturedNode == nil {
+		return nil
+	}
+
+	// DEBUG: 初始调试信息
+	fmt.Printf("[DEBUG findAssignLeftChainNodeFromIdentifier] START: capturedNode.Kind()=%s, leftNode.Kind()=%s\n", capturedNode.Kind(), leftNode.Kind())
+
+	// 如果leftNode本身就是一个复杂的表达式，直接返回
+	if leftNode.Kind() != "identifier" && leftNode.Kind() != "type_identifier" {
+		// fmt.Printf("[DEBUG findAssignLeftChainNodeFromIdentifier] leftNode is complex: %s, directly returning\n", leftNode.Kind())
+		return leftNode
+	}
+
+	// 从捕获的节点开始向上查找
+	currentNode := capturedNode
+	parent := currentNode.Parent()
+	var outermostChain *sitter.Node
+
+	// fmt.Printf("[DEBUG findAssignLeftChainNodeFromIdentifier] Starting traversal from capturedNode\n")
+
+	for parent != nil {
+		kind := parent.Kind()
+
+		// fmt.Printf("[DEBUG findAssignLeftChainNodeFromIdentifier] parent.Kind()=%s, currentNode.Kind()=%s\n", kind, currentNode.Kind())
+
+		switch kind {
+		case "assignment_expression":
+			// fmt.Printf("[DEBUG findAssignLeftChainNodeFromIdentifier] Reached assignment_expression, returning outermostChain=%v\n", outermostChain != nil)
+			return outermostChain
+
+		case "field_access":
+			fieldNode := parent.ChildByFieldName("field")
+
+			// Check if current node is the field node (most direct case)
+			if fieldNode != nil && fieldNode.Id() == currentNode.Id() {
+				// fmt.Printf("[DEBUG findAssignLeftChainNodeFromIdentifier] Found field_access where current is field, updating outermostChain\n")
+				outermostChain = parent
+				currentNode = parent
+				parent = currentNode.Parent()
+				continue
+			}
+
+			// Check if current node is part of a chain (previous field_access)
+			if outermostChain != nil && outermostChain.Id() == currentNode.Id() {
+				// fmt.Printf("[DEBUG findAssignLeftChainNodeFromIdentifier] Found chain case, updating outermostChain\n")
+				outermostChain = parent
+				currentNode = parent
+				parent = currentNode.Parent()
+				continue
+			}
+
+			// Check if current node is inside the object part (recursive chain)
+			objNode := parent.ChildByFieldName("object")
+			if objNode != nil && objNode.Id() == currentNode.Id() {
+				// fmt.Printf("[DEBUG findAssignLeftChainNodeFromIdentifier] Found object chain case, updating outermostChain\n")
+				outermostChain = parent
+				currentNode = parent
+				parent = currentNode.Parent()
+				continue
+			}
+
+			// fmt.Printf("[DEBUG findAssignLeftChainNodeFromIdentifier] Not a field_access chain, returning current outermostChain=%v\n", outermostChain != nil)
+			return outermostChain
+
+		case "method_invocation":
+			objectNode := parent.ChildByFieldName("object")
+			if objectNode != nil && objectNode.Id() == currentNode.Id() {
+				outermostChain = parent
+				currentNode = parent
+				parent = currentNode.Parent()
+				continue
+			}
+			nameNode := parent.ChildByFieldName("name")
+			if nameNode != nil && nameNode.Id() == currentNode.Id() {
+				outermostChain = parent
+				currentNode = parent
+				parent = currentNode.Parent()
+				continue
+			}
+			return outermostChain
+
+		case "array_access":
+			objectNode := parent.ChildByFieldName("object")
+			if objectNode != nil && r.isNodeContained(objectNode, currentNode) {
+				outermostChain = parent
+				currentNode = parent
+				parent = currentNode.Parent()
+				continue
+			}
+			return outermostChain
+
+		default:
+			if r.canContainChain(parent) {
+				parent = parent.Parent()
+			} else {
+				return outermostChain
+			}
+		}
+	}
+
+	// fmt.Printf("[DEBUG findAssignLeftChainNodeFromIdentifier] Reached end of traversal, returning outermostChain=%v\n", outermostChain != nil)
+	return outermostChain
+}
+
+// isPartOfAssignLeft 判断节点是否是赋值左值链的一部分
+func (r *NodeContextResolver) isPartOfAssignLeft(chainNode, targetNode *sitter.Node) bool {
+	if chainNode == nil || targetNode == nil {
+		return false
+	}
+
+	switch chainNode.Kind() {
+	case "field_access":
+		fieldNode := chainNode.ChildByFieldName("field")
+		return fieldNode != nil && (fieldNode.Id() == targetNode.Id() || r.isNodeContained(fieldNode, targetNode))
+
+	case "method_invocation":
+		objectNode := chainNode.ChildByFieldName("object")
+		if objectNode != nil && objectNode.Id() == targetNode.Id() {
+			return true
+		}
+		nameNode := chainNode.ChildByFieldName("name")
+		return nameNode != nil && nameNode.Id() == targetNode.Id()
+
+	case "array_access":
+		objectNode := chainNode.ChildByFieldName("object")
+		return objectNode != nil && r.isNodeContained(objectNode, targetNode)
+
+	default:
+		return false
+	}
+}
+
 // findThrowContextNode 为抛出异常查找上下文
 func (r *NodeContextResolver) findThrowContextNode(node *sitter.Node) *sitter.Node {
 	parent := node.Parent()
@@ -463,6 +678,9 @@ func GetRawTextForAction(actionType string, targetNode, contextNode *sitter.Node
 
 	switch actionType {
 	case "ASSIGN":
+		if contextNode != nil {
+			return helper.GetNodeContent(contextNode, *src)
+		}
 		if targetNode != nil {
 			return helper.GetNodeContent(targetNode, *src)
 		}

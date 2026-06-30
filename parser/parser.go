@@ -100,14 +100,43 @@ func writeASTToFile(rootNode *sitter.Node, filePath string, sourceBytes []byte, 
 	return os.WriteFile(astFilePath, []byte(astString), 0644)
 }
 
-// formatSExpression 递归遍历抽象语法树（AST）, 并生成格式化的S-expression字符串。
+// formatSExpression 递归遍历抽象语法树（AST）, 并生成包含节点字段、行列坐标、字节范围及文本特征的格式化S-expression字符串。
 func formatSExpression(node *sitter.Node, sourceCode []byte, indentLevel int) string {
 	indent := strings.Repeat("  ", indentLevel)
-
 	var builder strings.Builder
+
+	// 1. 组装节点基础头信息: 缩进 + (Kind
 	builder.WriteString(fmt.Sprintf("%s(%s", indent, node.Kind()))
 
-	// 不存在child的话，需要从sourceCode中提取content
+	// 2. 增强特征 A: 如果该节点在其父节点中拥有特定的 FieldName，将其标记暴露出来 (极度有利于调试 Extractor)
+	if parent := node.Parent(); parent != nil {
+		// 遍历父节点的所有子节点，匹配当前节点以找出其 field_name
+		for i := 0; i < int(parent.ChildCount()); i++ {
+			if node == parent.Child(uint(i)) {
+				if fieldName := parent.FieldNameForChild(uint32(i)); fieldName != "" {
+					builder.WriteString(fmt.Sprintf(" field=%s", fieldName))
+				}
+				break
+			}
+		}
+	}
+
+	// 3. 增强特征 B: 打印详尽的行列坐标与字节区间 [StartByte-EndByte, Line:Col-Line:Col]
+	startPos := node.StartPosition()
+	endPos := node.EndPosition()
+	// tree-sitter 坐标从 0 开始，转换为人类及 IDE 常用的从 1 开始的坐标
+	builder.WriteString(fmt.Sprintf(" loc=[%d-%d, %d:%d-%d:%d]",
+		node.StartByte(), node.EndByte(),
+		startPos.Row+1, startPos.Column+1,
+		endPos.Row+1, endPos.Column+1,
+	))
+
+	// 4. 增强特征 C: 显式标记匿名节点(标点、关键字等)，方便一眼识破非命名节点
+	if !node.IsNamed() {
+		builder.WriteString(" anonymous")
+	}
+
+	// 5. 处理叶子节点 (没有子命名节点的节点)
 	if node.NamedChildCount() == 0 {
 		start := node.StartByte()
 		end := node.EndByte()
@@ -115,30 +144,52 @@ func formatSExpression(node *sitter.Node, sourceCode []byte, indentLevel int) st
 		var content string
 		if start < end && int(end) <= len(sourceCode) {
 			content = string(sourceCode[start:end])
-		} else {
-			content = ""
 		}
 
 		trimmedContent := strings.TrimSpace(content)
-		if trimmedContent != "" && !isPunctuation(trimmedContent) {
-			builder.WriteString(fmt.Sprintf(" %q)", trimmedContent))
+		if trimmedContent != "" {
+			// 智能清洗叶子节点内容: 压缩换行符防止破坏 S-Expression 缩进结构
+			cleanContent := strings.ReplaceAll(trimmedContent, "\n", "\\n")
+			cleanContent = strings.ReplaceAll(cleanContent, "\r", "")
+			if len(cleanContent) > 40 { // 对超长内容(如超长字符串、长注释)进行截断保护
+				cleanContent = cleanContent[:37] + "..."
+			}
+			builder.WriteString(fmt.Sprintf(" text=%q)", cleanContent))
 		} else {
 			builder.WriteString(")")
 		}
 		return builder.String()
 	}
 
-	// Process non-leaf nodes
+	// 6. 递归处理包含子节点的复合节点 (深度优先遍历)
 	builder.WriteString("\n")
-	child := node.NamedChild(0)
-	for child != nil {
+
+	// 为了打印更完整的语法细节，建议改用 Child 遍历(包含非命名节点)而不仅是 NamedChild，
+	// 这样可以看清所有逗号、括号和关键字所在的精准坐标位置。
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(uint(i))
+		if child == nil {
+			continue
+		}
+
+		// 过滤掉纯空白噪音的叶子标点，避免输出文件无意义暴涨，但保留关键的有位置的节点
+		if !child.IsNamed() {
+			start := child.StartByte()
+			end := child.EndByte()
+			if start < end && int(end) <= len(sourceCode) {
+				txt := strings.TrimSpace(string(sourceCode[start:end]))
+				if txt == "" || isPunctuation(txt) {
+					// 如果是无业务意义的纯标点符号(且非关键字)，可以在 AST 输出中跳过
+					continue
+				}
+			}
+		}
+
 		builder.WriteString(formatSExpression(child, sourceCode, indentLevel+1))
 		builder.WriteString("\n")
-
-		child = child.NextNamedSibling()
 	}
 
-	// Close the node
+	// 7. 闭合当前节点
 	result := builder.String()
 	result = strings.TrimSuffix(result, "\n")
 
