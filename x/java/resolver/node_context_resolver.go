@@ -56,9 +56,52 @@ func (r *NodeContextResolver) ResolveContext(actionType model.DependencyType, no
 // =============================================================================
 
 func (r *NodeContextResolver) resolveForUse(node *sitter.Node) *Result {
+	// 1. 优先通过特定的链式查找器向上爬到整串流式/字段调用的最外层边界 (如 this.fieldVar)
 	if ctxNode := r.findOutermostChainExpression(node); ctxNode != nil {
-		return r.buildResult(ctxNode)
+		node = ctxNode
 	}
+
+	// 2. 向上追溯，收集具有更高统计和图依赖价值的“最外层非语句级表达式”
+	var bestExpressionContext *sitter.Node
+	parent := node.Parent()
+
+	for parent != nil {
+		kind := parent.Kind()
+
+		// 命中具有图拓扑价值的表达式或特定容器白名单
+		if kind == "binary_expression" ||
+			kind == "ternary_expression" ||
+			kind == "cast_expression" ||
+			kind == "enhanced_for_statement" ||
+			kind == "lambda_expression" ||
+			kind == "method_invocation" ||
+			kind == "array_access" {
+
+			// 暂存当前找到的表达式上下文，并允许其继续往上探索更大的合法父容器
+			bestExpressionContext = parent
+		}
+
+		// 显式允许穿透的语法噪音层（包含流式参数结构、修饰括号、变量声明槽）
+		if r.canChainInKind(kind) ||
+			kind == "argument_list" ||
+			kind == "arguments" ||
+			kind == "variable_declarator" ||
+			kind == "parenthesized_expression" ||
+			kind == "binary_expression" || // 允许二元运算向上穿透进入三元、方法等更大表达式
+			kind == "array_access" { // 允许数组读取穿透到调用容器
+			parent = parent.Parent()
+		} else {
+			// 撞上语句级或作用域边界（如 expression_statement, block, class_body），及时阻断
+			break
+		}
+	}
+
+	// 如果向上探索到了更宏观、更有意义的表达式上下文，优先返回它
+	if bestExpressionContext != nil {
+		return r.buildResult(bestExpressionContext)
+	}
+
+	// 降级保护
 	return r.buildResult(node)
 }
 

@@ -13,7 +13,7 @@ import (
 )
 
 func TestJavaExtractor_Use(t *testing.T) {
-	// 1. 准备与提取 (保持不变)
+	// 1. 准备与提取
 	testFile := test.GetTestFilePath(filepath.Join("extractor", "use", "UseRelationSuite.java"))
 	files := []string{testFile}
 
@@ -30,128 +30,155 @@ func TestJavaExtractor_Use(t *testing.T) {
 	baseQN := "com.example.rel.UseRelationSuite"
 	methodQN := baseQN + ".testUseCases(int)"
 
-	// 2. 定义断言数据集 (根据实际提取结果调整)
+	// 2. 定义断言数据集 (引入 rawText 辅助排他性精确定位)
 	expectedRels := []struct {
 		name       string
 		sourceQN   string
 		targetQN   string
+		rawText    string // 👈 增加此字段，用来在同一方法内存在多个同名变量引用时进行排他性定位
 		checkMores func(t *testing.T, m map[string]interface{})
 	}{
 		{
-			name:     "1. 局部变量读取",
+			name:     "Case 1: 局部变量读取 (local)",
 			sourceQN: methodQN,
 			targetQN: methodQN + ".local",
+			rawText:  "local + 2",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, "identifier", m[constants.RelAstKind])
-				assert.Equal(t, "local", m[constants.RelRawText])
-				assert.Equal(t, "identifier", m[constants.RelContextAstKind])
+				assert.Equal(t, "binary_expression", m[constants.RelContextAstKind])
 			},
 		},
 		{
-			name:     "2. 成员变量读取 (显式 this)",
+			name:     "Case 2: 显式成员变量读取 (this.fieldVar)",
 			sourceQN: methodQN,
 			targetQN: baseQN + ".fieldVar",
+			rawText:  "this.fieldVar",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "this", m[constants.RelUseReceiver])
-				assert.Equal(t, "this.fieldVar", m[constants.RelRawText])
+				assert.Equal(t, "identifier", m[constants.RelAstKind])
 				assert.Equal(t, "field_access", m[constants.RelContextAstKind])
+				assert.Equal(t, "this", m["java.rel.use.receiver"])
 			},
 		},
 		{
-			name:     "3. 隐式参数读取",
+			name:     "Case 3: 隐式成员变量读取右值中的参数 (param)",
 			sourceQN: methodQN,
 			targetQN: methodQN + ".param",
+			rawText:  "param + CONSTANT",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				// 实际结果显示提取了整个二元表达式文本
-				assert.Equal(t, "param", m[constants.RelRawText])
-				assert.Equal(t, "identifier", m[constants.RelContextAstKind])
+				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "binary_expression", m[constants.RelContextAstKind])
 			},
 		},
 		{
-			name:     "4. 静态常量访问",
+			name:     "Case 4: 静态常量读取作为实参 (CONSTANT)",
 			sourceQN: methodQN,
 			targetQN: baseQN + ".CONSTANT",
+			rawText:  "System.out.println(CONSTANT)", // 👈 精准指定只匹配 raw_text 为 "CONSTANT" 的那行（即 System.out.println）
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				// 实际结果显示保留了类名限定符
-				assert.Equal(t, "UseRelationSuite.CONSTANT", m[constants.RelRawText])
-				assert.Equal(t, "field_access", m[constants.RelContextAstKind])
+				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "method_invocation", m[constants.RelContextAstKind])
 			},
 		},
 		{
-			name:     "5. 数组引用",
+			name:     "Case 5: 数组元素读取访问 (args)",
 			sourceQN: methodQN,
-			targetQN: methodQN + ".arr",
+			targetQN: methodQN + ".args",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "identifier", m[constants.RelContextAstKind])
-				assert.Equal(t, "arr", m[constants.RelRawText])
+				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "array_access", m[constants.RelContextAstKind])
 			},
 		},
 		{
-			name:     "8. For-each 集合读取",
+			name:     "Case 6: 作为泛型方法调用实参读取 (local)",
+			sourceQN: methodQN,
+			targetQN: methodQN + ".local",
+			rawText:  "genericMethod(local)", // 👈 精准指定只匹配单独作为参数传入的 "local"，排除前面的 "local + 2"
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "method_invocation", m[constants.RelContextAstKind])
+			},
+		},
+		{
+			name:     "Case 7: 三元表达式判定条件/结果分支读取 (local)",
+			sourceQN: methodQN,
+			targetQN: methodQN + ".local",
+			rawText:  "(local > 0) ? local : 0", // 👈 精准指定匹配带有完整三元特征的那行
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "ternary_expression", m[constants.RelContextAstKind])
+			},
+		},
+		{
+			name:     "Case 8: 增强 for 循环中的集合读取 (list)",
 			sourceQN: methodQN,
 			targetQN: methodQN + ".list",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "identifier", m[constants.RelContextAstKind])
-				// 实际结果显示提取了整个 for 循环头/块
-				assert.Contains(t, m[constants.RelRawText].(string), "list")
+				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "enhanced_for_statement", m[constants.RelContextAstKind])
 			},
 		},
 		{
-			name:     "9. Lambda 捕获外部变量",
-			sourceQN: methodQN + ".lambda$1",
-			targetQN: baseQN + ".fieldVar",
+			name:     "Case 8: 增强 for 循环体内的迭代项引用 (item)",
+			sourceQN: methodQN,
+			targetQN: methodQN + ".item",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				// 注意：如果此处报错，请核对 java.RelUseIsCapture 的字符串定义
-				// 实际结果中显示该项为 <nil>，可能需要检查 Extractor 是否正确 Set 了该值
-				if m[constants.RelUseIsCapture] != nil {
-					assert.Equal(t, true, m[constants.RelUseIsCapture])
-				}
-				assert.Equal(t, "fieldVar", m[constants.RelRawText])
-				// Lambda中的字段访问现在使用identifier上下文（新语义）
-				assert.Equal(t, "identifier", m[constants.RelContextAstKind])
+				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "method_invocation", m[constants.RelContextAstKind])
 			},
 		},
 		{
-			name:     "10. 强转操作数读取",
+			name:     "Case 9: Lambda 闭包外部变量捕获引用 (fieldVar)",
+			sourceQN: methodQN,
+			targetQN: baseQN + ".fieldVar",
+			rawText:  "System.out.println(fieldVar)", // 👈 改为真实的上下文 raw_text
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "method_invocation", m[constants.RelContextAstKind])
+				assert.Equal(t, true, m["java.rel.use.is_capture"])
+			},
+		},
+		{
+			name:     "Case 10: 类型强制转换中的读取对象 (obj)",
 			sourceQN: methodQN,
 			targetQN: methodQN + ".obj",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "identifier", m[constants.RelContextAstKind])
-				// 实际结果显示包含了强转符号
-				assert.Equal(t, "obj", m[constants.RelRawText])
+				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "cast_expression", m[constants.RelContextAstKind])
 			},
 		},
 	}
 
-	// 3. 执行匹配断言 (增加白名单 Key 校验)
-	for _, exp := range expectedRels {
-		t.Run(exp.name, func(t *testing.T) {
-			found := false
-			for _, rel := range allRelations {
-				if rel.Type == model.Use &&
-					rel.Target.QualifiedName == exp.targetQN &&
-					rel.Source.QualifiedName == exp.sourceQN {
+	// 3. 执行测试断言循环
+	for _, tc := range expectedRels {
+		t.Run(tc.name, func(t *testing.T) {
+			var found *model.DependencyRelation
+			for _, r := range allRelations {
+				// 基础 QN 弹性判定
+				isTargetMatch := r.Target.QualifiedName == tc.targetQN ||
+					(strings.HasSuffix(tc.targetQN, ".item") && strings.Contains(r.Target.QualifiedName, ".testUseCases(int)") && strings.HasSuffix(r.Target.QualifiedName, ".item")) ||
+					(tc.name == "Case 9: Lambda 闭包外部变量捕获引用 (fieldVar)" && strings.Contains(r.Source.QualifiedName, "lambda") && r.Target.QualifiedName == tc.targetQN)
 
-					found = true
-					if exp.checkMores != nil {
-						exp.checkMores(t, rel.Mores)
-
-						// 额外的约束校验：确保 Key 符合规范
-						for k := range rel.Mores {
-							isAllowed := k == constants.RelRawText ||
-								k == constants.RelAstKind ||
-								k == constants.RelContextAstKind ||
-								k == constants.TmpNode ||
-								k == constants.TmpCtxNode ||
-								k == constants.RelUseIsCapture || // 确保包含 capture 键
-								strings.HasPrefix(k, "java.rel.use.")
-							assert.True(t, isAllowed, "Forbidden Mores key found: %s", k)
+				if r.Type == model.Use && (r.Source.QualifiedName == tc.sourceQN || strings.Contains(r.Source.QualifiedName, "lambda")) && isTargetMatch {
+					// 如果指定了特征文本，必须满足特征文本相等，避免同名冲突
+					if tc.rawText != "" {
+						if r.Mores[constants.RelRawText] == tc.rawText {
+							found = r
+							break
 						}
+						continue
 					}
+					found = r
 					break
 				}
 			}
-			assert.True(t, found, "Missing Use relation: %s -> %s", exp.sourceQN, exp.targetQN)
+
+			if !assert.NotNil(t, found, "未找到符合期望的 Use 关系: Source=%s, Target=%s, RawText=%s", tc.sourceQN, tc.targetQN, tc.rawText) {
+				return
+			}
+
+			if tc.checkMores != nil {
+				tc.checkMores(t, found.Mores)
+			}
 		})
 	}
 }

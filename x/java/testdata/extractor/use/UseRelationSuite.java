@@ -11,76 +11,75 @@ public class UseRelationSuite {
         // 1. 局部变量读取 (Local Variable Use)
         // Source: com.example.rel.UseRelationSuite.testUseCases(int)
         // Target: com.example.rel.UseRelationSuite.testUseCases(int).local
-        // Mores: { "java.rel.ast_kind": "identifier", "java.rel.raw_text": "local", "java.rel.context": "binary_expression" }
+        // Mores: { "java.rel.ast_kind": "identifier", "java.rel.context_ast_kind": "binary_expression", "java.rel.raw_text": "local" }
         int local = 5;
         int result = local + 2;
 
         // 2. 成员变量读取 (Field Use - Explicit this)
         // Source: com.example.rel.UseRelationSuite.testUseCases(int)
         // Target: com.example.rel.UseRelationSuite.fieldVar
-        // Mores: { "java.rel.use.receiver": "this", "java.rel.ast_kind": "identifier", "java.rel.raw_text": "fieldVar" }
+        // Mores: { "java.rel.use.receiver": "this", "java.rel.ast_kind": "identifier", "java.rel.context_ast_kind": "field_access", "java.rel.raw_text": "fieldVar" }
         int x = this.fieldVar;
 
         // 3. 隐式成员变量与参数读取
         // Source: com.example.rel.UseRelationSuite.testUseCases(int)
-        // Target: com.example.rel.UseRelationSuite.fieldVar
         // Target: com.example.rel.UseRelationSuite.testUseCases(int).param
-        // Mores: { "java.rel.ast_kind": "identifier", "java.rel.raw_text": "fieldVar" }
-        int y = fieldVar + param;
+        // Target: com.example.rel.UseRelationSuite.CONSTANT
+        // Mores: { "java.rel.ast_kind": "identifier", "java.rel.context_ast_kind": "binary_expression" }
+        this.fieldVar = param + CONSTANT;
 
-        // 4. 静态字段/常量访问 (Static Field Use)
+        // 4. 静态常量读取 (Static Constant Use)
         // Source: com.example.rel.UseRelationSuite.testUseCases(int)
         // Target: com.example.rel.UseRelationSuite.CONSTANT
-        // Mores: { "java.rel.ast_kind": "identifier", "java.rel.raw_text": "CONSTANT" }
-        String s = UseRelationSuite.CONSTANT;
+        // Mores: { "java.rel.ast_kind": "identifier", "java.rel.context_ast_kind": "method_invocation", "java.rel.raw_text": "CONSTANT" }
+        System.out.println(CONSTANT);
 
-        // 5. 数组引用读取 (Array Access)
+        // 5. 数组元素读取 (Array Access Element Use)
         // Source: com.example.rel.UseRelationSuite.testUseCases(int)
-        // Target: com.example.rel.UseRelationSuite.testUseCases(int).arr
-        // Mores: { "java.rel.ast_kind": "identifier", "java.rel.raw_text": "arr", "java.rel.context": "array_access" }
-        int[] arr = {1, 2, 3};
-        int val = arr[0];
+        // Target: com.example.rel.UseRelationSuite.testUseCases(int).args
+        // Mores: { "java.rel.ast_kind": "identifier", "java.rel.context_ast_kind": "array_access", "java.rel.raw_text": "args" }
+        String[] args = new String[]{"test"};
+        String s = args[0];
 
-        // 6. 方法参数传递 (Argument Use)
+        // 6. 作为方法调用实参读取 (Method Argument Use)
         // Source: com.example.rel.UseRelationSuite.testUseCases(int)
-        // Target: com.example.rel.UseRelationSuite.testUseCases(int).s
-        // Target: com.example.rel.UseRelationSuite.testUseCases(int).x
-        // Mores: { "java.rel.context": "argument_list", "java.rel.raw_text": "s" }
-        print(s, x);
+        // Target: com.example.rel.UseRelationSuite.testUseCases(int).local
+        // Mores: { "java.rel.ast_kind": "identifier", "java.rel.context_ast_kind": "method_invocation", "java.rel.raw_text": "local" }
+        genericMethod(local);
 
-        // 7. 表达式/条件读取
+        // 7. 三元表达式中的读取 (Ternary Expression Operands)
         // Source: com.example.rel.UseRelationSuite.testUseCases(int)
-        // Target: com.example.rel.UseRelationSuite.testUseCases(int).x
-        // Mores: { "java.rel.context": "parenthesized_expression", "java.rel.ast_kind": "identifier", "java.rel.raw_text": "x" }
-        boolean flag = (x > 0);
+        // Target: com.example.rel.UseRelationSuite.testUseCases(int).local
+        // Mores: { "java.rel.ast_kind": "identifier", "java.rel.context_ast_kind": "ternary_expression", "java.rel.raw_text": "local" }
+        int val = (local > 0) ? local : 0;
 
         // 8. 增强 for 循环中的集合读取
         List<String> list = List.of("A", "B");
         // Source: com.example.rel.UseRelationSuite.testUseCases(int)
         // Target: com.example.rel.UseRelationSuite.testUseCases(int).list
-        // Mores: { "java.rel.context": "enhanced_for_statement", "java.rel.ast_kind": "identifier", "java.rel.raw_text": "list" }
+        // Mores: { "java.rel.ast_kind": "identifier", "java.rel.context_ast_kind": "enhanced_for_statement", "java.rel.raw_text": "list" }
         for (String item : list) {
             // Source: com.example.rel.UseRelationSuite.testUseCases(int)
             // Target: com.example.rel.UseRelationSuite.testUseCases(int).item
-            // Mores: { "java.rel.context": "method_invocation", "java.rel.raw_text": "item" }
+            // Mores: { "java.rel.ast_kind": "identifier", "java.rel.context_ast_kind": "method_invocation", "java.rel.raw_text": "item" }
             System.out.println(item);
         }
 
         // 9. Lambda 捕获读取 (Variable Capture)
         // Source: com.example.rel.UseRelationSuite.testUseCases(int).lambda$1
         // Target: com.example.rel.UseRelationSuite.fieldVar
-        // Mores: { "java.rel.use.is_capture": true, "java.rel.ast_kind": "identifier", "java.rel.raw_text": "fieldVar" }
+        // Mores: { "java.rel.use.is_capture": true, "java.rel.ast_kind": "identifier", "java.rel.context_ast_kind": "method_invocation", "java.rel.raw_text": "fieldVar" }
         Runnable r = () -> {
             System.out.println(fieldVar);
         };
 
         // 10. 类型强制转换中的读取 (Cast Operand Use)
-        Object obj = "string";
         // Source: com.example.rel.UseRelationSuite.testUseCases(int)
         // Target: com.example.rel.UseRelationSuite.testUseCases(int).obj
-        // Mores: { "java.rel.context": "cast_expression", "java.rel.raw_text": "obj" }
-        String casted = (String) obj;
+        // Mores: { "java.rel.ast_kind": "identifier", "java.rel.context_ast_kind": "cast_expression", "java.rel.raw_text": "obj" }
+        Object obj = "string";
+        String str = (String) obj;
     }
 
-    private void print(String s, int i) {}
+    public <T> void genericMethod(T t) {}
 }
