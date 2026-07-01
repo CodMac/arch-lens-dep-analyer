@@ -292,7 +292,7 @@ func (e *Extractor) mapAction(capName string, node *sitter.Node, fCtx *core.File
 			return nil
 		}
 
-		fmt.Printf("Call ->\n		mode: %s\n		ctxNode: %s\n", node.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes))
+		fmt.Printf("Call ->\n	node: %s\n	nodeKind: %s\n	ctxNode: %s\n	ctxNodeKind: %s\n", node.Utf8Text(*fCtx.SourceBytes), node.Kind(), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Kind())
 		return []ActionTarget{{RelType: model.Call, TargetNode: node, ContextNode: ctxRe.ContextNode, Target: e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Call)}}
 
 	case "create_target", "explicit_constructor_stmt":
@@ -301,7 +301,7 @@ func (e *Extractor) mapAction(capName string, node *sitter.Node, fCtx *core.File
 			return nil
 		}
 
-		fmt.Printf("Create ->\n		mode: %s\n		ctxNode: %s\n", node.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes))
+		fmt.Printf("Create ->\n	node: %s\n	nodeKind: %s\n	ctxNode: %s\n	ctxNodeKind: %s\n", node.Utf8Text(*fCtx.SourceBytes), node.Kind(), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Kind())
 		return []ActionTarget{
 			{model.Create, node, ctxRe.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Create)},
 			{model.Call, node, ctxRe.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Call)},
@@ -313,7 +313,7 @@ func (e *Extractor) mapAction(capName string, node *sitter.Node, fCtx *core.File
 			return nil
 		}
 
-		fmt.Printf("Cast ->\n		mode: %s\n		ctxNode: %s\n", node.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes))
+		fmt.Printf("Cast ->\n	node: %s\n	nodeKind: %s\n	ctxNode: %s\n	ctxNodeKind: %s\n", node.Utf8Text(*fCtx.SourceBytes), node.Kind(), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Kind())
 		return []ActionTarget{{model.Cast, node, ctxRe.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Cast)}}
 
 	case "assign_target":
@@ -321,7 +321,8 @@ func (e *Extractor) mapAction(capName string, node *sitter.Node, fCtx *core.File
 		if ctxRe == nil || ctxRe.ContextNode == nil {
 			return nil
 		}
-		fmt.Printf("Assign ->\n		mode: %s\n		ctxNode: %s\n", node.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes))
+
+		fmt.Printf("Assign ->\n	node: %s\n	nodeKind: %s\n	ctxNode: %s\n	ctxNodeKind: %s\n", node.Utf8Text(*fCtx.SourceBytes), node.Kind(), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Kind())
 		return []ActionTarget{{model.Assign, node, ctxRe.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Assign)}}
 
 	case "id_atom":
@@ -334,7 +335,7 @@ func (e *Extractor) mapAction(capName string, node *sitter.Node, fCtx *core.File
 			return nil
 		}
 
-		fmt.Printf("Use ->\n		mode: %s\n		ctxNode: %s\n", node.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes))
+		fmt.Printf("Use ->\n	node: %s\n	nodeKind: %s\n	ctxNode: %s\n	ctxNodeKind: %s\n", node.Utf8Text(*fCtx.SourceBytes), node.Kind(), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Kind())
 		return []ActionTarget{{model.Use, node, ctxRe.ContextNode, target}}
 
 	case "throw_target":
@@ -343,7 +344,7 @@ func (e *Extractor) mapAction(capName string, node *sitter.Node, fCtx *core.File
 			return nil
 		}
 
-		fmt.Printf("Throw ->\n		mode: %s\n		ctxNode: %s\n", node.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes))
+		fmt.Printf("Throw ->\n	node: %s\n	nodeKind: %s\n	ctxNode: %s\n	ctxNodeKind: %s\n", node.Utf8Text(*fCtx.SourceBytes), node.Kind(), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Kind())
 		return []ActionTarget{{model.Throw, node, ctxRe.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Throw)}}
 
 	default:

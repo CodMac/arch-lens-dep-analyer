@@ -41,9 +41,9 @@ func (r *NodeContextResolver) ResolveContext(actionType model.DependencyType, no
 	case model.Call:
 		return r.resolveForCall(node)
 	case model.Create:
-		return r.resolveUpstream(node, []string{"object_creation_expression", "array_creation_expression"}, true)
+		return r.resolveForCreate(node)
 	case model.Cast:
-		return r.resolveUpstream(node, []string{"cast_expression", "instanceof_expression"}, false)
+		return r.resolveForCast(node)
 	case model.Throw:
 		return r.resolveForThrow(node)
 	default:
@@ -103,11 +103,22 @@ func (r *NodeContextResolver) resolveForCall(node *sitter.Node) *Result {
 	return r.buildResult(node)
 }
 
-// resolveForThrow 处理场景2的异常抛出语句容器
+func (r *NodeContextResolver) resolveForCreate(node *sitter.Node) *Result {
+	if createStmt := helper.FindNearestKind(node, "object_creation_expression", "array_creation_expression"); createStmt != nil {
+		return r.buildResult(createStmt)
+	}
+	return r.buildResult(node)
+}
+
 func (r *NodeContextResolver) resolveForThrow(node *sitter.Node) *Result {
-	// 【复用 2】利用 helper.FindNearestKind 完美的 Statement 阻断机制
-	// 它会自动向上寻找 throw_statement，若在途中遇到其他控制块语句或 class_body 会安全退出返回 nil
 	if throwStmt := helper.FindNearestKind(node, "throw_statement"); throwStmt != nil {
+		return r.buildResult(throwStmt)
+	}
+	return r.buildResult(node)
+}
+
+func (r *NodeContextResolver) resolveForCast(node *sitter.Node) *Result {
+	if throwStmt := helper.FindNearestKind(node, "cast_expression", "instanceof_expression"); throwStmt != nil {
 		return r.buildResult(throwStmt)
 	}
 	return r.buildResult(node)
