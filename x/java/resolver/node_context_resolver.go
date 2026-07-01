@@ -1,21 +1,22 @@
 package resolver
 
 import (
-	"fmt"
+	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
-	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper" // 引入你的 helper 包
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-// NodeContextResolver 节点上下文解析器
-type NodeContextResolver struct{}
-
-// NewNodeContextResolver 创建节点上下文解析器
-func NewNodeContextResolver() *NodeContextResolver {
-	return &NodeContextResolver{}
+type NodeContextResolver struct {
+	srcs *[]byte
 }
 
-// Result 上下文解析结果
+func NewNodeContextResolver(fCtx *core.FileContext) *NodeContextResolver {
+	return &NodeContextResolver{
+		srcs: fCtx.SourceBytes,
+	}
+}
+
 type Result struct {
 	ContextNode *sitter.Node
 	ContextKind string
@@ -28,230 +29,158 @@ func (r *NodeContextResolver) ResolveContext(actionType model.DependencyType, no
 		return nil
 	}
 
-	if r.isChainNode(node) {
-		return &Result{
-			ContextNode: node,
-			ContextKind: node.Kind(),
-			IsChain:     true,
-		}
+	if r.isChainExpression(node) {
+		return r.buildResult(node)
 	}
 
 	switch actionType {
 	case model.Use:
-		return r.resolveUseContext(node)
+		return r.resolveForUse(node)
 	case model.Assign:
-		return r.resolveAssignContext(node)
+		return r.resolveForAssign(node)
 	case model.Call:
-		return r.resolveCallContext(node)
+		return r.resolveForCall(node)
 	case model.Create:
-		return r.resolveCreateContext(node)
+		return r.resolveUpstream(node, []string{"object_creation_expression", "array_creation_expression"}, true)
 	case model.Cast:
-		return r.resolveCastContext(node)
+		return r.resolveUpstream(node, []string{"cast_expression", "instanceof_expression"}, false)
 	case model.Throw:
-		return r.resolveThrowContext(node)
+		return r.resolveForThrow(node)
 	default:
-		return r.resolveGenericContext(node)
+		return r.resolveForGeneric(node)
 	}
 }
 
-// resolveUseContext 解析USE关系的上下文
-func (r *NodeContextResolver) resolveUseContext(node *sitter.Node) *Result {
-	ctxNode := r.findOuterChainNode(node)
-	if ctxNode == nil {
-		return &Result{
-			ContextNode: node,
-			ContextKind: node.Kind(),
-			IsChain:     false,
-		}
-	}
+// =============================================================================
+// 解析层
+// =============================================================================
 
-	return &Result{
-		ContextNode: ctxNode,
-		ContextKind: ctxNode.Kind(),
-		IsChain:     r.isChainNode(ctxNode),
+func (r *NodeContextResolver) resolveForUse(node *sitter.Node) *Result {
+	if ctxNode := r.findOutermostChainExpression(node); ctxNode != nil {
+		return r.buildResult(ctxNode)
 	}
+	return r.buildResult(node)
 }
 
-// resolveAssignContext 解析ASSIGN关系的上下文
-func (r *NodeContextResolver) resolveAssignContext(node *sitter.Node) *Result {
+func (r *NodeContextResolver) resolveForAssign(node *sitter.Node) *Result {
+	// 【复用 1】直接通过 helper 寻找最近的赋值表达式，代替原先繁琐的向上手写判断
 	assignExpr := helper.FindNearestKind(node, "assignment_expression")
 	if assignExpr == nil {
-		ctx := r.resolveGenericContext(node)
-		fmt.Printf("[DEBUG ASSIGN] assignExpr == nil, then resolveGenericContext. \n ctx.Kind()=%s, leftNode.Kind()=%s\n", node.Kind(), ctx.ContextKind)
-		return ctx
+		return r.resolveForGeneric(node)
 	}
 
 	leftNode := assignExpr.ChildByFieldName("left")
 	if leftNode == nil {
-		ctx := r.resolveGenericContext(node)
-		fmt.Printf("[DEBUG ASSIGN] leftNode == nil, then resolveGenericContext. \n ctx.Kind()=%s, leftNode.Kind()=%s\n", node.Kind(), ctx.ContextKind)
-		return ctx
+		return r.resolveForGeneric(node)
 	}
 
-	// DEBUG: 打印调试信息
-	fmt.Printf("[DEBUG ASSIGN] capturedNode.Kind()=%s, leftNode.Kind()=%s\n", node.Kind(), leftNode.Kind())
-	ctxNode := r.findAssignLeftChainNodeFromIdentifier(node, leftNode)
-
-	// DEBUG: 打印结果
-	fmt.Printf("[DEBUG ASSIGN] ctxNode=%v\n", ctxNode != nil)
-	if ctxNode != nil {
-		fmt.Printf("[DEBUG ASSIGN] ctxNode.Kind()=%s\n", ctxNode.Kind())
-	}
-
-	if ctxNode == nil {
-		return &Result{
-			ContextNode: leftNode,
-			ContextKind: leftNode.Kind(),
-			IsChain:     false,
+	if leftNode.Kind() != "identifier" && leftNode.Kind() != "type_identifier" {
+		if ctxNode := r.findChainedAssignLeft(node); ctxNode != nil {
+			return r.buildResult(ctxNode)
 		}
+		return r.buildResult(leftNode)
 	}
-
-	return &Result{
-		ContextNode: ctxNode,
-		ContextKind: ctxNode.Kind(),
-		IsChain:     r.isChainNode(ctxNode),
-	}
+	return r.buildResult(leftNode)
 }
 
-// resolveCallContext 解析CALL关系的上下文
-func (r *NodeContextResolver) resolveCallContext(node *sitter.Node) *Result {
-	if r.isInvocationNode(node) {
-		return &Result{
-			ContextNode: node,
-			ContextKind: node.Kind(),
-			IsChain:     true,
-		}
+func (r *NodeContextResolver) resolveForCall(node *sitter.Node) *Result {
+	if r.isInvocationExpression(node) {
+		return r.buildResult(node)
 	}
 
-	ctxNode := r.findCallContextNode(node)
-	if ctxNode == nil {
-		return &Result{
-			ContextNode: node,
-			ContextKind: node.Kind(),
-			IsChain:     false,
+	parent := node.Parent()
+	for parent != nil {
+		if r.isInvocationExpression(parent) {
+			if r.isPartOfInvocation(parent, node) {
+				if outer := r.findOutermostChainExpression(parent); outer != nil {
+					return r.buildResult(outer)
+				}
+			}
+			return r.buildResult(parent)
 		}
+		parent = parent.Parent()
 	}
-
-	return &Result{
-		ContextNode: ctxNode,
-		ContextKind: ctxNode.Kind(),
-		IsChain:     true,
-	}
+	return r.buildResult(node)
 }
 
-// resolveCreateContext 解析CREATE关系的上下文
-func (r *NodeContextResolver) resolveCreateContext(node *sitter.Node) *Result {
-	ctxNode := r.findCreateContextNode(node)
-	if ctxNode == nil {
-		return &Result{
-			ContextNode: node,
-			ContextKind: node.Kind(),
-			IsChain:     false,
-		}
+// resolveForThrow 处理场景2的异常抛出语句容器
+func (r *NodeContextResolver) resolveForThrow(node *sitter.Node) *Result {
+	// 【复用 2】利用 helper.FindNearestKind 完美的 Statement 阻断机制
+	// 它会自动向上寻找 throw_statement，若在途中遇到其他控制块语句或 class_body 会安全退出返回 nil
+	if throwStmt := helper.FindNearestKind(node, "throw_statement"); throwStmt != nil {
+		return r.buildResult(throwStmt)
 	}
-
-	return &Result{
-		ContextNode: ctxNode,
-		ContextKind: ctxNode.Kind(),
-		IsChain:     r.isChainNode(ctxNode),
-	}
+	return r.buildResult(node)
 }
 
-// resolveCastContext 解析CAST关系的上下文
-func (r *NodeContextResolver) resolveCastContext(node *sitter.Node) *Result {
-	ctxNode := r.findCastContextNode(node)
-	if ctxNode == nil {
-		return &Result{
-			ContextNode: node,
-			ContextKind: node.Kind(),
-			IsChain:     false,
+func (r *NodeContextResolver) resolveUpstream(node *sitter.Node, targetKinds []string, allowChainOuter bool) *Result {
+	parent := node.Parent()
+	for parent != nil {
+		kind := parent.Kind()
+		if helper.Contains(targetKinds, kind) {
+			if allowChainOuter {
+				if outer := r.findOutermostChainExpression(parent); outer != nil {
+					return r.buildResult(outer)
+				}
+			}
+			return r.buildResult(parent)
+		}
+
+		if r.canChainInKind(kind) || kind == "argument_list" || kind == "arguments" ||
+			kind == "type" || kind == "generic_type" || kind == "parenthesized_expression" {
+			parent = parent.Parent()
+		} else {
+			break
 		}
 	}
-
-	return &Result{
-		ContextNode: ctxNode,
-		ContextKind: ctxNode.Kind(),
-		IsChain:     false,
-	}
+	return r.buildResult(node)
 }
 
-// resolveThrowContext 解析THROW关系的上下文
-func (r *NodeContextResolver) resolveThrowContext(node *sitter.Node) *Result {
-	ctxNode := r.findThrowContextNode(node)
-	if ctxNode == nil {
-		return &Result{
-			ContextNode: node,
-			ContextKind: node.Kind(),
-			IsChain:     false,
-		}
+func (r *NodeContextResolver) resolveForGeneric(node *sitter.Node) *Result {
+	if ctxNode := r.findOutermostChainExpression(node); ctxNode != nil {
+		return r.buildResult(ctxNode)
 	}
-
-	return &Result{
-		ContextNode: ctxNode,
-		ContextKind: ctxNode.Kind(),
-		IsChain:     false,
-	}
+	return r.buildResult(node)
 }
 
-// resolveGenericContext 通用上下文解析
-func (r *NodeContextResolver) resolveGenericContext(node *sitter.Node) *Result {
-	ctxNode := r.findOuterChainNode(node)
-	if ctxNode == nil {
-		return &Result{
-			ContextNode: node,
-			ContextKind: node.Kind(),
-			IsChain:     false,
-		}
-	}
+// =============================================================================
+// 查找层
+// =============================================================================
 
-	return &Result{
-		ContextNode: ctxNode,
-		ContextKind: ctxNode.Kind(),
-		IsChain:     r.isChainNode(ctxNode),
-	}
-}
-
-// findOuterChainNode 向上查找最外层的链式节点
-func (r *NodeContextResolver) findOuterChainNode(node *sitter.Node) *sitter.Node {
+func (r *NodeContextResolver) findOutermostChainExpression(node *sitter.Node) *sitter.Node {
 	parent := node.Parent()
 	var outerChainNode *sitter.Node
 
 	for parent != nil {
-		kind := parent.Kind()
-
-		switch kind {
+		switch parent.Kind() {
 		case "field_access":
-			if fieldNode := parent.ChildByFieldName("field"); fieldNode != nil && fieldNode.Id() == node.Id() {
+			fieldNode := parent.ChildByFieldName("field")
+			if fieldNode != nil && fieldNode.Id() == node.Id() {
 				outerChainNode = parent
 				node = parent
-			} else if r.isNodeContained(parent, node) {
+			} else if helper.IsNodeContained(parent.ChildByFieldName("object"), node) {
 				node = parent
 			} else {
 				return outerChainNode
 			}
 
 		case "method_invocation":
-			if nameNode := parent.ChildByFieldName("name"); nameNode != nil && nameNode.Id() == node.Id() {
+			nameNode := parent.ChildByFieldName("name")
+			if nameNode != nil && nameNode.Id() == node.Id() {
 				return outerChainNode
-			} else if objNode := parent.ChildByFieldName("object"); objNode != nil {
-				if r.isNodeContained(objNode, node) {
-					outerChainNode = parent
-					node = parent
-				} else {
-					return outerChainNode
-				}
+			}
+			objNode := parent.ChildByFieldName("object")
+			if objNode != nil && helper.IsNodeContained(objNode, node) {
+				outerChainNode = parent
+				node = parent
 			} else {
 				return outerChainNode
 			}
 
 		case "array_access":
-			if objNode := parent.ChildByFieldName("object"); objNode != nil {
-				if r.isNodeContained(objNode, node) {
-					outerChainNode = parent
-					node = parent
-				} else {
-					return outerChainNode
-				}
+			if helper.IsNodeContained(parent.ChildByFieldName("object"), node) {
+				outerChainNode = parent
+				node = parent
 			} else {
 				return outerChainNode
 			}
@@ -260,448 +189,105 @@ func (r *NodeContextResolver) findOuterChainNode(node *sitter.Node) *sitter.Node
 			node = parent
 
 		default:
-			if r.canContainChain(parent) {
+			if r.canChainInKind(parent.Kind()) {
 				node = parent
 			} else {
 				return outerChainNode
 			}
 		}
-
 		parent = node.Parent()
 	}
-
 	return outerChainNode
 }
 
-// findCallContextNode 为调用查找上下文
-func (r *NodeContextResolver) findCallContextNode(node *sitter.Node) *sitter.Node {
-	parent := node.Parent()
-	for parent != nil {
-		if r.isInvocationNode(parent) {
-			if r.isPartOfCallChain(parent, node) {
-				return r.findOuterChainNode(parent)
-			}
-			return parent
-		}
-		parent = parent.Parent()
-	}
-	return nil
-}
-
-// findCreateContextNode 为创建对象查找上下文
-func (r *NodeContextResolver) findCreateContextNode(node *sitter.Node) *sitter.Node {
-	parent := node.Parent()
-	for parent != nil {
-		kind := parent.Kind()
-
-		switch kind {
-		case "object_creation_expression", "array_creation_expression":
-			return parent
-		case "type", "generic_type", "argument_list", "arguments", "inferred_parameters":
-			parent = parent.Parent()
-		default:
-			if r.canContainChain(parent) {
-				parent = parent.Parent()
-			} else {
-				return nil
-			}
-		}
-	}
-	return nil
-}
-
-// findCastContextNode 为类型转换查找上下文
-func (r *NodeContextResolver) findCastContextNode(node *sitter.Node) *sitter.Node {
-	parent := node.Parent()
-	for parent != nil {
-		kind := parent.Kind()
-
-		switch kind {
-		case "cast_expression", "instanceof_expression":
-			return parent
-		case "argument_list", "arguments", "parenthesized_expression":
-			parent = parent.Parent()
-		default:
-			if r.canContainChain(parent) {
-				parent = parent.Parent()
-			} else {
-				return nil
-			}
-		}
-	}
-	return nil
-}
-
-// findAssignLeftChainNode 专门为ASSIGN左值查找链式上下文
-func (r *NodeContextResolver) findAssignLeftChainNode(leftNode *sitter.Node) *sitter.Node {
-	if leftNode == nil {
-		return nil
-	}
-
-	leftValueNode := leftNode
-	parent := leftValueNode.Parent()
+func (r *NodeContextResolver) findChainedAssignLeft(capturedNode *sitter.Node) *sitter.Node {
+	curr := capturedNode
+	parent := curr.Parent()
 	var outermostChain *sitter.Node
 
 	for parent != nil {
 		kind := parent.Kind()
-
-		switch kind {
-		case "assignment_expression":
+		if kind == "assignment_expression" {
 			return outermostChain
-
-		case "field_access":
-			fieldNode := parent.ChildByFieldName("field")
-			if fieldNode != nil {
-				if fieldNode.Id() == leftValueNode.Id() || outermostChain == fieldNode {
-					outermostChain = parent
-					leftValueNode = parent
-					parent = leftValueNode.Parent()
-					continue
-				}
-			}
-			return outermostChain
-
-		case "method_invocation":
-			objectNode := parent.ChildByFieldName("object")
-			if objectNode != nil && objectNode.Id() == leftValueNode.Id() {
-				outermostChain = parent
-				leftValueNode = parent
-				parent = leftValueNode.Parent()
-				continue
-			}
-			nameNode := parent.ChildByFieldName("name")
-			if nameNode != nil && nameNode.Id() == leftValueNode.Id() {
-				outermostChain = parent
-				leftValueNode = parent
-				parent = leftValueNode.Parent()
-				continue
-			}
-			return outermostChain
-
-		case "array_access":
-			objectNode := parent.ChildByFieldName("object")
-			if objectNode != nil && r.isNodeContained(objectNode, leftValueNode) {
-				outermostChain = parent
-				leftValueNode = parent
-				parent = leftValueNode.Parent()
-				continue
-			}
-			return outermostChain
-
-		default:
-			if r.canContainChain(parent) {
-				parent = parent.Parent()
-			} else {
-				return outermostChain
-			}
 		}
-	}
-
-	return outermostChain
-}
-
-// findAssignLeftChainNodeFromIdentifier 从捕获的标识符开始查找完整的链式左值
-func (r *NodeContextResolver) findAssignLeftChainNodeFromIdentifier(capturedNode, leftNode *sitter.Node) *sitter.Node {
-	if capturedNode == nil {
-		return nil
-	}
-
-	// DEBUG: 初始调试信息
-	fmt.Printf("[DEBUG findAssignLeftChainNodeFromIdentifier] START: capturedNode.Kind()=%s, leftNode.Kind()=%s\n", capturedNode.Kind(), leftNode.Kind())
-
-	// 如果leftNode本身就是一个复杂的表达式，直接返回
-	if leftNode.Kind() != "identifier" && leftNode.Kind() != "type_identifier" {
-		// fmt.Printf("[DEBUG findAssignLeftChainNodeFromIdentifier] leftNode is complex: %s, directly returning\n", leftNode.Kind())
-		return leftNode
-	}
-
-	// 从捕获的节点开始向上查找
-	currentNode := capturedNode
-	parent := currentNode.Parent()
-	var outermostChain *sitter.Node
-
-	// fmt.Printf("[DEBUG findAssignLeftChainNodeFromIdentifier] Starting traversal from capturedNode\n")
-
-	for parent != nil {
-		kind := parent.Kind()
-
-		// fmt.Printf("[DEBUG findAssignLeftChainNodeFromIdentifier] parent.Kind()=%s, currentNode.Kind()=%s\n", kind, currentNode.Kind())
 
 		switch kind {
-		case "assignment_expression":
-			// fmt.Printf("[DEBUG findAssignLeftChainNodeFromIdentifier] Reached assignment_expression, returning outermostChain=%v\n", outermostChain != nil)
-			return outermostChain
-
 		case "field_access":
 			fieldNode := parent.ChildByFieldName("field")
-
-			// Check if current node is the field node (most direct case)
-			if fieldNode != nil && fieldNode.Id() == currentNode.Id() {
-				// fmt.Printf("[DEBUG findAssignLeftChainNodeFromIdentifier] Found field_access where current is field, updating outermostChain\n")
-				outermostChain = parent
-				currentNode = parent
-				parent = currentNode.Parent()
-				continue
-			}
-
-			// Check if current node is part of a chain (previous field_access)
-			if outermostChain != nil && outermostChain.Id() == currentNode.Id() {
-				// fmt.Printf("[DEBUG findAssignLeftChainNodeFromIdentifier] Found chain case, updating outermostChain\n")
-				outermostChain = parent
-				currentNode = parent
-				parent = currentNode.Parent()
-				continue
-			}
-
-			// Check if current node is inside the object part (recursive chain)
 			objNode := parent.ChildByFieldName("object")
-			if objNode != nil && objNode.Id() == currentNode.Id() {
-				// fmt.Printf("[DEBUG findAssignLeftChainNodeFromIdentifier] Found object chain case, updating outermostChain\n")
-				outermostChain = parent
-				currentNode = parent
-				parent = currentNode.Parent()
-				continue
-			}
 
-			// fmt.Printf("[DEBUG findAssignLeftChainNodeFromIdentifier] Not a field_access chain, returning current outermostChain=%v\n", outermostChain != nil)
-			return outermostChain
+			if (fieldNode != nil && fieldNode.Id() == curr.Id()) ||
+				(outermostChain != nil && outermostChain.Id() == curr.Id()) ||
+				(objNode != nil && objNode.Id() == curr.Id()) {
+				outermostChain = parent
+				curr = parent
+			} else {
+				return outermostChain
+			}
 
 		case "method_invocation":
-			objectNode := parent.ChildByFieldName("object")
-			if objectNode != nil && objectNode.Id() == currentNode.Id() {
-				outermostChain = parent
-				currentNode = parent
-				parent = currentNode.Parent()
-				continue
-			}
+			objNode := parent.ChildByFieldName("object")
 			nameNode := parent.ChildByFieldName("name")
-			if nameNode != nil && nameNode.Id() == currentNode.Id() {
+			if (objNode != nil && objNode.Id() == curr.Id()) || (nameNode != nil && nameNode.Id() == curr.Id()) {
 				outermostChain = parent
-				currentNode = parent
-				parent = currentNode.Parent()
-				continue
+				curr = parent
+			} else {
+				return outermostChain
 			}
-			return outermostChain
 
 		case "array_access":
-			objectNode := parent.ChildByFieldName("object")
-			if objectNode != nil && r.isNodeContained(objectNode, currentNode) {
+			if helper.IsNodeContained(parent.ChildByFieldName("object"), curr) {
 				outermostChain = parent
-				currentNode = parent
-				parent = currentNode.Parent()
-				continue
+				curr = parent
+			} else {
+				return outermostChain
 			}
-			return outermostChain
 
 		default:
-			if r.canContainChain(parent) {
-				parent = parent.Parent()
+			// 【优化清洁】这里现在直接使用重构后的 canChainInKind 字符串匹配，安全拿掉临时补丁
+			if r.canChainInKind(kind) {
+				curr = parent
 			} else {
 				return outermostChain
 			}
 		}
+		parent = curr.Parent()
 	}
-
-	// fmt.Printf("[DEBUG findAssignLeftChainNodeFromIdentifier] Reached end of traversal, returning outermostChain=%v\n", outermostChain != nil)
 	return outermostChain
 }
 
-// isPartOfAssignLeft 判断节点是否是赋值左值链的一部分
-func (r *NodeContextResolver) isPartOfAssignLeft(chainNode, targetNode *sitter.Node) bool {
-	if chainNode == nil || targetNode == nil {
-		return false
-	}
+// =============================================================================
+// 底层判定工具
+// =============================================================================
 
-	switch chainNode.Kind() {
-	case "field_access":
-		fieldNode := chainNode.ChildByFieldName("field")
-		return fieldNode != nil && (fieldNode.Id() == targetNode.Id() || r.isNodeContained(fieldNode, targetNode))
-
-	case "method_invocation":
-		objectNode := chainNode.ChildByFieldName("object")
-		if objectNode != nil && objectNode.Id() == targetNode.Id() {
-			return true
-		}
-		nameNode := chainNode.ChildByFieldName("name")
-		return nameNode != nil && nameNode.Id() == targetNode.Id()
-
-	case "array_access":
-		objectNode := chainNode.ChildByFieldName("object")
-		return objectNode != nil && r.isNodeContained(objectNode, targetNode)
-
-	default:
-		return false
-	}
+func (r *NodeContextResolver) isChainExpression(node *sitter.Node) bool {
+	k := node.Kind()
+	return k == "field_access" || k == "method_invocation" || k == "array_access"
 }
 
-// findThrowContextNode 为抛出异常查找上下文
-func (r *NodeContextResolver) findThrowContextNode(node *sitter.Node) *sitter.Node {
-	parent := node.Parent()
-	for parent != nil {
-		kind := parent.Kind()
-
-		if kind == "throw_statement" {
-			return parent
-		} else if r.canContainChain(parent) || kind == "object_creation_expression" || kind == "argument_list" || kind == "arguments" {
-			parent = parent.Parent()
-		} else {
-			return nil
-		}
-	}
-	return nil
+func (r *NodeContextResolver) isInvocationExpression(node *sitter.Node) bool {
+	k := node.Kind()
+	return k == "method_invocation" || k == "explicit_constructor_invocation" ||
+		k == "object_creation_expression" || k == "method_reference"
 }
 
-// isChainNode 判断是否为链式节点
-func (r *NodeContextResolver) isChainNode(node *sitter.Node) bool {
-	switch node.Kind() {
-	case "field_access", "method_invocation", "array_access":
-		return true
-	default:
-		return false
-	}
+func (r *NodeContextResolver) isPartOfInvocation(invokeNode, node *sitter.Node) bool {
+	return helper.IsNodeContained(invokeNode.ChildByFieldName("object"), node) ||
+		helper.IsNodeContained(invokeNode.ChildByFieldName("arguments"), node) ||
+		helper.IsNodeContained(invokeNode.ChildByFieldName("type_arguments"), node)
 }
 
-// isInvocationNode 判断是否为调用节点
-func (r *NodeContextResolver) isInvocationNode(node *sitter.Node) bool {
-	switch node.Kind() {
-	case "method_invocation", "explicit_constructor_invocation", "object_creation_expression", "method_reference":
-		return true
-	default:
-		return false
-	}
+// canChainInKind 统一改为接收 string 类型，消除了多处由于 Node 和 Kind 文本不匹配带来的强转和假节点补丁
+func (r *NodeContextResolver) canChainInKind(kind string) bool {
+	return kind == "parenthesized_expression" || kind == "cast_expression" ||
+		kind == "binary_expression" || kind == "ternary_expression" ||
+		kind == "unary_expression" || kind == "update_expression"
 }
 
-// isPartOfCallChain 判断node是否是调用链的一部分
-func (r *NodeContextResolver) isPartOfCallChain(invokeNode, node *sitter.Node) bool {
-	objNode := invokeNode.ChildByFieldName("object")
-	if objNode != nil && r.isNodeContained(objNode, node) {
-		return true
-	}
-
-	args := invokeNode.ChildByFieldName("arguments")
-	if args != nil && r.isNodeContained(args, node) {
-		return true
-	}
-
-	typeArgs := invokeNode.ChildByFieldName("type_arguments")
-	if typeArgs != nil && r.isNodeContained(typeArgs, node) {
-		return true
-	}
-
-	return false
-}
-
-// canContainChain 判断节点是否可以包含链式调用
-func (r *NodeContextResolver) canContainChain(node *sitter.Node) bool {
-	switch node.Kind() {
-	case "parenthesized_expression", "cast_expression", "binary_expression",
-		"ternary_expression", "unary_expression", "update_expression":
-		return true
-	default:
-		return false
-	}
-}
-
-// isNodeContained 检查node是否被container包含
-// 使用helper中的FindNamedChildOfType改进字段查找
-func (r *NodeContextResolver) isNodeContained(container, node *sitter.Node) bool {
-	if container == nil || node == nil {
-		return false
-	}
-
-	if container.Id() == node.Id() {
-		return true
-	}
-
-	// 检查直接父关系
-	if node.Parent().Id() == container.Id() {
-		return true
-	}
-
-	// 使用helper中的方法检查常见字段
-	if r.isInCommonFields(container, node) {
-		return true
-	}
-
-	return false
-}
-
-// isInCommonFields 检查node是否在container的常见字段中
-// 集成helper.FindNamedChildOfType来改进查找
-func (r *NodeContextResolver) isInCommonFields(container, node *sitter.Node) bool {
-	// 使用helper方法查找命名字段类型
-	identifiers := r.findNamedChildOfType(container, "identifier")
-	typeIdentifiers := r.findNamedChildOfType(container, "type_identifier")
-
-	// 合并所有可能的字段节点
-	allNodes := append(identifiers, typeIdentifiers...)
-
-	for _, fieldNode := range allNodes {
-		if fieldNode != nil && (fieldNode.Id() == node.Id() || node.Parent().Id() == fieldNode.Id()) {
-			return true
-		}
-	}
-
-	// 还需要检查重要的字段对象
-	fields := []string{"object", "field", "value", "left", "right",
-		"condition", "consequence", "alternative", "arguments"}
-	for _, fieldName := range fields {
-		fieldNode := container.ChildByFieldName(fieldName)
-		if fieldNode != nil && (fieldNode.Id() == node.Id() || node.Parent().Id() == fieldNode.Id()) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// findNamedChildOfType 批量查找指定类型的命名子节点
-// 优化了helper.FindNamedChildOfType的批量查找功能
-func (r *NodeContextResolver) findNamedChildOfType(container *sitter.Node, nodeType string) []*sitter.Node {
-	var result []*sitter.Node
-	count := container.NamedChildCount()
-	for i := uint(0); i < count; i++ {
-		child := container.NamedChild(i)
-		if child != nil && child.Kind() == nodeType {
-			result = append(result, child)
-		}
-	}
-	return result
-}
-
-// GetRawTextForAction 获取Action关系的原始文本（包级函数）
-// 复用helper.GetNodeContent方法
-func GetRawTextForAction(actionType string, targetNode, contextNode *sitter.Node, src *[]byte) string {
-	if targetNode == nil && contextNode == nil {
-		return ""
-	}
-
-	switch actionType {
-	case "ASSIGN":
-		if contextNode != nil {
-			return helper.GetNodeContent(contextNode, *src)
-		}
-		if targetNode != nil {
-			return helper.GetNodeContent(targetNode, *src)
-		}
-		return ""
-	case "CREATE", "CALL", "THROW":
-		if contextNode != nil {
-			return helper.GetNodeContent(contextNode, *src)
-		}
-		if targetNode != nil {
-			return helper.GetNodeContent(targetNode, *src)
-		}
-		return ""
-	case "CAST":
-		if contextNode != nil {
-			return helper.GetNodeContent(contextNode, *src)
-		}
-		return ""
-	default:
-		if contextNode != nil {
-			return helper.GetNodeContent(contextNode, *src)
-		}
-		return ""
+func (r *NodeContextResolver) buildResult(node *sitter.Node) *Result {
+	return &Result{
+		ContextNode: node,
+		ContextKind: node.Kind(),
+		IsChain:     r.isChainExpression(node),
 	}
 }

@@ -42,6 +42,27 @@ func FindNearestKind(n *sitter.Node, kinds ...string) *sitter.Node {
 	return nil
 }
 
+// FindNamedChildren 查找指定类型的命名子节点
+func FindNamedChildren(container *sitter.Node, nodeType string) []*sitter.Node {
+	var result []*sitter.Node
+	count := container.NamedChildCount()
+	for i := uint(0); i < count; i++ {
+		child := container.NamedChild(i)
+		if child != nil && child.Kind() == nodeType {
+			result = append(result, child)
+		}
+	}
+
+	return result
+}
+
+func IsNodeContained(container, node *sitter.Node) bool {
+	if container == nil || node == nil {
+		return false
+	}
+	return container.StartByte() <= node.StartByte() && node.EndByte() <= container.EndByte()
+}
+
 // =============================================================================
 // 【tree-sitter节点】 Location相关方法
 // =============================================================================

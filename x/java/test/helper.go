@@ -28,7 +28,7 @@ func GetJavaParser(t *testing.T) parser.Parser {
 }
 
 const outputAst = false
-const formatAst = false
+const formatAst = true
 
 func RunPhase1Collection(t *testing.T, files []string) *core.GlobalContext {
 	resolver, err := core.GetSymbolResolver(core.LangJava)

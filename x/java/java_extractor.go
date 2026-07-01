@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/CodMac/arch-lens-dep-analyer/x/java/resolver"
-
-	"github.com/CodMac/arch-lens-dep-analyer/x/java/enricher/rel"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/derivator"
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/enricher/rel"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/resolver"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -25,38 +25,41 @@ func NewJavaExtractor() *Extractor {
 	}
 }
 
-// =============================================================================
-// 主流水线 (Main Pipeline)
-// =============================================================================
-
 func (e *Extractor) Extract(filePath string, gCtx *core.GlobalContext) ([]*model.DependencyRelation, error) {
 	fCtx, ok := gCtx.FileContexts[filePath]
 	if !ok {
 		return nil, fmt.Errorf("file context not found: %s", filePath)
 	}
 
-	// 1. 静态结构 + 动作发现
+	// 1. 层级关系
 	hierarchyRels := e.extractHierarchy(fCtx, gCtx)
+
+	// 2. 结构关系
 	structuralRels := e.extractStructural(fCtx, gCtx)
+
+	// 3. 动作关系
 	actionRels, err := e.discoverActionRelations(fCtx, gCtx)
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. 元数据增强
-	enhanceTargets := append(structuralRels, actionRels...)
-	e.enrichRelMetadata(enhanceTargets, fCtx, gCtx)
+	// 4. 元数据增强
+	baseActionAndStructural := append(structuralRels, actionRels...)
+	enricher := rel.NewEnricher(e.resolver, fCtx, gCtx)
+	for _, r := range baseActionAndStructural {
+		enricher.EnrichCoreMetadata(r)
+	}
 
-	// 3. 链式语法处理（基于已提取到的CALL关系）
+	// 5. 高级/派生关系
+	derivator := derivator.NewRelDerivator(e.resolver, fCtx, gCtx)
+	typeArgRels := derivator.SupplementTypeArgs(fCtx.Definitions)
+	captureRels := derivator.DeriveCaptureRelations(baseActionAndStructural)
 
-	// 4. Capture关系发现（基于已提取到的ASSIGN和USE关系）
-	captureRels := e.genCaptureRelations(enhanceTargets)
-
-	// 5. 合并结果
+	// 6. 合并最终结果
 	var allRels []*model.DependencyRelation
 	allRels = append(allRels, hierarchyRels...)
-	allRels = append(allRels, structuralRels...)
-	allRels = append(allRels, actionRels...)
+	allRels = append(allRels, baseActionAndStructural...)
+	allRels = append(allRels, typeArgRels...)
 	allRels = append(allRels, captureRels...)
 
 	return allRels, nil
@@ -137,6 +140,7 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gCtx *core.GlobalC
 
 		// --- 4. 处理方法签名 (Parameter/Return/Throw) ---
 		if elem.Kind == model.Method {
+			// Parameter
 			if pts, ok := elem.Extra.Mores[constants.MethodParameters].([]string); ok {
 				for _, p := range pts {
 					typePart := e.extractTypeFromParam(p)
@@ -147,6 +151,8 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gCtx *core.GlobalC
 					})
 				}
 			}
+
+			// Return
 			if rt, ok := elem.Extra.Mores[constants.MethodReturnType].(string); ok && rt != "void" && rt != "" {
 				target := e.resolver.ResolveType(gCtx, fCtx, helper.Clean(rt), model.Class)
 				rels = append(rels, &model.DependencyRelation{
@@ -154,6 +160,8 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gCtx *core.GlobalC
 					Mores: map[string]interface{}{constants.RelRawText: rt},
 				})
 			}
+
+			// Throw
 			if ths, ok := elem.Extra.Mores[constants.MethodThrowsTypes].([]string); ok {
 				for _, ex := range ths {
 					target := e.resolver.ResolveType(gCtx, fCtx, helper.Clean(ex), model.Class)
@@ -164,12 +172,6 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gCtx *core.GlobalC
 				}
 			}
 		}
-
-		// --- 5. 处理变量泛型 (TypeArg) ---
-		for _, rt := range e.getRawTypesForTypeArgs(elem) {
-			rels = append(rels, e.collectAllTypeArgs(rt, elem, gCtx, fCtx)...)
-		}
-
 	}
 	return rels
 }
@@ -216,7 +218,7 @@ func (e *Extractor) discoverActionRelations(fCtx *core.FileContext, gCtx *core.G
 					Target:   at.Target, // 使用 mapAction resolve 好的对象
 					Location: helper.ExtractLocation(at.TargetNode, fCtx.FilePath),
 					Mores: map[string]interface{}{
-						constants.RelRawText: resolver.GetRawTextForAction(string(at.RelType), at.TargetNode, at.ContextNode, fCtx.SourceBytes),
+						constants.RelRawText: at.ContextNode.Utf8Text(*fCtx.SourceBytes),
 						constants.TmpNode:    at.TargetNode,
 						constants.TmpCtxNode: at.ContextNode,
 					},
@@ -225,73 +227,6 @@ func (e *Extractor) discoverActionRelations(fCtx *core.FileContext, gCtx *core.G
 		}
 	}
 	return rels, nil
-}
-
-func (e *Extractor) enrichRelMetadata(enhanceTargets []*model.DependencyRelation, fCtx *core.FileContext, gCtx *core.GlobalContext) {
-	enricher := rel.NewEnricher(e.resolver, fCtx, gCtx)
-
-	for _, rel := range enhanceTargets {
-		enricher.EnrichCoreMetadata(rel)
-	}
-}
-
-func (e *Extractor) processChainRels(actionRels []*model.DependencyRelation, fCtx *core.FileContext, gCtx *core.GlobalContext) {
-	chainedCallResolver := resolver.NewChainedCallResolver(e.resolver, gCtx, fCtx)
-
-	for _, rel := range actionRels {
-		if rel.Type != model.Call || rel.Target == nil {
-			continue
-		}
-
-		chainedCallResolver.ProcessChainRels(rel)
-	}
-
-}
-
-func (e *Extractor) genCaptureRelations(deps []*model.DependencyRelation) []*model.DependencyRelation {
-	var captures []*model.DependencyRelation
-	seen := make(map[string]bool)
-
-	for _, rel := range deps {
-		if rel.Source == nil || rel.Target == nil {
-			continue
-		}
-
-		isCapture := false
-
-		if rel.Type == model.Use {
-			if val, ok := rel.Mores[constants.RelUseIsCapture]; ok {
-				if b, isBool := val.(bool); isBool && b {
-					isCapture = true
-				}
-			}
-		}
-
-		if rel.Type == model.Assign {
-			if val, ok := rel.Mores[constants.RelAssignIsCapture]; ok {
-				if b, isBool := val.(bool); isBool && b {
-					isCapture = true
-				}
-			}
-		}
-
-		if isCapture {
-			key := rel.Source.QualifiedName + "->" + rel.Target.QualifiedName
-
-			if !seen[key] {
-				seen[key] = true
-				captureRel := &model.DependencyRelation{
-					Source:   rel.Source,
-					Target:   rel.Target,
-					Type:     model.Capture,
-					Location: rel.Location,
-					Mores:    make(map[string]interface{}),
-				}
-				captures = append(captures, captureRel)
-			}
-		}
-	}
-	return captures
 }
 
 // =============================================================================
@@ -348,7 +283,7 @@ type ActionTarget struct {
 
 func (e *Extractor) mapAction(capName string, node *sitter.Node, fCtx *core.FileContext, gCtx *core.GlobalContext) []ActionTarget {
 	// 创建上下文解析器
-	ctxResolver := resolver.NewNodeContextResolver()
+	ctxResolver := resolver.NewNodeContextResolver(fCtx)
 
 	switch capName {
 	case "call_target", "ref_target":
@@ -357,6 +292,7 @@ func (e *Extractor) mapAction(capName string, node *sitter.Node, fCtx *core.File
 			return nil
 		}
 
+		fmt.Printf("Call ->\n		mode: %s\n		ctxNode: %s\n", node.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes))
 		return []ActionTarget{{RelType: model.Call, TargetNode: node, ContextNode: ctxRe.ContextNode, Target: e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Call)}}
 
 	case "create_target", "explicit_constructor_stmt":
@@ -365,6 +301,7 @@ func (e *Extractor) mapAction(capName string, node *sitter.Node, fCtx *core.File
 			return nil
 		}
 
+		fmt.Printf("Create ->\n		mode: %s\n		ctxNode: %s\n", node.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes))
 		return []ActionTarget{
 			{model.Create, node, ctxRe.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Create)},
 			{model.Call, node, ctxRe.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Call)},
@@ -376,6 +313,7 @@ func (e *Extractor) mapAction(capName string, node *sitter.Node, fCtx *core.File
 			return nil
 		}
 
+		fmt.Printf("Cast ->\n		mode: %s\n		ctxNode: %s\n", node.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes))
 		return []ActionTarget{{model.Cast, node, ctxRe.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Cast)}}
 
 	case "assign_target":
@@ -383,7 +321,7 @@ func (e *Extractor) mapAction(capName string, node *sitter.Node, fCtx *core.File
 		if ctxRe == nil || ctxRe.ContextNode == nil {
 			return nil
 		}
-
+		fmt.Printf("Assign ->\n		mode: %s\n		ctxNode: %s\n", node.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes))
 		return []ActionTarget{{model.Assign, node, ctxRe.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Assign)}}
 
 	case "id_atom":
@@ -391,11 +329,12 @@ func (e *Extractor) mapAction(capName string, node *sitter.Node, fCtx *core.File
 		if ctxRe == nil || ctxRe.ContextNode == nil {
 			return nil
 		}
-
 		target := e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Use)
 		if !e.isUseRel(node, target) {
 			return nil
 		}
+
+		fmt.Printf("Use ->\n		mode: %s\n		ctxNode: %s\n", node.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes))
 		return []ActionTarget{{model.Use, node, ctxRe.ContextNode, target}}
 
 	case "throw_target":
@@ -404,6 +343,7 @@ func (e *Extractor) mapAction(capName string, node *sitter.Node, fCtx *core.File
 			return nil
 		}
 
+		fmt.Printf("Throw ->\n		mode: %s\n		ctxNode: %s\n", node.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes))
 		return []ActionTarget{{model.Throw, node, ctxRe.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Throw)}}
 
 	default:
@@ -444,81 +384,4 @@ func (e *Extractor) extractTypeFromParam(p string) string {
 		return parts[len(parts)-2]
 	}
 	return p
-}
-
-func (e *Extractor) getRawTypesForTypeArgs(elem *model.CodeElement) (res []string) {
-	keys := []string{constants.FieldRawType, constants.VariableRawType, constants.MethodReturnType}
-
-	for _, k := range keys {
-		if v, ok := elem.Extra.Mores[k].(string); ok {
-			res = append(res, v)
-		}
-	}
-
-	if pts, ok := elem.Extra.Mores[constants.MethodParameters].([]string); ok {
-		for _, p := range pts {
-			res = append(res, e.extractTypeFromParam(p))
-		}
-	}
-
-	return
-}
-
-func (e *Extractor) parseTypeArgs(rawType string) []string {
-	start, end := strings.Index(rawType, "<"), strings.LastIndex(rawType, ">")
-	if start == -1 || end == -1 || start >= end {
-		return nil
-	}
-
-	content := rawType[start+1 : end]
-
-	var args []string
-	bracketLevel := 0
-	current := strings.Builder{}
-	for _, r := range content {
-		switch r {
-		case '<':
-			bracketLevel++
-			current.WriteRune(r)
-		case '>':
-			bracketLevel--
-			current.WriteRune(r)
-		case ',':
-			if bracketLevel == 0 {
-				args = append(args, strings.TrimSpace(current.String()))
-				current.Reset()
-			} else {
-				current.WriteRune(r)
-			}
-		default:
-			current.WriteRune(r)
-		}
-	}
-	if current.Len() > 0 {
-		args = append(args, strings.TrimSpace(current.String()))
-	}
-
-	return args
-}
-
-func (e *Extractor) collectAllTypeArgs(rt string, source *model.CodeElement, gCtx *core.GlobalContext, fCtx *core.FileContext) []*model.DependencyRelation {
-	var rels []*model.DependencyRelation
-
-	if !strings.Contains(rt, "<") {
-		return nil
-	}
-
-	args := e.parseTypeArgs(rt)
-	for i, arg := range args {
-		target := e.resolver.ResolveType(gCtx, fCtx, helper.Clean(arg), model.Class)
-		rels = append(rels, &model.DependencyRelation{
-			Type: model.TypeArg, Source: source, Target: target,
-			Mores: map[string]interface{}{constants.RelTypeArgIndex: i, constants.RelRawText: arg, constants.RelAstKind: "type_arguments"},
-		})
-
-		if strings.Contains(arg, "<") {
-			rels = append(rels, e.collectAllTypeArgs(arg, source, gCtx, fCtx)...)
-		}
-	}
-	return rels
 }
