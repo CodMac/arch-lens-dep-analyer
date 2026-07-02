@@ -67,6 +67,14 @@ func TestNodeContextResolver_Call(t *testing.T) {
 			IsChain:    true,
 		},
 		{
+			Name:       "Case 3: 链式方法调用的尾部（中间层连续调用）",
+			ActionType: model.Call,
+			TargetText: "secondMethod",
+			ExpExpress: "chainVar.firstMethod().secondMethod()",
+			ExpContext: "chainVar.firstMethod().secondMethod().thirdMethod()",
+			IsChain:    true,
+		},
+		{
 			Name:       "Case 4: 方法调用作为参数（包裹在一元化中）",
 			ActionType: model.Call,
 			TargetText: "calculateSum",

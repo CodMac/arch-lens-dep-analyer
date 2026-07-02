@@ -7,7 +7,7 @@ import java.util.ArrayList;
  * 链式调用复杂场景测试用例
  * 涵盖各种混合链式调用模式
  */
-public class ChainParserCase {
+public class ExpressionSegmentCase {
 
     // ==================== 相关类定义 ====================
 

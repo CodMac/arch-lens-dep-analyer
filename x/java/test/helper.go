@@ -27,7 +27,7 @@ func GetJavaParser(t *testing.T) parser.Parser {
 	return javaParser
 }
 
-const outputAst = false
+const outputAst = true
 const formatAst = true
 
 func RunPhase1Collection(t *testing.T, files []string) *core.GlobalContext {
