@@ -288,64 +288,64 @@ func (e *Extractor) mapAction(capName string, node *sitter.Node, fCtx *core.File
 	switch capName {
 	case "call_target", "ref_target":
 		ctxRe := ctxResolver.ResolveContext(model.Call, node)
-		if ctxRe == nil || ctxRe.ContextNode == nil {
+		if ctxRe == nil || ctxRe.ExpressNode == nil {
 			return nil
 		}
 
-		fmt.Printf("Call ->\n	node: %s\n	nodeKind: %s\n	ctxNode: %s\n	ctxNodeKind: %s\n", node.Utf8Text(*fCtx.SourceBytes), node.Kind(), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Kind())
-		return []ActionTarget{{RelType: model.Call, TargetNode: node, ContextNode: ctxRe.ContextNode, Target: e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Call)}}
+		fmt.Printf("Call ->\n	node: %s\n	nodeKind: %s\n	ctxNode: %s\n	ctxNodeKind: %s\n", node.Utf8Text(*fCtx.SourceBytes), node.Kind(), ctxRe.ExpressNode.Utf8Text(*fCtx.SourceBytes), ctxRe.ExpressNode.Kind())
+		return []ActionTarget{{RelType: model.Call, TargetNode: node, ContextNode: ctxRe.ExpressNode, Target: e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ExpressNode, model.Call)}}
 
 	case "create_target", "explicit_constructor_stmt":
 		ctxRe := ctxResolver.ResolveContext(model.Create, node)
-		if ctxRe == nil || ctxRe.ContextNode == nil {
+		if ctxRe == nil || ctxRe.ExpressNode == nil {
 			return nil
 		}
 
-		fmt.Printf("Create ->\n	node: %s\n	nodeKind: %s\n	ctxNode: %s\n	ctxNodeKind: %s\n", node.Utf8Text(*fCtx.SourceBytes), node.Kind(), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Kind())
+		fmt.Printf("Create ->\n	node: %s\n	nodeKind: %s\n	ctxNode: %s\n	ctxNodeKind: %s\n", node.Utf8Text(*fCtx.SourceBytes), node.Kind(), ctxRe.ExpressNode.Utf8Text(*fCtx.SourceBytes), ctxRe.ExpressNode.Kind())
 		return []ActionTarget{
-			{model.Create, node, ctxRe.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Create)},
-			{model.Call, node, ctxRe.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Call)},
+			{model.Create, node, ctxRe.ExpressNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ExpressNode, model.Create)},
+			{model.Call, node, ctxRe.ExpressNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ExpressNode, model.Call)},
 		}
 
 	case "cast_target":
 		ctxRe := ctxResolver.ResolveContext(model.Cast, node)
-		if ctxRe == nil || ctxRe.ContextNode == nil {
+		if ctxRe == nil || ctxRe.ExpressNode == nil {
 			return nil
 		}
 
-		fmt.Printf("Cast ->\n	node: %s\n	nodeKind: %s\n	ctxNode: %s\n	ctxNodeKind: %s\n", node.Utf8Text(*fCtx.SourceBytes), node.Kind(), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Kind())
-		return []ActionTarget{{model.Cast, node, ctxRe.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Cast)}}
+		fmt.Printf("Cast ->\n	node: %s\n	nodeKind: %s\n	ctxNode: %s\n	ctxNodeKind: %s\n", node.Utf8Text(*fCtx.SourceBytes), node.Kind(), ctxRe.ExpressNode.Utf8Text(*fCtx.SourceBytes), ctxRe.ExpressNode.Kind())
+		return []ActionTarget{{model.Cast, node, ctxRe.ExpressNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ExpressNode, model.Cast)}}
 
 	case "assign_target":
 		ctxRe := ctxResolver.ResolveContext(model.Assign, node)
-		if ctxRe == nil || ctxRe.ContextNode == nil {
+		if ctxRe == nil || ctxRe.ExpressNode == nil {
 			return nil
 		}
 
-		fmt.Printf("Assign ->\n	node: %s\n	nodeKind: %s\n	ctxNode: %s\n	ctxNodeKind: %s\n", node.Utf8Text(*fCtx.SourceBytes), node.Kind(), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Kind())
-		return []ActionTarget{{model.Assign, node, ctxRe.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Assign)}}
+		fmt.Printf("Assign ->\n	node: %s\n	nodeKind: %s\n	ctxNode: %s\n	ctxNodeKind: %s\n", node.Utf8Text(*fCtx.SourceBytes), node.Kind(), ctxRe.ExpressNode.Utf8Text(*fCtx.SourceBytes), ctxRe.ExpressNode.Kind())
+		return []ActionTarget{{model.Assign, node, ctxRe.ExpressNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ExpressNode, model.Assign)}}
 
 	case "id_atom":
 		ctxRe := ctxResolver.ResolveContext(model.Use, node)
-		if ctxRe == nil || ctxRe.ContextNode == nil {
+		if ctxRe == nil || ctxRe.ExpressNode == nil {
 			return nil
 		}
-		target := e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Use)
+		target := e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ExpressNode, model.Use)
 		if !e.isUseRel(node, target) {
 			return nil
 		}
 
-		fmt.Printf("Use ->\n	node: %s\n	nodeKind: %s\n	ctxNode: %s\n	ctxNodeKind: %s\n", node.Utf8Text(*fCtx.SourceBytes), node.Kind(), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Kind())
-		return []ActionTarget{{model.Use, node, ctxRe.ContextNode, target}}
+		fmt.Printf("Use ->\n	node: %s\n	nodeKind: %s\n	ctxNode: %s\n	ctxNodeKind: %s\n", node.Utf8Text(*fCtx.SourceBytes), node.Kind(), ctxRe.ExpressNode.Utf8Text(*fCtx.SourceBytes), ctxRe.ExpressNode.Kind())
+		return []ActionTarget{{model.Use, node, ctxRe.ExpressNode, target}}
 
 	case "throw_target":
 		ctxRe := ctxResolver.ResolveContext(model.Throw, node)
-		if ctxRe == nil || ctxRe.ContextNode == nil {
+		if ctxRe == nil || ctxRe.ExpressNode == nil {
 			return nil
 		}
 
-		fmt.Printf("Throw ->\n	node: %s\n	nodeKind: %s\n	ctxNode: %s\n	ctxNodeKind: %s\n", node.Utf8Text(*fCtx.SourceBytes), node.Kind(), ctxRe.ContextNode.Utf8Text(*fCtx.SourceBytes), ctxRe.ContextNode.Kind())
-		return []ActionTarget{{model.Throw, node, ctxRe.ContextNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ContextNode, model.Throw)}}
+		fmt.Printf("Throw ->\n	node: %s\n	nodeKind: %s\n	ctxNode: %s\n	ctxNodeKind: %s\n", node.Utf8Text(*fCtx.SourceBytes), node.Kind(), ctxRe.ExpressNode.Utf8Text(*fCtx.SourceBytes), ctxRe.ExpressNode.Kind())
+		return []ActionTarget{{model.Throw, node, ctxRe.ExpressNode, e.resolver.ResolveAction(gCtx, fCtx, node, ctxRe.ExpressNode, model.Throw)}}
 
 	default:
 		return nil

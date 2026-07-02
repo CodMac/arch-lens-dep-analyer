@@ -1,4 +1,4 @@
-package java_test
+package resolver
 
 import (
 	"path/filepath"
