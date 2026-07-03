@@ -9,9 +9,8 @@ import (
 )
 
 type ParameterEnricher struct {
-	resolver core.SymbolResolver
-	fCtx     *core.FileContext
-	gCtx     *core.GlobalContext
+	fCtx *core.FileContext
+	gCtx *core.GlobalContext
 }
 
 func (e *ParameterEnricher) EnrichMetadata(rel *model.DependencyRelation) {

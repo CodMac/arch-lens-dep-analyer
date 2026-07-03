@@ -10,9 +10,8 @@ import (
 )
 
 type UseEnricher struct {
-	resolver core.SymbolResolver
-	fCtx     *core.FileContext
-	gCtx     *core.GlobalContext
+	fCtx *core.FileContext
+	gCtx *core.GlobalContext
 }
 
 func (e *UseEnricher) EnrichMetadata(rel *model.DependencyRelation) {
@@ -25,7 +24,7 @@ func (e *UseEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 
 	rel.Mores[constants.RelUseTargetName] = node.Utf8Text(src)
 	rel.Mores[constants.RelRawText] = ctx.Utf8Text(src)
-	rel.Mores[constants.RelAstKind] = node.Kind()
+	rel.Mores[constants.RelNodeAstKind] = node.Kind()
 
 	// 1. 设置 Context 类型 (例如 field_access 或 assignment_expression)
 	rel.Mores[constants.RelContextAstKind] = ctx.Kind()

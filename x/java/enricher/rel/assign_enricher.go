@@ -1,17 +1,17 @@
 package rel
 
 import (
+	"strings"
+
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	sitter "github.com/tree-sitter/go-tree-sitter"
-	"strings"
 )
 
 type AssignEnricher struct {
-	resolver core.SymbolResolver
-	fCtx     *core.FileContext
-	gCtx     *core.GlobalContext
+	fCtx *core.FileContext
+	gCtx *core.GlobalContext
 }
 
 func (e *AssignEnricher) EnrichMetadata(rel *model.DependencyRelation) {
@@ -20,7 +20,7 @@ func (e *AssignEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 
 	// --- 基础信息补全 ---
 	rel.Mores[constants.RelAssignTargetName] = node.Utf8Text(src)
-	rel.Mores[constants.RelAstKind] = node.Kind()
+	rel.Mores[constants.RelNodeAstKind] = node.Kind()
 
 	// --- 根据context节点类型提取不同的元信息 ---
 	e.extractByContextKind(rel, node, ctx, src)

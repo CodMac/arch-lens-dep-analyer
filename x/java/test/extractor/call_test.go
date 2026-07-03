@@ -104,7 +104,7 @@ func TestJavaExtractor_Call(t *testing.T) {
 			targetName: "super",
 			relType:    model.Call,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "explicit_constructor_invocation", m[constants.RelAstKind])
+				assert.Equal(t, "explicit_constructor_invocation", m[constants.RelNodeAstKind])
 				assert.Equal(t, true, m[constants.RelCallIsConstructor])
 			},
 		},

@@ -16,14 +16,15 @@ import (
 
 type Collector struct {
 	resolver core.SymbolResolver
+	builder  core.SymbolBuilder
 	desugar  *desugar.DeSugar
 }
 
 func NewJavaCollector() *Collector {
-	resolver := NewJavaSymbolResolver()
+	builder := NewSymbolBuilder()
 	return &Collector{
-		resolver: resolver,
-		desugar:  desugar.NewDeSugar(resolver),
+		builder: builder,
+		desugar: desugar.NewDeSugar(builder),
 	}
 }
 
@@ -146,7 +147,7 @@ func (c *Collector) refineVariableScopes(fCtx *core.FileContext) {
 
 					// 4. 更新 ParentQN 并重新构建 QualifiedName
 					entry.ParentQN = newParentQN
-					entry.Element.QualifiedName = c.resolver.BuildQualifiedName(newParentQN, entry.Element.Name)
+					entry.Element.QualifiedName = c.builder.BuildQualifiedName(newParentQN, entry.Element.Name)
 
 					// 一旦找到匹配的 block 并完成重定位，即可跳出当前变量的查找
 					goto nextVariable
@@ -356,7 +357,7 @@ func (c *Collector) _applyUniqueQN(elem *model.CodeElement, node *sitter.Node, p
 			identity = fmt.Sprintf("%s$%d", identity, occurrences[identity])
 		}
 	}
-	elem.QualifiedName = c.resolver.BuildQualifiedName(parentQN, identity)
+	elem.QualifiedName = c.builder.BuildQualifiedName(parentQN, identity)
 }
 
 func (c *Collector) _findNearestBlockParent(node *sitter.Node) *sitter.Node {

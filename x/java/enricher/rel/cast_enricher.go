@@ -7,9 +7,8 @@ import (
 )
 
 type CastEnricher struct {
-	resolver core.SymbolResolver
-	fCtx     *core.FileContext
-	gCtx     *core.GlobalContext
+	fCtx *core.FileContext
+	gCtx *core.GlobalContext
 }
 
 func (e *CastEnricher) EnrichMetadata(rel *model.DependencyRelation) {
@@ -19,7 +18,7 @@ func (e *CastEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 	if ctx == nil {
 		return
 	}
-	rel.Mores[constants.RelAstKind] = ctx.Kind()
+	rel.Mores[constants.RelNodeAstKind] = ctx.Kind()
 	rel.Mores[constants.RelRawText] = ctx.Utf8Text(src)
 	rel.Mores[constants.RelCastIsInstanceof] = ctx.Kind() == "instanceof_expression"
 }

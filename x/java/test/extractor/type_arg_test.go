@@ -40,7 +40,7 @@ func TestJavaExtractor_TypeArg(t *testing.T) {
 			index:    0,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, 0, m[constants.RelTypeArgIndex])
-				assert.Equal(t, "type_arguments", m[constants.RelAstKind])
+				assert.Equal(t, "type_arguments", m[constants.RelNodeAstKind])
 			},
 		},
 		{
@@ -81,7 +81,7 @@ func TestJavaExtractor_TypeArg(t *testing.T) {
 			targetQN: "String",
 			index:    0,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "type_arguments", m[constants.RelAstKind])
+				assert.Equal(t, "type_arguments", m[constants.RelNodeAstKind])
 			},
 		},
 

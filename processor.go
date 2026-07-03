@@ -41,7 +41,12 @@ func (fp *FileProcessor) ProcessFiles(rootPath string, filePaths []string) ([]*m
 		return nil, nil, err
 	}
 
-	gc := core.NewGlobalContext(resolver)
+	builder, err := core.GetSymbolBuilder(fp.Language)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	gc := core.NewGlobalContext(resolver, builder)
 	absRoot, _ := filepath.Abs(rootPath)
 	var allRelations []*model.DependencyRelation
 
@@ -109,7 +114,7 @@ func (fp *FileProcessor) ProcessFiles(rootPath string, filePaths []string) ([]*m
 		defer mu.Unlock()
 		for _, rel := range rels {
 			// 清理临时字段
-			delete(rel.Mores, constants.TmpCtxNode)
+			delete(rel.Mores, constants.TmpExpressNode)
 			delete(rel.Mores, constants.TmpNode)
 
 			allRelations = append(allRelations, rel)

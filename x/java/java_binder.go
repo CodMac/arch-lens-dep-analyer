@@ -8,14 +8,10 @@ import (
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 )
 
-type Binder struct {
-	resolver *SymbolResolver
-}
+type Binder struct{}
 
 func NewJavaBinder() *Binder {
-	return &Binder{
-		resolver: NewJavaSymbolResolver(),
-	}
+	return &Binder{}
 }
 
 func (b *Binder) BindSymbols(gc *core.GlobalContext) {
@@ -76,10 +72,10 @@ func (b *Binder) BindSymbols(gc *core.GlobalContext) {
 }
 
 func (b *Binder) resolveToQN(gc *core.GlobalContext, fCtx *core.FileContext, rawType string) string {
-	if b.resolver.IsPrimitive(rawType) {
+	if gc.Builder.IsPrimitive(rawType) {
 		return rawType
 	}
 
-	ele := b.resolver.ResolveType(gc, fCtx, rawType, model.Class)
+	ele := gc.Resolver.ResolveType(gc, fCtx, rawType, model.Class)
 	return ele.QualifiedName
 }

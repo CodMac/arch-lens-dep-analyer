@@ -56,7 +56,7 @@ func TestJavaExtractor_Create(t *testing.T) {
 			targetQN: "StringBuilder", // 调整：不带 java.lang 前缀
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, "sb", m[constants.RelCreateVariableName])
-				assert.Equal(t, "object_creation_expression", m[constants.RelAstKind])
+				assert.Equal(t, "object_creation_expression", m[constants.RelNodeAstKind])
 			},
 		},
 		// --- 4. 匿名内部类 (无 Import，保持简写) ---
@@ -72,7 +72,7 @@ func TestJavaExtractor_Create(t *testing.T) {
 			targetQN: "String", // 调整
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, true, m[constants.RelCreateIsArray])
-				assert.Equal(t, "array_creation_expression", m[constants.RelAstKind])
+				assert.Equal(t, "array_creation_expression", m[constants.RelNodeAstKind])
 			},
 		},
 		// --- 6. 链式调用中的实例化 ---
@@ -80,7 +80,7 @@ func TestJavaExtractor_Create(t *testing.T) {
 			sourceQN: methodQN,
 			targetQN: baseQN,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "object_creation_expression", m[constants.RelAstKind])
+				assert.Equal(t, "object_creation_expression", m[constants.RelNodeAstKind])
 			},
 		},
 		// --- 7. super 调用 (super 关键字保持原样) ---
@@ -88,7 +88,7 @@ func TestJavaExtractor_Create(t *testing.T) {
 			sourceQN: baseQN + ".CreateRelationSuite()",
 			targetQN: "Object", // 调整：super() 对应的类符号通常在 Java 中解析为 Object
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "explicit_constructor_invocation", m[constants.RelAstKind])
+				assert.Equal(t, "explicit_constructor_invocation", m[constants.RelNodeAstKind])
 			},
 		},
 	}

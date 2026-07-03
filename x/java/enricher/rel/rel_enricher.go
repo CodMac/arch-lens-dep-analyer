@@ -12,27 +12,25 @@ type IEnricher interface {
 }
 
 type Enricher struct {
-	resolver core.SymbolResolver
-	fCtx     *core.FileContext
-	gCtx     *core.GlobalContext
+	fCtx *core.FileContext
+	gCtx *core.GlobalContext
 
 	enricherMap map[model.DependencyType]IEnricher
 }
 
-func NewEnricher(resolver core.SymbolResolver, fCtx *core.FileContext, gCtx *core.GlobalContext) *Enricher {
+func NewEnricher(fCtx *core.FileContext, gCtx *core.GlobalContext) *Enricher {
 	enricherMap := make(map[model.DependencyType]IEnricher)
-	enricherMap[model.Call] = &CallEnricher{resolver: resolver, fCtx: fCtx, gCtx: gCtx}
-	enricherMap[model.Create] = &CreateEnricher{resolver: resolver, fCtx: fCtx, gCtx: gCtx}
-	enricherMap[model.Assign] = &AssignEnricher{resolver: resolver, fCtx: fCtx, gCtx: gCtx}
-	enricherMap[model.Use] = &UseEnricher{resolver: resolver, fCtx: fCtx, gCtx: gCtx}
-	enricherMap[model.Cast] = &CastEnricher{resolver: resolver, fCtx: fCtx, gCtx: gCtx}
-	enricherMap[model.Throw] = &ThrowEnricher{resolver: resolver, fCtx: fCtx, gCtx: gCtx}
-	enricherMap[model.Parameter] = &ParameterEnricher{resolver: resolver, fCtx: fCtx, gCtx: gCtx}
-	enricherMap[model.Return] = &ReturnEnricher{resolver: resolver, fCtx: fCtx, gCtx: gCtx}
-	enricherMap[model.Annotation] = &AnnotationEnricher{resolver: resolver, fCtx: fCtx, gCtx: gCtx}
+	enricherMap[model.Call] = &CallEnricher{fCtx: fCtx, gCtx: gCtx}
+	enricherMap[model.Create] = &CreateEnricher{fCtx: fCtx, gCtx: gCtx}
+	enricherMap[model.Assign] = &AssignEnricher{fCtx: fCtx, gCtx: gCtx}
+	enricherMap[model.Use] = &UseEnricher{fCtx: fCtx, gCtx: gCtx}
+	enricherMap[model.Cast] = &CastEnricher{fCtx: fCtx, gCtx: gCtx}
+	enricherMap[model.Throw] = &ThrowEnricher{fCtx: fCtx, gCtx: gCtx}
+	enricherMap[model.Parameter] = &ParameterEnricher{fCtx: fCtx, gCtx: gCtx}
+	enricherMap[model.Return] = &ReturnEnricher{fCtx: fCtx, gCtx: gCtx}
+	enricherMap[model.Annotation] = &AnnotationEnricher{fCtx: fCtx, gCtx: gCtx}
 
 	return &Enricher{
-		resolver:    resolver,
 		fCtx:        fCtx,
 		gCtx:        gCtx,
 		enricherMap: enricherMap,
@@ -51,6 +49,6 @@ func (e *Enricher) EnrichCoreMetadata(rel *model.DependencyRelation) {
 
 func GetRelTmpValue(rel *model.DependencyRelation) (*sitter.Node, *sitter.Node) {
 	node, _ := rel.Mores[constants.TmpNode].(*sitter.Node)
-	ctxNode, _ := rel.Mores[constants.TmpCtxNode].(*sitter.Node)
+	ctxNode, _ := rel.Mores[constants.TmpExpressNode].(*sitter.Node)
 	return node, ctxNode
 }

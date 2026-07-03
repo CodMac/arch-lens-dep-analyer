@@ -27,7 +27,7 @@ func GetJavaParser(t *testing.T) parser.Parser {
 	return javaParser
 }
 
-const outputAst = true
+const outputAst = false
 const formatAst = true
 
 func RunPhase1Collection(t *testing.T, files []string) *core.GlobalContext {
@@ -36,7 +36,12 @@ func RunPhase1Collection(t *testing.T, files []string) *core.GlobalContext {
 		t.Fatalf("Failed to create resolver: %v", err)
 	}
 
-	gc := core.NewGlobalContext(resolver)
+	builder, err := core.GetSymbolBuilder(core.LangJava)
+	if err != nil {
+		t.Fatalf("Failed to create symbol builder: %v", err)
+	}
+
+	gc := core.NewGlobalContext(resolver, builder)
 	javaParser, err := parser.NewParser(core.LangJava)
 	if err != nil {
 		t.Fatalf("Failed to create parser: %v", err)
@@ -103,7 +108,7 @@ func PrintRelations(relations []*model.DependencyRelation) {
 			startLine)
 		if len(rel.Mores) > 0 {
 			for k, v := range rel.Mores {
-				if k == constants.TmpCtxNode || k == constants.TmpNode {
+				if k == constants.TmpExpressNode || k == constants.TmpNode {
 					continue
 				}
 				fmt.Printf("    Mores[%v] -> %v\n", k, v)
@@ -132,7 +137,7 @@ func PrintRelationsOnKinds(relations []*model.DependencyRelation, kinds []model.
 					startLine)
 				if len(rel.Mores) > 0 {
 					for k, v := range rel.Mores {
-						if k == constants.TmpCtxNode || k == constants.TmpNode {
+						if k == constants.TmpExpressNode || k == constants.TmpNode {
 							continue
 						}
 						fmt.Printf("    Mores[%v] -> %v\n", k, v)

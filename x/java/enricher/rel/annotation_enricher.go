@@ -9,9 +9,8 @@ import (
 )
 
 type AnnotationEnricher struct {
-	resolver core.SymbolResolver
-	fCtx     *core.FileContext
-	gCtx     *core.GlobalContext
+	fCtx *core.FileContext
+	gCtx *core.GlobalContext
 }
 
 func (e *AnnotationEnricher) EnrichMetadata(rel *model.DependencyRelation) {

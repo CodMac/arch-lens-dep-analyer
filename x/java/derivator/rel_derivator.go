@@ -10,16 +10,20 @@ import (
 )
 
 type RelDerivator struct {
+	fCtx *core.FileContext
+	gCtx *core.GlobalContext
+
 	resolver core.SymbolResolver
-	fCtx     *core.FileContext
-	gCtx     *core.GlobalContext
+	builder  core.SymbolBuilder
 }
 
-func NewRelDerivator(resolver core.SymbolResolver, fCtx *core.FileContext, gCtx *core.GlobalContext) *RelDerivator {
+func NewRelDerivator(fCtx *core.FileContext, gCtx *core.GlobalContext) *RelDerivator {
 	return &RelDerivator{
-		resolver: resolver,
-		fCtx:     fCtx,
-		gCtx:     gCtx,
+		fCtx: fCtx,
+		gCtx: gCtx,
+
+		resolver: gCtx.Resolver,
+		builder:  gCtx.Builder,
 	}
 }
 
@@ -112,7 +116,7 @@ func (p *RelDerivator) collectAllTypeArgs(rt string, source *model.CodeElement) 
 			Type:   model.TypeArg,
 			Source: source,
 			Target: target,
-			Mores:  map[string]interface{}{constants.RelTypeArgIndex: i, constants.RelRawText: arg, constants.RelAstKind: "type_arguments"},
+			Mores:  map[string]interface{}{constants.RelTypeArgIndex: i, constants.RelRawText: arg, constants.RelNodeAstKind: "type_arguments"},
 		})
 
 		if strings.Contains(arg, "<") {

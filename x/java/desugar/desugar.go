@@ -12,11 +12,13 @@ import (
 )
 
 type DeSugar struct {
-	resolver core.SymbolResolver
+	builder core.SymbolBuilder
 }
 
-func NewDeSugar(resolver core.SymbolResolver) *DeSugar {
-	return &DeSugar{resolver: resolver}
+func NewDeSugar(builder core.SymbolBuilder) *DeSugar {
+	return &DeSugar{
+		builder: builder,
+	}
 }
 
 // =============================================================================
@@ -35,7 +37,7 @@ func (c *DeSugar) DesugarDefaultConstructor(elem *model.CodeElement, node *sitte
 	}
 
 	consName := elem.Name
-	consQN := c.resolver.BuildQualifiedName(elem.QualifiedName, consName+"()")
+	consQN := c.builder.BuildQualifiedName(elem.QualifiedName, consName+"()")
 	if _, ok := fCtx.FindByQualifiedName(consQN); !ok {
 		fCtx.AddDefinition(&model.CodeElement{
 			Kind:          model.Method,
@@ -55,7 +57,7 @@ func (c *DeSugar) DesugarDefaultConstructor(elem *model.CodeElement, node *sitte
 }
 
 func (c *DeSugar) DesugarEnumMethods(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
-	vQN := c.resolver.BuildQualifiedName(elem.QualifiedName, "values()")
+	vQN := c.builder.BuildQualifiedName(elem.QualifiedName, "values()")
 	if _, ok := fCtx.FindByQualifiedName(vQN); !ok {
 		fCtx.AddDefinition(&model.CodeElement{
 			Kind: model.Method, Name: "values", QualifiedName: vQN, Path: fCtx.FilePath, Location: elem.Location, IsFormSugar: true,
@@ -68,7 +70,7 @@ func (c *DeSugar) DesugarEnumMethods(elem *model.CodeElement, node *sitter.Node,
 		}, elem.QualifiedName, node)
 	}
 
-	voQN := c.resolver.BuildQualifiedName(elem.QualifiedName, "valueOf(String)")
+	voQN := c.builder.BuildQualifiedName(elem.QualifiedName, "valueOf(String)")
 	if _, ok := fCtx.FindByQualifiedName(voQN); !ok {
 		fCtx.AddDefinition(&model.CodeElement{
 			Kind: model.Method, Name: "valueOf", QualifiedName: voQN, Path: fCtx.FilePath, Location: elem.Location, IsFormSugar: true,
@@ -101,7 +103,7 @@ func (c *DeSugar) DesugarRecordMembers(elem *model.CodeElement, node *sitter.Nod
 	}
 
 	for _, comp := range comps {
-		fieldQN := c.resolver.BuildQualifiedName(elem.QualifiedName, comp.name)
+		fieldQN := c.builder.BuildQualifiedName(elem.QualifiedName, comp.name)
 		if defs, _ := fCtx.FindByShortName(comp.name); len(defs) > 0 {
 			for _, d := range defs {
 				if d.Element.QualifiedName == fieldQN {
@@ -112,7 +114,7 @@ func (c *DeSugar) DesugarRecordMembers(elem *model.CodeElement, node *sitter.Nod
 			}
 		}
 		mIdentity := comp.name + "()"
-		mQN := c.resolver.BuildQualifiedName(elem.QualifiedName, mIdentity)
+		mQN := c.builder.BuildQualifiedName(elem.QualifiedName, mIdentity)
 		if _, ok := fCtx.FindByQualifiedName(mQN); !ok {
 			fCtx.AddDefinition(&model.CodeElement{
 				Kind: model.Method, Name: comp.name, QualifiedName: mQN, Path: fCtx.FilePath, Location: elem.Location, IsFormSugar: true,
@@ -131,7 +133,7 @@ func (c *DeSugar) DesugarRecordMembers(elem *model.CodeElement, node *sitter.Nod
 		pTypes = append(pTypes, strings.TrimSpace(strings.Split(comp.vType, "<")[0]))
 	}
 	cIdentity := fmt.Sprintf("%s(%s)", elem.Name, strings.Join(pTypes, ","))
-	cQN := c.resolver.BuildQualifiedName(elem.QualifiedName, cIdentity)
+	cQN := c.builder.BuildQualifiedName(elem.QualifiedName, cIdentity)
 	if _, ok := fCtx.FindByQualifiedName(cQN); !ok {
 		fCtx.AddDefinition(&model.CodeElement{
 			Kind: model.Method, Name: elem.Name, QualifiedName: cQN, Path: fCtx.FilePath, Location: elem.Location, IsFormSugar: true,
@@ -204,7 +206,7 @@ func (c *DeSugar) hasLombokAnnotation(annotations []string, target string) bool 
 // 生成私有静态final的Logger字段 log
 func (c *DeSugar) lombokSlf4j(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
 	logFieldName := "log"
-	logFieldQN := c.resolver.BuildQualifiedName(elem.QualifiedName, logFieldName)
+	logFieldQN := c.builder.BuildQualifiedName(elem.QualifiedName, logFieldName)
 
 	// 检查是否已存在名为 "log" 的字段，避免重复生成
 	if _, ok := fCtx.FindByQualifiedName(logFieldQN); ok {
@@ -261,7 +263,7 @@ func (c *DeSugar) lombokGetter(elem *model.CodeElement, node *sitter.Node, fCtx 
 			continue
 		}
 
-		getterQN := c.resolver.BuildQualifiedName(elem.QualifiedName, getterName+"()")
+		getterQN := c.builder.BuildQualifiedName(elem.QualifiedName, getterName+"()")
 
 		fCtx.AddDefinition(&model.CodeElement{
 			Kind:          model.Method,
@@ -313,7 +315,7 @@ func (c *DeSugar) lombokSetter(elem *model.CodeElement, node *sitter.Node, fCtx 
 			continue
 		}
 
-		setterQN := c.resolver.BuildQualifiedName(elem.QualifiedName, setterName+"("+fieldType+")")
+		setterQN := c.builder.BuildQualifiedName(elem.QualifiedName, setterName+"("+fieldType+")")
 
 		fCtx.AddDefinition(&model.CodeElement{
 			Kind:          model.Method,
@@ -344,7 +346,7 @@ func (c *DeSugar) lombokToString(elem *model.CodeElement, node *sitter.Node, fCt
 		return
 	}
 
-	toStringQN := c.resolver.BuildQualifiedName(elem.QualifiedName, "toString()")
+	toStringQN := c.builder.BuildQualifiedName(elem.QualifiedName, "toString()")
 
 	fCtx.AddDefinition(&model.CodeElement{
 		Kind:          model.Method,
@@ -371,7 +373,7 @@ func (c *DeSugar) lombokToString(elem *model.CodeElement, node *sitter.Node, fCt
 func (c *DeSugar) lombokEqualsAndHashCode(elem *model.CodeElement, node *sitter.Node, fCtx *core.FileContext) {
 	// 1. 生成 equals(Object)
 	if !c._checkMethodExists(elem.QualifiedName, "equals", "(Object)", fCtx) {
-		equalsQN := c.resolver.BuildQualifiedName(elem.QualifiedName, "equals(Object)")
+		equalsQN := c.builder.BuildQualifiedName(elem.QualifiedName, "equals(Object)")
 		fCtx.AddDefinition(&model.CodeElement{
 			Kind:          model.Method,
 			Name:          "equals",
@@ -395,7 +397,7 @@ func (c *DeSugar) lombokEqualsAndHashCode(elem *model.CodeElement, node *sitter.
 
 	// 2. 生成 hashCode()
 	if !c._checkMethodExists(elem.QualifiedName, "hashCode", "()", fCtx) {
-		hashCodeQN := c.resolver.BuildQualifiedName(elem.QualifiedName, "hashCode()")
+		hashCodeQN := c.builder.BuildQualifiedName(elem.QualifiedName, "hashCode()")
 		fCtx.AddDefinition(&model.CodeElement{
 			Kind:          model.Method,
 			Name:          "hashCode",
@@ -418,7 +420,7 @@ func (c *DeSugar) lombokEqualsAndHashCode(elem *model.CodeElement, node *sitter.
 
 	// 3. 生成 canEqual(Object)
 	if !c._checkMethodExists(elem.QualifiedName, "canEqual", "(Object)", fCtx) {
-		canEqualQN := c.resolver.BuildQualifiedName(elem.QualifiedName, "canEqual(Object)")
+		canEqualQN := c.builder.BuildQualifiedName(elem.QualifiedName, "canEqual(Object)")
 		fCtx.AddDefinition(&model.CodeElement{
 			Kind:          model.Method,
 			Name:          "canEqual",
@@ -449,7 +451,7 @@ func (c *DeSugar) lombokNoArgsConstructor(elem *model.CodeElement, node *sitter.
 		return
 	}
 
-	consQN := c.resolver.BuildQualifiedName(elem.QualifiedName, elem.Name+"()")
+	consQN := c.builder.BuildQualifiedName(elem.QualifiedName, elem.Name+"()")
 
 	fCtx.AddDefinition(&model.CodeElement{
 		Kind:          model.Method,
@@ -506,7 +508,7 @@ func (c *DeSugar) lombokAllArgsConstructor(elem *model.CodeElement, node *sitter
 		return
 	}
 
-	consQN := c.resolver.BuildQualifiedName(elem.QualifiedName, elem.Name+paramsStr)
+	consQN := c.builder.BuildQualifiedName(elem.QualifiedName, elem.Name+paramsStr)
 
 	fCtx.AddDefinition(&model.CodeElement{
 		Kind:          model.Method,
@@ -565,7 +567,7 @@ func (c *DeSugar) lombokRequiredArgsConstructor(elem *model.CodeElement, node *s
 		return
 	}
 
-	consQN := c.resolver.BuildQualifiedName(elem.QualifiedName, elem.Name+paramsStr)
+	consQN := c.builder.BuildQualifiedName(elem.QualifiedName, elem.Name+paramsStr)
 
 	fCtx.AddDefinition(&model.CodeElement{
 		Kind:          model.Method,
@@ -623,7 +625,7 @@ func (c *DeSugar) lombokBuilder(elem *model.CodeElement, node *sitter.Node, fCtx
 	}
 
 	builderClassName := "Builder"
-	builderQN := c.resolver.BuildQualifiedName(elem.QualifiedName, builderClassName)
+	builderQN := c.builder.BuildQualifiedName(elem.QualifiedName, builderClassName)
 
 	// 1. 检查Builder内部类是否已存在
 	if _, ok := fCtx.FindByQualifiedName(builderQN); !ok {
@@ -649,7 +651,7 @@ func (c *DeSugar) lombokBuilder(elem *model.CodeElement, node *sitter.Node, fCtx
 
 	// 2. 生成静态builder()方法
 	builderMethodName := "builder"
-	builderMethodQN := c.resolver.BuildQualifiedName(elem.QualifiedName, builderMethodName+"()")
+	builderMethodQN := c.builder.BuildQualifiedName(elem.QualifiedName, builderMethodName+"()")
 	if !c._checkMethodExists(elem.QualifiedName, builderMethodName, "()", fCtx) {
 		fCtx.AddDefinition(&model.CodeElement{
 			Kind:          model.Method,
@@ -676,7 +678,7 @@ func (c *DeSugar) lombokBuilder(elem *model.CodeElement, node *sitter.Node, fCtx
 		fieldName := field.Element.Name
 		fieldType, _ := field.Element.Extra.Mores[constants.FieldRawType].(string)
 
-		setterQN := c.resolver.BuildQualifiedName(builderQN, fieldName+"("+fieldType+")")
+		setterQN := c.builder.BuildQualifiedName(builderQN, fieldName+"("+fieldType+")")
 		if _, ok := fCtx.FindByQualifiedName(setterQN); !ok {
 			fCtx.AddDefinition(&model.CodeElement{
 				Kind:          model.Method,
@@ -701,7 +703,7 @@ func (c *DeSugar) lombokBuilder(elem *model.CodeElement, node *sitter.Node, fCtx
 	}
 
 	// 4. 在Builder类中生成build()方法
-	buildQN := c.resolver.BuildQualifiedName(builderQN, "build()")
+	buildQN := c.builder.BuildQualifiedName(builderQN, "build()")
 	if !c._checkMethodExists(builderQN, "build", "()", fCtx) {
 		fCtx.AddDefinition(&model.CodeElement{
 			Kind:          model.Method,
@@ -725,7 +727,7 @@ func (c *DeSugar) lombokBuilder(elem *model.CodeElement, node *sitter.Node, fCtx
 
 	// 5. 在主类中生成私有全参构造器（接受Builder参数）
 	builderParam := "builder"
-	privateConstructorQN := c.resolver.BuildQualifiedName(elem.QualifiedName, fmt.Sprintf("%s(%s)", elem.Name, builderClassName))
+	privateConstructorQN := c.builder.BuildQualifiedName(elem.QualifiedName, fmt.Sprintf("%s(%s)", elem.Name, builderClassName))
 	if !c._checkMethodExists(elem.QualifiedName, elem.Name, "("+builderClassName+")", fCtx) {
 		fCtx.AddDefinition(&model.CodeElement{
 			Kind:          model.Method,
@@ -770,7 +772,7 @@ func (c *DeSugar) _extractClassFields(elem *model.CodeElement, fCtx *core.FileCo
 
 // _checkMethodExists: 检查方法是否已存在（避免重复生成）
 func (c *DeSugar) _checkMethodExists(parentQN, methodName, paramTypes string, fCtx *core.FileContext) bool {
-	methodQN := c.resolver.BuildQualifiedName(parentQN, methodName+paramTypes)
+	methodQN := c.builder.BuildQualifiedName(parentQN, methodName+paramTypes)
 	if _, ok := fCtx.FindByQualifiedName(methodQN); ok {
 		return true
 	}

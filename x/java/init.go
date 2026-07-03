@@ -14,8 +14,11 @@ func init() {
 	// 注册 NoiseFilter(噪音过滤)
 	core.RegisterNoiseFilter(core.LangJava, NewJavaNoiseFilter(core.LevelBalanced))
 
+	// 注册 rSymbolBuilder(符号构建)
+	core.RegisterSymbolBuilder(core.LangJava, NewSymbolBuilder())
+
 	// 注册 SymbolResolver(符号解析)
-	core.RegisterSymbolResolver(core.LangJava, NewJavaSymbolResolver())
+	core.RegisterSymbolResolver(core.LangJava, NewSymbolResolver())
 
 	// 注册 Collector
 	core.RegisterCollector(core.LangJava, NewJavaCollector())

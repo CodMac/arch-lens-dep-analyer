@@ -261,7 +261,7 @@ func TestJavaExtractor_AssignDataFlow(t *testing.T) {
 			targetName: "data",
 			value:      "\"CONST\"",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "identifier", m[constants.RelNodeAstKind])
 				assert.Equal(t, "=", m[constants.RelAssignOperator])
 			},
 		},
@@ -271,7 +271,7 @@ func TestJavaExtractor_AssignDataFlow(t *testing.T) {
 			targetName: "localObj",
 			value:      "fetch()",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "identifier", m[constants.RelNodeAstKind])
 				assert.Equal(t, true, m[constants.RelAssignIsInitializer])
 			},
 		},
@@ -281,7 +281,7 @@ func TestJavaExtractor_AssignDataFlow(t *testing.T) {
 			targetName: "msg",
 			value:      "(String) localObj",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "identifier", m[constants.RelNodeAstKind])
 				assert.Equal(t, true, m[constants.RelAssignIsInitializer])
 				assert.Equal(t, "msg", m[constants.RelAssignTargetName])
 			},

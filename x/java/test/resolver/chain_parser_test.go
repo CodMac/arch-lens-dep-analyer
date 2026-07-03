@@ -5,10 +5,10 @@ import (
 	"testing"
 
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/resolver/abandon"
 
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
-	"github.com/CodMac/arch-lens-dep-analyer/x/java/resolver"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
@@ -21,7 +21,7 @@ type StepExpectation struct {
 }
 
 type ChainExpectation struct {
-	ReceiverType    resolver.ReceiverType
+	ReceiverType    abandon.ReceiverType
 	ReceiverRawText string
 	ExpectedSteps   []StepExpectation
 }
@@ -40,7 +40,7 @@ func TestChainParser_ForCall(t *testing.T) {
 	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Call})
 
 	fCtx := gCtx.FileContexts[files[0]]
-	chainParser := resolver.NewChainParser(gCtx, fCtx)
+	chainParser := abandon.NewChainParser(gCtx, fCtx)
 
 	testCases := []struct {
 		name         string
@@ -55,7 +55,7 @@ func TestChainParser_ForCall(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.fieldAccessThenMethodCall()",
 			relRawText:  "container.inner1.processData()",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.inner1.processData()",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -70,7 +70,7 @@ func TestChainParser_ForCall(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.continuousMethodCalls()",
 			relRawText:  "container.getInner1().processData()",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.getInner1().processData()",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -85,7 +85,7 @@ func TestChainParser_ForCall(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.continuousMethodCalls()",
 			relRawText:  "container.getInner1().getInner2().transform()",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.getInner1().getInner2().transform()",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -101,7 +101,7 @@ func TestChainParser_ForCall(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.continuousMethodCalls()",
 			relRawText:  "container.getInner1().getInner2().getInner3().format()",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.getInner1().getInner2().getInner3().format()",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -118,7 +118,7 @@ func TestChainParser_ForCall(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.mixedChainCalls()",
 			relRawText:  "container.getInner1().processData()",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.getInner1().processData()",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -133,7 +133,7 @@ func TestChainParser_ForCall(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.mixedChainCalls()",
 			relRawText:  "container.setResult(\"new value\").getResult()",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.setResult(\"new value\").getResult()",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -148,7 +148,7 @@ func TestChainParser_ForCall(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.methodThenFieldAccessThenMethod()",
 			relRawText:  "container.getInnerList().get(0).inner2.transform()",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.getInnerList().get(0).inner2.transform()",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -165,7 +165,7 @@ func TestChainParser_ForCall(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.complexBuilderPattern()",
 			relRawText:  "container.getInner1().processData()",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.getInner1().processData()",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -180,7 +180,7 @@ func TestChainParser_ForCall(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.complexBuilderPattern()",
 			relRawText:  "container.getInner1().getInner2().transform()",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.getInner1().getInner2().transform()",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -196,7 +196,7 @@ func TestChainParser_ForCall(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.mixedStaticAndInstance()",
 			relRawText:  "container.getInner1().processData().length()",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.getInner1().processData().length()",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -212,7 +212,7 @@ func TestChainParser_ForCall(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.conditionalChainedCalls()",
 			relRawText:  "container.getInner1().processData().toUpperCase()",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.getInner1().processData().toUpperCase()",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -228,7 +228,7 @@ func TestChainParser_ForCall(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.conditionalChainedCalls()",
 			relRawText:  "container.getInner1().getInner2().transform().toLowerCase()",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.getInner1().getInner2().transform().toLowerCase()",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -245,7 +245,7 @@ func TestChainParser_ForCall(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.deeplyNestedMixedAccess()",
 			relRawText:  "container.inner1.inner2.inner3.format().concat(\"_\").concat(container.getInner1().getInner2().transform())",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.inner1.inner2.inner3.format().concat(\"_\").concat(container.getInner1().getInner2().transform())",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -264,7 +264,7 @@ func TestChainParser_ForCall(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.deeplyNestedMixedAccess()",
 			relRawText:  "container.getInner1().getInner2().transform()",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.getInner1().getInner2().transform()",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -280,7 +280,7 @@ func TestChainParser_ForCall(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.collectionChainedCalls()",
 			relRawText:  "container.getInnerList().get(1).inner2.transform()",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.getInnerList().get(1).inner2.transform()",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -297,7 +297,7 @@ func TestChainParser_ForCall(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.collectionChainedCalls()",
 			relRawText:  "container.getInnerList().get(2).processData()",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.getInnerList().get(2).processData()",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -313,7 +313,7 @@ func TestChainParser_ForCall(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.parameterChainedCalls()",
 			relRawText:  "container.getInner1().processData().toUpperCase()",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.getInner1().processData().toUpperCase()",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -329,7 +329,7 @@ func TestChainParser_ForCall(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.parameterChainedCalls()",
 			relRawText:  "container.getInner1().getInner2().transform().trim()",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.getInner1().getInner2().transform().trim()",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -425,7 +425,7 @@ func TestChainParser_ForAssign(t *testing.T) {
 	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Assign})
 
 	fCtx := gCtx.FileContexts[files[0]]
-	chainParser := resolver.NewChainParser(gCtx, fCtx)
+	chainParser := abandon.NewChainParser(gCtx, fCtx)
 
 	testCases := []struct {
 		name         string
@@ -440,7 +440,7 @@ func TestChainParser_ForAssign(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.fieldAccessThenMethodCall()",
 			relRawText:  "container.inner1.data",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.inner1.data",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -455,7 +455,7 @@ func TestChainParser_ForAssign(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.mixedChainCalls()",
 			relRawText:  "container.inner1",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.inner1.inner2.inner3.info",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -472,7 +472,7 @@ func TestChainParser_ForAssign(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.methodThenFieldAccessThenMethod()",
 			relRawText:  "container.innerList.get(0).inner2.value",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.innerList",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -569,7 +569,7 @@ func TestChainParser_ForUse(t *testing.T) {
 	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Use})
 
 	fCtx := gCtx.FileContexts[files[0]]
-	chainParser := resolver.NewChainParser(gCtx, fCtx)
+	chainParser := abandon.NewChainParser(gCtx, fCtx)
 
 	testCases := []struct {
 		name         string
@@ -584,7 +584,7 @@ func TestChainParser_ForUse(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.fieldAccessThenMethodCall()",
 			relRawText:  "container.inner1",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.inner1",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -598,7 +598,7 @@ func TestChainParser_ForUse(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.methodThenFieldAccessThenMethod()",
 			relRawText:  "container.getInnerList().get(0).inner2",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.inner1.inner2.inner3.info",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -614,7 +614,7 @@ func TestChainParser_ForUse(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.conditionalChainedCalls()",
 			relRawText:  "container.inner1.data",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.innerList",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -629,7 +629,7 @@ func TestChainParser_ForUse(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.deeplyNestedMixedAccess()",
 			relRawText:  "container.inner1.inner2.inner3",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.innerList",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -645,7 +645,7 @@ func TestChainParser_ForUse(t *testing.T) {
 			relSourceQN: "com.example.resolver.chain.ChainParserCase.collectionChainedCalls()",
 			relRawText:  "container.getInnerList().get(1).inner2",
 			expectations: ChainExpectation{
-				ReceiverType:    resolver.ReceiverChained,
+				ReceiverType:    abandon.ReceiverChained,
 				ReceiverRawText: "container.innerList",
 				ExpectedSteps: []StepExpectation{
 					{Name: "container", IsCall: false, IsField: false},
@@ -730,7 +730,7 @@ func TestChainParser_ForUse(t *testing.T) {
 func findReceiverNode(rels []*model.DependencyRelation, relType model.DependencyType, relSourceQN, relRawText string) *sitter.Node {
 	for _, rel := range rels {
 		if rel.Type == relType && rel.Source.QualifiedName == relSourceQN && rel.Mores[constants.RelRawText] == relRawText {
-			return rel.Mores[constants.TmpCtxNode].(*sitter.Node)
+			return rel.Mores[constants.TmpExpressNode].(*sitter.Node)
 		}
 	}
 

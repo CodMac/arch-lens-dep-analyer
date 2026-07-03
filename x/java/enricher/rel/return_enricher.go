@@ -10,16 +10,15 @@ import (
 )
 
 type ReturnEnricher struct {
-	resolver core.SymbolResolver
-	fCtx     *core.FileContext
-	gCtx     *core.GlobalContext
+	fCtx *core.FileContext
+	gCtx *core.GlobalContext
 }
 
 func (e *ReturnEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 	rawText := rel.Mores[constants.RelRawText].(string)
 
 	//_, rawText, _ := GetRelTmpValue(rel)
-	isPrimitive := e.resolver.IsPrimitive(helper.Clean(rawText))
+	isPrimitive := e.gCtx.Builder.IsPrimitive(helper.Clean(rawText))
 	rel.Mores[constants.RelReturnIsPrimitive] = isPrimitive
 	rel.Mores[constants.RelReturnIsArray] = strings.Contains(rawText, "[]")
 }

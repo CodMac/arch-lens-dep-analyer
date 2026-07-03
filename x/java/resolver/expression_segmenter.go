@@ -3,6 +3,7 @@ package resolver
 import (
 	"strings"
 
+	"github.com/CodMac/arch-lens-dep-analyer/core"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -12,8 +13,8 @@ type ExpressionSegmenter struct {
 }
 
 // NewExpressionSegmenter 创建表达式分段器
-func NewExpressionSegmenter(srcBytes *[]byte) *ExpressionSegmenter {
-	return &ExpressionSegmenter{src: srcBytes}
+func NewExpressionSegmenter(fCtx *core.FileContext) *ExpressionSegmenter {
+	return &ExpressionSegmenter{src: fCtx.SourceBytes}
 }
 
 // Segment 将通过 NodeContextResolver 获取到的 ExpressNode 解析为拉平的拓扑链

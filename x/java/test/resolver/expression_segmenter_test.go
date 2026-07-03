@@ -3,6 +3,7 @@ package resolver
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
@@ -37,7 +38,7 @@ func TestExpressionSegmenter_ResolveCall(t *testing.T) {
 	defer q.Close()
 
 	ctxResolver := resolver.NewNodeContextResolver(fCtx)
-	segmenter := resolver.NewExpressionSegmenter(fCtx.SourceBytes)
+	segmenter := resolver.NewExpressionSegmenter(fCtx)
 
 	// 精准覆盖场景 1, 场景 2, 场景 6 等 CALL 链条
 	expectations := []SegmentExpectation{
@@ -94,7 +95,7 @@ func TestExpressionSegmenter_ResolveAssign(t *testing.T) {
 	defer q.Close()
 
 	ctxResolver := resolver.NewNodeContextResolver(fCtx)
-	segmenter := resolver.NewExpressionSegmenter(fCtx.SourceBytes)
+	segmenter := resolver.NewExpressionSegmenter(fCtx)
 
 	// 精准覆盖场景 1、场景 4 中的被赋值左值或赋值右值主链
 	expectations := []SegmentExpectation{
@@ -110,16 +111,15 @@ func TestExpressionSegmenter_ResolveAssign(t *testing.T) {
 		},
 		{
 			Name:        "场景4: 方法返回后接字段的混合赋值右值 (ASSIGN)",
-			LineNum:     135,
-			TargetText:  "transform",
+			LineNum:     131,
+			TargetText:  "value",
 			ExpHeadType: resolver.HeadIdent,
 			ExpHeadName: "container",
 			ExpSegments: []resolver.ExpressionSegment{
-				{Kind: resolver.SegmentMethod, Name: "getInnerList"},
+				{Kind: resolver.SegmentField, Name: "innerList"},
 				{Kind: resolver.SegmentMethod, Name: "get"},
-				{Kind: resolver.SegmentArray, Name: ""}, // 包含集成的数组降维/提取
 				{Kind: resolver.SegmentField, Name: "inner2"},
-				{Kind: resolver.SegmentMethod, Name: "transform"},
+				{Kind: resolver.SegmentField, Name: "value"},
 			},
 		},
 	}
@@ -141,32 +141,33 @@ func TestExpressionSegmenter_ResolveUse(t *testing.T) {
 	defer q.Close()
 
 	ctxResolver := resolver.NewNodeContextResolver(fCtx)
-	segmenter := resolver.NewExpressionSegmenter(fCtx.SourceBytes)
+	segmenter := resolver.NewExpressionSegmenter(fCtx)
 
-	// 精准覆盖场景 7 条件表达式判断区、场景 10 方法传参内的纯引用求值链路
+	// 精准覆盖场景 7 条件表达式判断区、场景 9 集合操作中的链式调用
 	expectations := []SegmentExpectation{
 		{
 			Name:        "场景7: 三元条件表达式判断区内的求值链路 (USE)",
 			LineNum:     175,
-			TargetText:  "length",
+			TargetText:  "data",
 			ExpHeadType: resolver.HeadIdent,
 			ExpHeadName: "container",
 			ExpSegments: []resolver.ExpressionSegment{
 				{Kind: resolver.SegmentField, Name: "inner1"},
 				{Kind: resolver.SegmentField, Name: "data"},
-				{Kind: resolver.SegmentMethod, Name: "length"},
+				{Kind: resolver.SegmentMethod, Name: "length"}, // 补全真实物理长链
 			},
 		},
 		{
-			Name:        "场景10: 方法外层传参包裹内的链式调用 (USE)",
-			LineNum:     200,
-			TargetText:  "processData",
+			Name:        "场景9: 集合操作中的链式调用 (USE)",
+			LineNum:     212,
+			TargetText:  "inner2",
 			ExpHeadType: resolver.HeadIdent,
 			ExpHeadName: "container",
 			ExpSegments: []resolver.ExpressionSegment{
-				{Kind: resolver.SegmentMethod, Name: "getInner1"},
-				{Kind: resolver.SegmentMethod, Name: "processData"},
-				{Kind: resolver.SegmentMethod, Name: "toUpperCase"},
+				{Kind: resolver.SegmentMethod, Name: "getInnerList"},
+				{Kind: resolver.SegmentMethod, Name: "get"},
+				{Kind: resolver.SegmentField, Name: "inner2"},
+				{Kind: resolver.SegmentMethod, Name: "transform"}, // 补全真实物理长链
 			},
 		},
 	}
@@ -174,12 +175,24 @@ func TestExpressionSegmenter_ResolveUse(t *testing.T) {
 	runSegmentTestLoops(t, fCtx, q, ctxResolver, segmenter, model.Use, expectations)
 }
 
-// --- 🛠️ 抽象通用的双轨集成测试驱动引擎 ---
+// --- 🛠️ 抽象通用的双轨集成测试驱动引擎（带 USE 节点噪音过滤） ---
 func runSegmentTestLoops(t *testing.T, fCtx *core.FileContext, q *sitter.Query, ctxResolver *resolver.NodeContextResolver, segmenter *resolver.ExpressionSegmenter, actType model.DependencyType, expectations []SegmentExpectation) {
 	qc := sitter.NewQueryCursor()
 	matches := qc.Matches(q, fCtx.RootNode, *fCtx.SourceBytes)
 
+	// 使用行号作为第一层隔离，Value 为该行所有合法的拉平表达式链
+	// 允许一行内存在多个不同的捕获链
 	capturedChains := make(map[string]*resolver.ExpressionChain)
+
+	// 用于防止同一个完整表达式被其内部的子 identifier 重复注入而覆盖正确结果
+	// Key: 完整表达式的唯一区间范围 "start-end"
+	seenExpressions := make(map[string]bool)
+
+	// 建立快捷索引，只处理我们在 expectations 里声明的行，大幅过滤不相关的行
+	targetLines := make(map[int]bool)
+	for _, exp := range expectations {
+		targetLines[exp.LineNum] = true
+	}
 
 	for {
 		match := matches.Next()
@@ -188,22 +201,62 @@ func runSegmentTestLoops(t *testing.T, fCtx *core.FileContext, q *sitter.Query, 
 		}
 
 		for _, cap := range match.Captures {
-			// 过滤非当前动作类型的触发目标（可兼容 call_target, assign_target, use_target 等规则命名）
 			lineNum := int(cap.Node.StartPosition().Row) + 1
-			rawText := cap.Node.Utf8Text(*fCtx.SourceBytes)
 
-			// 借助第一阶段已实现的 NodeContextResolver 定位出完整的 ExpressNode
+			// 过滤 1: 如果当前行不是我们断言关心的行，直接跳过，过滤大量无关的 USE 捕获
+			if !targetLines[lineNum] {
+				continue
+			}
+
+			// 过滤 2: 验证捕获动作类型
+			capName := q.CaptureNames()[cap.Index]
+			if captureTypeMap[capName] != actType {
+				continue
+			}
+
+			// 借助 NodeContextResolver 定位出完整的 ExpressNode
 			res := ctxResolver.ResolveContext(actType, &cap.Node)
 			if res == nil || res.ExpressNode == nil {
 				continue
 			}
 
-			// 移交第二阶段待测的 ExpressionSegmenter 转化为被平铺的解析链条
+			// 过滤 3: 去重同一个表达式触发的多次 identifier 捕获。
+			// 比如 container.inner1.data 会触发 3 次捕获，但它们往上找的 ExpressNode 是同一个。
+			// 我们只处理完整长表达式的第一次解析（Tree-sitter 深度优先遍历通常先遇到大表达式或特定边缘）
+			exprKey := fmt.Sprintf("%d-%d", res.ExpressNode.StartByte(), res.ExpressNode.EndByte())
+
+			// 将 ExpressNode 转化为被平铺的解析链条
 			chain := segmenter.Segment(res.ExpressNode)
 			if chain == nil {
 				continue
 			}
 
+			rawText := cap.Node.Utf8Text(*fCtx.SourceBytes)
+
+			// 过滤 4: 精准对齐。只保留当前捕获词刚好是链条最后一段名称，或者是链条 Head 名称的有效节点
+			// 这模拟了 Extractor 的有效引用过滤
+			isTargetComponent := false
+			if chain.Head.Name == rawText {
+				isTargetComponent = true
+			}
+			for _, seg := range chain.Segments {
+				if seg.Name == rawText {
+					isTargetComponent = true
+					break
+				}
+			}
+
+			if !isTargetComponent {
+				continue
+			}
+
+			if seenExpressions[exprKey] {
+				// 如果这个长表达式已经录入过了，后续子 identifier 的重复触发直接略过
+				continue
+			}
+			seenExpressions[exprKey] = true
+
+			// 拼装精准 Key
 			uniqueKey := fmt.Sprintf("%d:%s", lineNum, rawText)
 			capturedChains[uniqueKey] = chain
 		}
@@ -214,12 +267,21 @@ func runSegmentTestLoops(t *testing.T, fCtx *core.FileContext, q *sitter.Query, 
 		t.Run(exp.Name, func(t *testing.T) {
 			targetKey := fmt.Sprintf("%d:%s", exp.LineNum, exp.TargetText)
 			actualChain, found := capturedChains[targetKey]
+
 			if !found {
-				// 容错降级：如果 TargetText 是长表达式的一部分，进行前缀或行号动态补正
+				// 容错降级：如果 TargetText 是该行某个长表达式的子段，动态补正
 				for key, chain := range capturedChains {
-					if fmt.Sprintf("%d:", exp.LineNum) == key[:len(fmt.Sprintf("%d:", exp.LineNum))] {
-						actualChain = chain
-						found = true
+					if strings.HasPrefix(key, fmt.Sprintf("%d:", exp.LineNum)) {
+						// 检查这个链里是否包含期望的末端目标
+						for _, seg := range chain.Segments {
+							if seg.Name == exp.TargetText {
+								actualChain = chain
+								found = true
+								break
+							}
+						}
+					}
+					if found {
 						break
 					}
 				}

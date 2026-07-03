@@ -8,17 +8,16 @@ import (
 )
 
 type ThrowEnricher struct {
-	resolver core.SymbolResolver
-	fCtx     *core.FileContext
-	gCtx     *core.GlobalContext
+	fCtx *core.FileContext
+	gCtx *core.GlobalContext
 }
 
 func (e *ThrowEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 	node, _ := GetRelTmpValue(rel)
 
 	if node != nil {
-		//rel.Mores[constants.RelAstKind] = "throw_statement"
-		rel.Mores[constants.RelAstKind] = node.Kind()
+		//rel.Mores[constants.RelNodeAstKind] = "throw_statement"
+		rel.Mores[constants.RelNodeAstKind] = node.Kind()
 		rel.Target.Name = helper.Clean(rel.Target.Name)
 		rel.Target.QualifiedName = helper.Clean(rel.Target.QualifiedName)
 		if node.Kind() == "type_identifier" || (node.Parent() != nil && node.Parent().Kind() == "object_creation_expression") {

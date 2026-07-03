@@ -44,7 +44,7 @@ func TestJavaExtractor_Use(t *testing.T) {
 			targetQN: methodQN + ".local",
 			rawText:  "local + 2",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "identifier", m[constants.RelNodeAstKind])
 				assert.Equal(t, "binary_expression", m[constants.RelContextAstKind])
 			},
 		},
@@ -54,7 +54,7 @@ func TestJavaExtractor_Use(t *testing.T) {
 			targetQN: baseQN + ".fieldVar",
 			rawText:  "this.fieldVar",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "identifier", m[constants.RelNodeAstKind])
 				assert.Equal(t, "field_access", m[constants.RelContextAstKind])
 				assert.Equal(t, "this", m["java.rel.use.receiver"])
 			},
@@ -65,7 +65,7 @@ func TestJavaExtractor_Use(t *testing.T) {
 			targetQN: methodQN + ".param",
 			rawText:  "param + CONSTANT",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "identifier", m[constants.RelNodeAstKind])
 				assert.Equal(t, "binary_expression", m[constants.RelContextAstKind])
 			},
 		},
@@ -75,7 +75,7 @@ func TestJavaExtractor_Use(t *testing.T) {
 			targetQN: baseQN + ".CONSTANT",
 			rawText:  "System.out.println(CONSTANT)", // 👈 精准指定只匹配 raw_text 为 "CONSTANT" 的那行（即 System.out.println）
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "identifier", m[constants.RelNodeAstKind])
 				assert.Equal(t, "method_invocation", m[constants.RelContextAstKind])
 			},
 		},
@@ -84,7 +84,7 @@ func TestJavaExtractor_Use(t *testing.T) {
 			sourceQN: methodQN,
 			targetQN: methodQN + ".args",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "identifier", m[constants.RelNodeAstKind])
 				assert.Equal(t, "array_access", m[constants.RelContextAstKind])
 			},
 		},
@@ -94,7 +94,7 @@ func TestJavaExtractor_Use(t *testing.T) {
 			targetQN: methodQN + ".local",
 			rawText:  "genericMethod(local)", // 👈 精准指定只匹配单独作为参数传入的 "local"，排除前面的 "local + 2"
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "identifier", m[constants.RelNodeAstKind])
 				assert.Equal(t, "method_invocation", m[constants.RelContextAstKind])
 			},
 		},
@@ -104,7 +104,7 @@ func TestJavaExtractor_Use(t *testing.T) {
 			targetQN: methodQN + ".local",
 			rawText:  "(local > 0) ? local : 0", // 👈 精准指定匹配带有完整三元特征的那行
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "identifier", m[constants.RelNodeAstKind])
 				assert.Equal(t, "ternary_expression", m[constants.RelContextAstKind])
 			},
 		},
@@ -113,7 +113,7 @@ func TestJavaExtractor_Use(t *testing.T) {
 			sourceQN: methodQN,
 			targetQN: methodQN + ".list",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "identifier", m[constants.RelNodeAstKind])
 				assert.Equal(t, "enhanced_for_statement", m[constants.RelContextAstKind])
 			},
 		},
@@ -122,7 +122,7 @@ func TestJavaExtractor_Use(t *testing.T) {
 			sourceQN: methodQN,
 			targetQN: methodQN + ".item",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "identifier", m[constants.RelNodeAstKind])
 				assert.Equal(t, "method_invocation", m[constants.RelContextAstKind])
 			},
 		},
@@ -132,7 +132,7 @@ func TestJavaExtractor_Use(t *testing.T) {
 			targetQN: baseQN + ".fieldVar",
 			rawText:  "System.out.println(fieldVar)", // 👈 改为真实的上下文 raw_text
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "identifier", m[constants.RelNodeAstKind])
 				assert.Equal(t, "method_invocation", m[constants.RelContextAstKind])
 				assert.Equal(t, true, m["java.rel.use.is_capture"])
 			},
@@ -142,7 +142,7 @@ func TestJavaExtractor_Use(t *testing.T) {
 			sourceQN: methodQN,
 			targetQN: methodQN + ".obj",
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "identifier", m[constants.RelAstKind])
+				assert.Equal(t, "identifier", m[constants.RelNodeAstKind])
 				assert.Equal(t, "cast_expression", m[constants.RelContextAstKind])
 			},
 		},

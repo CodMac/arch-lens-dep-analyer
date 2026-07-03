@@ -1,16 +1,16 @@
 package rel
 
 import (
+	"strings"
+
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
-	"strings"
 )
 
 type CreateEnricher struct {
-	resolver core.SymbolResolver
-	fCtx     *core.FileContext
-	gCtx     *core.GlobalContext
+	fCtx *core.FileContext
+	gCtx *core.GlobalContext
 }
 
 func (e *CreateEnricher) EnrichMetadata(rel *model.DependencyRelation) {
@@ -22,7 +22,7 @@ func (e *CreateEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 	}
 
 	// 1. 通用属性
-	rel.Mores[constants.RelAstKind] = ctx.Kind()
+	rel.Mores[constants.RelNodeAstKind] = ctx.Kind()
 	rel.Mores[constants.RelRawText] = ctx.Utf8Text(src)
 
 	// 2. 专用属性提取：变量名 (RelCreateVariableName)
