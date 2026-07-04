@@ -27,30 +27,27 @@ func NewSymbolResolver() *SymbolResolver {
 // =============================================================================
 
 func (jsr *SymbolResolver) getNcResolver(fCtx *core.FileContext) *resolver.NodeContextResolver {
-	contextResolver := jsr.ncResolverMap[fCtx.FilePath]
-	if contextResolver == nil {
-		contextResolver = resolver.NewNodeContextResolver(fCtx)
+	if _, ok := jsr.ncResolverMap[fCtx.FilePath]; !ok {
+		jsr.ncResolverMap[fCtx.FilePath] = resolver.NewNodeContextResolver(fCtx)
 	}
 
-	return contextResolver
+	return jsr.ncResolverMap[fCtx.FilePath]
 }
 
 func (jsr *SymbolResolver) getExpressionSegmenter(fCtx *core.FileContext) *resolver.ExpressionSegmenter {
-	segmenter := jsr.segmenterMap[fCtx.FilePath]
-	if segmenter == nil {
-		segmenter = resolver.NewExpressionSegmenter(fCtx)
+	if _, ok := jsr.segmenterMap[fCtx.FilePath]; !ok {
+		jsr.segmenterMap[fCtx.FilePath] = resolver.NewExpressionSegmenter(fCtx)
 	}
 
-	return segmenter
+	return jsr.segmenterMap[fCtx.FilePath]
 }
 
 func (jsr *SymbolResolver) getChainResolver(gCtx *core.GlobalContext, fCtx *core.FileContext) *resolver.ChainResolver {
-	chainResolver := jsr.chainResolverMap[fCtx.FilePath]
-	if chainResolver == nil {
-		chainResolver = resolver.NewChainResolver(gCtx, fCtx)
+	if _, ok := jsr.chainResolverMap[fCtx.FilePath]; !ok {
+		jsr.chainResolverMap[fCtx.FilePath] = resolver.NewChainResolver(gCtx, fCtx)
 	}
 
-	return chainResolver
+	return jsr.chainResolverMap[fCtx.FilePath]
 }
 
 // =============================================================================
@@ -77,31 +74,28 @@ func (jsr *SymbolResolver) ResolveType(gCtx *core.GlobalContext, fCtx *core.File
 	if len(entries) > 0 {
 		return entries[0].Element
 	}
-	return &model.CodeElement{
-		Name:           symbol,
-		QualifiedName:  symbol,
-		Kind:           kind,
-		IsFormExternal: true,
-	}
+
+	return jsr.createExternalFallback(fCtx, symbol, kind)
 }
 
 func (jsr *SymbolResolver) ResolveAction(gCtx *core.GlobalContext, fCtx *core.FileContext, node *sitter.Node, relType model.DependencyType) *model.CodeElement {
 	if node == nil {
 		return nil
 	}
+	symbol := node.Utf8Text(*fCtx.SourceBytes)
 
 	// 调用统一的流水线总入口 ResolveContext，注入依赖关系获取双轨解析容器
 	ncResolver := jsr.getNcResolver(fCtx)
 	contextResult := ncResolver.ResolveContext(relType, node)
 	if contextResult == nil || contextResult.ExpressNode == nil {
-		return jsr.createExternalFallback(node.Utf8Text(*fCtx.SourceBytes))
+		return jsr.createExternalFallback(fCtx, symbol, model.Class)
 	}
 
 	// 将拉平后的表达链输送给平铺切片处理器
 	segmenter := jsr.getExpressionSegmenter(fCtx)
 	chain := segmenter.Segment(contextResult.ExpressNode)
 	if chain == nil {
-		return jsr.createExternalFallback(node.Utf8Text(*fCtx.SourceBytes))
+		return jsr.createExternalFallback(fCtx, symbol, model.Class)
 	}
 
 	// 解析
@@ -112,18 +106,25 @@ func (jsr *SymbolResolver) ResolveAction(gCtx *core.GlobalContext, fCtx *core.Fi
 		return result
 	}
 
-	return jsr.createExternalFallback(node.Utf8Text(*fCtx.SourceBytes))
+	return jsr.createExternalFallback(fCtx, symbol, model.Class)
 }
 
 // =============================================================================
 // 辅助函数
 // =============================================================================
 
-func (jsr *SymbolResolver) createExternalFallback(symbolName string) *model.CodeElement {
+func (jsr *SymbolResolver) createExternalFallback(fCtx *core.FileContext, symbolName string, defaultKind model.ElementKind) *model.CodeElement {
+	qualifiedName := symbolName
+
+	// 如果当前 fallback 的短名存在于 Imports 映射中，自动升级为全限定名
+	if imps, ok := fCtx.Imports[symbolName]; ok && len(imps) > 0 {
+		qualifiedName = imps[0].RawImportPath
+	}
+
 	return &model.CodeElement{
 		Name:           symbolName,
-		QualifiedName:  symbolName,
-		Kind:           model.Class,
+		QualifiedName:  qualifiedName,
+		Kind:           defaultKind,
 		IsFormExternal: true,
 	}
 }
