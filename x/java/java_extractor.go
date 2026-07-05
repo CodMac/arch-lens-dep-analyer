@@ -172,7 +172,66 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gCtx *core.GlobalC
 	return rels
 }
 
+// discoverActionRelations 完全串行流水线：1. 遍历捕获并建立黑名单清洗 -> 2. 统一分发并生成 Rel
 func (e *Extractor) discoverActionRelations(fCtx *core.FileContext, gCtx *core.GlobalContext) ([]*model.DependencyRelation, error) {
+	// 1. 第一阶段：一次性全遍历，收集洗干净的捕获点集合
+	captures, err := e.getCaptures(fCtx)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. 第二阶段：基于返回的捕获点集合，集中进行处理分发和生成 Rel
+	ncResolver := resolver.NewNodeContextResolver(fCtx)
+	var allRels []*model.DependencyRelation
+	for _, ct := range captures {
+		sourceElem := e.determinePreciseSource(ct.Node, fCtx)
+		if sourceElem == nil {
+			continue
+		}
+
+		actionTargets := e.mapAction(ct.CapName, ct.Node, fCtx, gCtx)
+		for _, at := range actionTargets {
+			if at.RelType == "" || at.Target == nil {
+				continue
+			}
+
+			// Use 关系二次过滤
+			if at.RelType == model.Use && !e.isUseRel(ct.Node, at.Target) {
+				continue
+			}
+
+			ncResult := ncResolver.ResolveContext(at.RelType, ct.Node)
+			allRels = append(allRels, &model.DependencyRelation{
+				Type:     at.RelType,
+				Source:   sourceElem,
+				Target:   at.Target,
+				Location: helper.ExtractLocation(at.TargetNode, fCtx.FilePath),
+				Mores: map[string]interface{}{
+					constants.TmpNode:           at.TargetNode,
+					constants.TmpExpressNode:    ncResult.ExpressNode,
+					constants.TmpCtxNode:        ncResult.ContextNode,
+					constants.RelNodeAstKind:    ct.Node.Kind(),
+					constants.RelExpressAstKind: ncResult.ExpressNode.Kind(),
+					constants.RelContextAstKind: ncResult.ContextNode.Kind(),
+					constants.RelRawText:        ncResult.ContextNode.Utf8Text(*fCtx.SourceBytes),
+				},
+			})
+		}
+	}
+
+	return allRels, nil
+}
+
+// =============================================================================
+// 辅助函数
+// =============================================================================
+
+type CaptureTarget struct {
+	CapName string
+	Node    *sitter.Node
+}
+
+func (e *Extractor) getCaptures(fCtx *core.FileContext) ([]*CaptureTarget, error) {
 	tsLang, _ := core.GetLanguage(core.LangJava)
 	q, err := sitter.NewQuery(tsLang, JavaActionQuery)
 	if err != nil {
@@ -180,21 +239,18 @@ func (e *Extractor) discoverActionRelations(fCtx *core.FileContext, gCtx *core.G
 	}
 	defer q.Close()
 
-	ncResolver := resolver.NewNodeContextResolver(fCtx)
-
-	var rels []*model.DependencyRelation
 	qc := sitter.NewQueryCursor()
 	matches := qc.Matches(q, fCtx.RootNode, *fCtx.SourceBytes)
 
+	captures := make([]*CaptureTarget, 0)
+	useCaps := make([]*CaptureTarget, 0)
+	useFilterList := make(map[uintptr]bool)
+
+	// 全量扫描，遍历匹配项
 	for {
 		match := matches.Next()
 		if match == nil {
 			break
-		}
-		capturedNode := &match.Captures[0].Node
-		sourceElem := e.determinePreciseSource(capturedNode, fCtx, gCtx)
-		if sourceElem == nil {
-			continue
 		}
 
 		for _, cap := range match.Captures {
@@ -203,47 +259,37 @@ func (e *Extractor) discoverActionRelations(fCtx *core.FileContext, gCtx *core.G
 				continue
 			}
 
-			// 1. 调用 mapAction 获取动作定义
-			actionTargets := e.mapAction(capName, &cap.Node, fCtx, gCtx)
-			for _, at := range actionTargets {
-				if at.RelType == "" || at.Target == nil {
-					continue
-				}
+			target := &CaptureTarget{CapName: capName, Node: &cap.Node}
+			if capName == "id_atom" {
+				useCaps = append(useCaps, target)
+			} else {
+				useFilterList[cap.Node.Id()] = true
 
-				nc := ncResolver.ResolveContext(at.RelType, &cap.Node)
-
-				rels = append(rels, &model.DependencyRelation{
-					Type:     at.RelType,
-					Source:   sourceElem,
-					Target:   at.Target, // 使用 mapAction resolve 好的对象
-					Location: helper.ExtractLocation(at.TargetNode, fCtx.FilePath),
-					Mores: map[string]interface{}{
-						constants.TmpNode:           at.TargetNode,
-						constants.TmpExpressNode:    nc.ExpressNode,
-						constants.TmpCtxNode:        nc.ContextNode,
-						constants.RelNodeAstKind:    cap.Node.Kind(),
-						constants.RelExpressAstKind: nc.ExpressNode.Kind(),
-						constants.RelContextAstKind: nc.ContextNode.Kind(),
-						constants.RelRawText:        nc.ContextNode.Utf8Text(*fCtx.SourceBytes),
-					},
-				})
+				captures = append(captures, target)
 			}
 		}
 	}
-	return rels, nil
+
+	// 基于 useFilterList 过滤 useCaps
+	for _, uc := range useCaps {
+		// 第一重清洗：拦截冲突节点
+		if useFilterList[uc.Node.Id()] {
+			continue
+		}
+		// 第二重清洗：拦截非合法的静态读取点噪声（声明、定义等）
+		if !e.isStaticUseNode(uc.Node) {
+			continue
+		}
+
+		captures = append(captures, uc)
+	}
+
+	return captures, nil
 }
 
-// =============================================================================
-// 辅助函数
-// =============================================================================
-
-func (e *Extractor) determinePreciseSource(n *sitter.Node, fCtx *core.FileContext, gCtx *core.GlobalContext) *model.CodeElement {
+func (e *Extractor) determinePreciseSource(n *sitter.Node, fCtx *core.FileContext) *model.CodeElement {
 	for curr := n.Parent(); curr != nil; curr = curr.Parent() {
-
-		// 行号
 		line := int(curr.StartPosition().Row) + 1
-
-		// 类型
 		var k model.ElementKind
 		switch curr.Kind() {
 		case "method_declaration", "constructor_declaration":
@@ -266,7 +312,6 @@ func (e *Extractor) determinePreciseSource(n *sitter.Node, fCtx *core.FileContex
 			continue
 		}
 
-		// 根据行号+类型，确定父容器
 		if defs, ok := fCtx.FindByElementKind(k); ok {
 			for _, entry := range defs {
 				if entry.Element.Kind == k && entry.Element.Location.StartLine == line {
@@ -278,54 +323,79 @@ func (e *Extractor) determinePreciseSource(n *sitter.Node, fCtx *core.FileContex
 	return nil
 }
 
-type ActionTarget struct {
+type actionTarget struct {
 	RelType    model.DependencyType
 	TargetNode *sitter.Node
 	Target     *model.CodeElement
 }
 
-func (e *Extractor) mapAction(capName string, node *sitter.Node, fCtx *core.FileContext, gCtx *core.GlobalContext) []ActionTarget {
+func (e *Extractor) mapAction(capName string, node *sitter.Node, fCtx *core.FileContext, gCtx *core.GlobalContext) []actionTarget {
 	switch capName {
 	case "call_target", "ref_target":
-		return []ActionTarget{
+		return []actionTarget{
 			{model.Call, node, gCtx.Resolver.ResolveAction(gCtx, fCtx, node, model.Call)},
 		}
-
 	case "create_target", "explicit_constructor_stmt":
-		return []ActionTarget{
+		return []actionTarget{
 			{model.Create, node, gCtx.Resolver.ResolveAction(gCtx, fCtx, node, model.Create)},
 			{model.Call, node, gCtx.Resolver.ResolveAction(gCtx, fCtx, node, model.Call)},
 		}
-
 	case "cast_target":
-		return []ActionTarget{
+		return []actionTarget{
 			{model.Cast, node, gCtx.Resolver.ResolveAction(gCtx, fCtx, node, model.Cast)},
 		}
-
 	case "assign_target":
-
-		return []ActionTarget{
+		return []actionTarget{
 			{model.Assign, node, gCtx.Resolver.ResolveAction(gCtx, fCtx, node, model.Assign)},
 		}
-
 	case "id_atom":
-		target := gCtx.Resolver.ResolveAction(gCtx, fCtx, node, model.Use)
-		if !e.isUseRel(node, target) {
-			return nil
+		return []actionTarget{
+			{model.Use, node, gCtx.Resolver.ResolveAction(gCtx, fCtx, node, model.Use)},
 		}
-
-		return []ActionTarget{
-			{model.Use, node, target},
-		}
-
 	case "throw_target":
-		return []ActionTarget{
+		return []actionTarget{
 			{model.Throw, node, gCtx.Resolver.ResolveAction(gCtx, fCtx, node, model.Throw)},
 		}
-
 	default:
 		return nil
 	}
+}
+
+func (e *Extractor) isStaticUseNode(node *sitter.Node) bool {
+	if node == nil {
+		return false
+	}
+	parent := node.Parent()
+	if parent == nil {
+		return false
+	}
+
+	if nameNode := parent.ChildByFieldName("name"); nameNode != nil && nameNode.Id() == node.Id() {
+		return false
+	}
+
+	switch parent.Kind() {
+	case "variable_declarator", "formal_parameter", "catch_formal_parameter",
+		"class_declaration", "interface_declaration", "enum_declaration",
+		"method_declaration", "constructor_declaration", "package_declaration", "import_declaration",
+		"type_parameter", "labeled_statement":
+		return false
+
+	case "assignment_expression":
+		if leftNode := parent.ChildByFieldName("left"); leftNode != nil && leftNode.Id() == node.Id() {
+			return false
+		}
+
+	case "type_identifier":
+		return false
+
+	case "method_invocation", "method_reference":
+		if nameNode := parent.ChildByFieldName("name"); nameNode != nil && nameNode.Id() == node.Id() {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (e *Extractor) isUseRel(node *sitter.Node, target *model.CodeElement) bool {
@@ -361,4 +431,12 @@ func (e *Extractor) extractTypeFromParam(p string) string {
 		return parts[len(parts)-2]
 	}
 	return p
+}
+
+// =============================================================================
+// export函数
+// =============================================================================
+
+func (e *Extractor) GetCaptures(fCtx *core.FileContext) ([]*CaptureTarget, error) {
+	return e.getCaptures(fCtx)
 }

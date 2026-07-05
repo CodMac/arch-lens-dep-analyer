@@ -1,7 +1,6 @@
 package java
 
 // JavaActionQuery 定义了核心动作的 Tree-sitter 查询语句。
-// 约定：每个模式的第一个捕获位（@xxx_stmt）用于确定关系的 Source 和 Context。
 const JavaActionQuery = `
 [
   ; 1. 方法调用 (Call)
@@ -23,12 +22,11 @@ const JavaActionQuery = `
   ; 4. 显式构造函数调用 (super/this)
   (explicit_constructor_invocation) @explicit_constructor_stmt
 
-  ; 5. 字段访问 (Use)
-  ; --普通标识符读取, 后续过滤
+  ; 5. 字段访问与变量读取 (Use) - 全量捞取，交由 Go 逻辑进行黑白名单拦截
   (identifier) @id_atom
+  (this) @id_atom
 
   ; 6. 赋值动作 (统一捕获左值标识符)
-  ; 匹配普通赋值: a = 1, this.a = 1, arr[0] = 1
   (assignment_expression 
     left: [
         (identifier) @assign_target
@@ -61,13 +59,11 @@ const JavaActionQuery = `
   ) @throw_stmt
 
   ; 9. 显式类型转换 (Cast)
-  ; 对应: (String) input, (int) val, (List<String>) obj
   (cast_expression 
     type: (_) @cast_target
   ) @cast_stmt
 
   ; 10. 类型检查与模式匹配 (Instanceof)
-  ; 对应: obj instanceof String, obj instanceof String s
   (instanceof_expression 
     right: (_) @cast_target
   ) @instanceof_stmt
