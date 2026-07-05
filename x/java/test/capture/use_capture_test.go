@@ -16,7 +16,7 @@ type UsePointExpectation struct {
 	TargetText string
 }
 
-func TestNodeContextResolver_UseCasePointsOnly(t *testing.T) {
+func TestCapture_UseCase(t *testing.T) {
 	// 1. 获取打样文件的 AST 树上下文 (非侵入式加载)
 	testFile := test.GetTestFilePath(filepath.Join("capture", "UseCase.java"))
 	gCtx := test.RunPhase1Collection(t, []string{testFile})

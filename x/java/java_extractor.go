@@ -172,7 +172,6 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gCtx *core.GlobalC
 	return rels
 }
 
-// discoverActionRelations 完全串行流水线：1. 遍历捕获并建立黑名单清洗 -> 2. 统一分发并生成 Rel
 func (e *Extractor) discoverActionRelations(fCtx *core.FileContext, gCtx *core.GlobalContext) ([]*model.DependencyRelation, error) {
 	// 1. 第一阶段：一次性全遍历，收集洗干净的捕获点集合
 	captures, err := e.getCaptures(fCtx)
@@ -183,6 +182,7 @@ func (e *Extractor) discoverActionRelations(fCtx *core.FileContext, gCtx *core.G
 	// 2. 第二阶段：基于返回的捕获点集合，集中进行处理分发和生成 Rel
 	ncResolver := resolver.NewNodeContextResolver(fCtx)
 	var allRels []*model.DependencyRelation
+
 	for _, ct := range captures {
 		sourceElem := e.determinePreciseSource(ct.Node, fCtx)
 		if sourceElem == nil {
@@ -195,27 +195,15 @@ func (e *Extractor) discoverActionRelations(fCtx *core.FileContext, gCtx *core.G
 				continue
 			}
 
-			// Use 关系二次过滤
+			// Use 关系二次业务过滤
 			if at.RelType == model.Use && !e.isUseRel(ct.Node, at.Target) {
 				continue
 			}
 
+			// 提取上下文并调用工厂装配
 			ncResult := ncResolver.ResolveContext(at.RelType, ct.Node)
-			allRels = append(allRels, &model.DependencyRelation{
-				Type:     at.RelType,
-				Source:   sourceElem,
-				Target:   at.Target,
-				Location: helper.ExtractLocation(at.TargetNode, fCtx.FilePath),
-				Mores: map[string]interface{}{
-					constants.TmpNode:           at.TargetNode,
-					constants.TmpExpressNode:    ncResult.ExpressNode,
-					constants.TmpCtxNode:        ncResult.ContextNode,
-					constants.RelNodeAstKind:    ct.Node.Kind(),
-					constants.RelExpressAstKind: ncResult.ExpressNode.Kind(),
-					constants.RelContextAstKind: ncResult.ContextNode.Kind(),
-					constants.RelRawText:        ncResult.ContextNode.Utf8Text(*fCtx.SourceBytes),
-				},
-			})
+			rel := e.buildRelation(fCtx, ct, at, ncResult)
+			allRels = append(allRels, rel)
 		}
 	}
 
@@ -259,18 +247,20 @@ func (e *Extractor) getCaptures(fCtx *core.FileContext) ([]*CaptureTarget, error
 				continue
 			}
 
-			target := &CaptureTarget{CapName: capName, Node: &cap.Node}
+			// 通过局部变量重新分配内存，规避指针复用隐患
+			nodeCopy := cap.Node
+			target := &CaptureTarget{CapName: capName, Node: &nodeCopy}
+
 			if capName == "id_atom" {
 				useCaps = append(useCaps, target)
 			} else {
 				useFilterList[cap.Node.Id()] = true
-
 				captures = append(captures, target)
 			}
 		}
 	}
 
-	// 基于 useFilterList 过滤 useCaps
+	// useCaps过滤
 	for _, uc := range useCaps {
 		// 第一重清洗：拦截冲突节点
 		if useFilterList[uc.Node.Id()] {
@@ -375,7 +365,7 @@ func (e *Extractor) isStaticUseNode(node *sitter.Node) bool {
 	}
 
 	switch parent.Kind() {
-	case "variable_declarator", "formal_parameter", "catch_formal_parameter",
+	case "variable_declarator", "formal_parameter",
 		"class_declaration", "interface_declaration", "enum_declaration",
 		"method_declaration", "constructor_declaration", "package_declaration", "import_declaration",
 		"type_parameter", "labeled_statement":
@@ -431,6 +421,25 @@ func (e *Extractor) extractTypeFromParam(p string) string {
 		return parts[len(parts)-2]
 	}
 	return p
+}
+
+func (e *Extractor) buildRelation(fCtx *core.FileContext, ct *CaptureTarget, at actionTarget, ncResult *resolver.Result) *model.DependencyRelation {
+	sourceElem := e.determinePreciseSource(ct.Node, fCtx)
+	return &model.DependencyRelation{
+		Type:     at.RelType,
+		Source:   sourceElem,
+		Target:   at.Target,
+		Location: helper.ExtractLocation(at.TargetNode, fCtx.FilePath),
+		Mores: map[string]interface{}{
+			constants.TmpNode:           at.TargetNode,
+			constants.TmpExpressNode:    ncResult.ExpressNode,
+			constants.TmpCtxNode:        ncResult.ContextNode,
+			constants.RelNodeAstKind:    ct.Node.Kind(),
+			constants.RelExpressAstKind: ncResult.ExpressNode.Kind(),
+			constants.RelContextAstKind: ncResult.ContextNode.Kind(),
+			constants.RelRawText:        ncResult.ContextNode.Utf8Text(*fCtx.SourceBytes),
+		},
+	}
 }
 
 // =============================================================================
