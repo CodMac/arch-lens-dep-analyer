@@ -79,7 +79,7 @@ func TestCapture_UseCase(t *testing.T) {
 		{SceneName: "场景23: Lambda 闭包捕获外层变量 prefix", LineNum: 373, TargetText: "prefix"},
 
 		// ==================== 异常处理使用场景 ====================
-		{SceneName: "场景24: Catch 块内异常变量 e", LineNum: 387, TargetText: "e"},
+		{SceneName: "场景24: Catch 块内异常变量 e", LineNum: 388, TargetText: "e"},
 		{SceneName: "场景25: Throw 参数中字符串变量 errorMessage", LineNum: 401, TargetText: "errorMessage"},
 
 		// ==================== 类型转换使用场景 ====================
