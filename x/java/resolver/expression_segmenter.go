@@ -3,6 +3,8 @@ package resolver
 import (
 	"strings"
 
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
+
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
@@ -55,7 +57,7 @@ func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionC
 		if fieldNode != nil {
 			chain.Segments = append(chain.Segments, ExpressionSegment{
 				Kind:    SegmentField,
-				Name:    fieldNode.Utf8Text(*es.src),
+				Name:    helper.Clean(fieldNode.Utf8Text(*es.src)),
 				ASTNode: node,
 				RawText: node.Utf8Text(*es.src),
 			})
@@ -71,7 +73,7 @@ func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionC
 		if nameNode != nil {
 			chain.Segments = append(chain.Segments, ExpressionSegment{
 				Kind:    SegmentMethod,
-				Name:    nameNode.Utf8Text(*es.src),
+				Name:    helper.Clean(nameNode.Utf8Text(*es.src)),
 				ASTNode: node,
 				RawText: node.Utf8Text(*es.src),
 			})
@@ -104,11 +106,11 @@ func (es *ExpressionSegmenter) buildHead(node *sitter.Node) ExpressionHead {
 	head := ExpressionHead{
 		ASTNode: node,
 		RawText: raw,
-		Name:    raw,
+		Name:    helper.Clean(raw),
 	}
 
 	switch kind {
-	case "identifier":
+	case "identifier", "type_identifier":
 		if raw == "this" {
 			head.Type = HeadThis
 		} else if raw == "super" {

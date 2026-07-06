@@ -83,6 +83,13 @@ func TestJavaExtractor_Cast(t *testing.T) {
 			targetKind: model.Class,
 			astKind:    "cast_expression",
 		},
+		// 6. 多重转型: (Runnable) ...
+		{
+			caseDesc:   "Case 7: QN",
+			targetName: "java.util.List",
+			targetKind: model.Class,
+			astKind:    "cast_expression",
+		},
 	}
 
 	for _, exp := range expectedRels {

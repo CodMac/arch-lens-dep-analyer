@@ -45,6 +45,12 @@ public class CastRelationSuite {
         // Target2: Class(Runnable)
         // Mores: { "java.rel.ast_kind": "cast_expression" }
         ((Runnable)(Object)input).run();
+
+        // 7. 全类名强转
+        // Source: Method(com.example.rel.CastRelationSuite.testCastCases(Object))
+        // Target: Class(java.util.List)
+        // Mores: { "java.rel.ast_kind": "cast_expression", "java.rel.raw_text": "(java.util.List) input" }
+        List ql = (java.util.List) list;
     }
 
     static class SubClass {
