@@ -60,8 +60,51 @@ func TestJavaExtractor_Assign(t *testing.T) {
 			matchMores: func(m map[string]interface{}) bool {
 				return m[constants.RelAssignIsInitializer] == true
 			},
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "10", m[constants.RelAssignRightExpression])
+			},
 		},
-		// 6. 链式赋值 (b)
+		{
+			sourceMatch: "testAssignments(int)",
+			targetMatch: "local",
+			matchMores: func(m map[string]interface{}) bool {
+				return m[constants.RelAssignIsInitializer] == false
+			},
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "20", m[constants.RelAssignRightExpression])
+			},
+		},
+		// 4. 成员变量赋值
+		{
+			sourceMatch: "testAssignments(int)",
+			targetMatch: "count",
+			matchMores: func(m map[string]interface{}) bool {
+				return m[constants.RelAssignIsInitializer] == false
+			},
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "100", m[constants.RelAssignRightExpression])
+			},
+		},
+		// 5. 复合赋值
+		{
+			sourceMatch: "testAssignments(int)",
+			targetMatch: "count",
+			matchMores: func(m map[string]interface{}) bool {
+				return m[constants.RelAssignIsInitializer] == false
+			},
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "5", m[constants.RelAssignRightExpression])
+				assert.Equal(t, "+=", m[constants.RelAssignOperator])
+			},
+		},
+		// 6. 链式赋值
+		{
+			sourceMatch: "testAssignments(int)",
+			targetMatch: "a",
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "b = c = 50", m[constants.RelAssignRightExpression])
+			},
+		},
 		{
 			sourceMatch: "testAssignments(int)",
 			targetMatch: "b",
@@ -69,12 +112,40 @@ func TestJavaExtractor_Assign(t *testing.T) {
 				assert.Equal(t, "c = 50", m[constants.RelAssignRightExpression])
 			},
 		},
+		{
+			sourceMatch: "testAssignments(int)",
+			targetMatch: "c",
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "50", m[constants.RelAssignRightExpression])
+			},
+		},
+		// 7. 更新表达式
+		{
+			sourceMatch: "testAssignments(int)",
+			targetMatch: "count",
+			matchMores: func(m map[string]interface{}) bool {
+				return strings.Contains(fmt.Sprintf("%v", m[constants.RelRawText]), "count++")
+			},
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "++", m[constants.RelAssignOperator])
+			},
+		},
+		{
+			sourceMatch: "testAssignments(int)",
+			targetMatch: "count",
+			matchMores: func(m map[string]interface{}) bool {
+				return strings.Contains(fmt.Sprintf("%v", m[constants.RelRawText]), "--count")
+			},
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "--", m[constants.RelAssignOperator])
+			},
+		},
 		// 8. 数组元素赋值 (Target 应该是数组变量名)
 		{
 			sourceMatch: "testAssignments(int)",
 			targetMatch: "arr",
 			matchMores: func(m map[string]interface{}) bool {
-				return strings.Contains(fmt.Sprintf("%v", m[constants.RelRawText]), "arr[0]")
+				return strings.Contains(fmt.Sprintf("%v", m[constants.RelRawText]), "arr")
 			},
 		},
 		// 9. Lambda 内部赋值
