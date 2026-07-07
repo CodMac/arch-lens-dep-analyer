@@ -1,7 +1,6 @@
 package extractor
 
 import (
-	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -31,129 +30,163 @@ func TestJavaExtractor_Assign(t *testing.T) {
 	expectedRels := []struct {
 		sourceMatch string // 匹配 Source.QualifiedName
 		targetMatch string // 匹配 Target.Name
-		matchMores  func(m map[string]interface{}) bool
+		lineNum     int
 		checkMores  func(t *testing.T, mores map[string]interface{})
 	}{
 		// 1. 字段声明初始化
 		{
-			sourceMatch: "AssignRelationSuite.count",
-			targetMatch: "count",
-			matchMores: func(m map[string]interface{}) bool {
-				return m[constants.RelAssignIsInitializer] == true
-			},
+			sourceMatch: "com.example.rel.AssignRelationSuite.count",
+			targetMatch: "com.example.rel.AssignRelationSuite.count",
+			lineNum:     17,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, "0", m[constants.RelAssignRightExpression])
+				assert.Equal(t, true, m[constants.RelAssignIsInitializer])
 			},
 		},
 		// 2. 静态块赋值
 		{
-			sourceMatch: "$static$1",
-			targetMatch: "status",
+			sourceMatch: "com.example.rel.AssignRelationSuite.$static$1",
+			targetMatch: "com.example.rel.AssignRelationSuite.status",
+			lineNum:     33,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, "\"INIT\"", m[constants.RelAssignRightExpression])
 			},
 		},
 		// 3. 局部变量基础赋值
 		{
-			sourceMatch: "testAssignments(int)",
-			targetMatch: "local",
-			matchMores: func(m map[string]interface{}) bool {
-				return m[constants.RelAssignIsInitializer] == true
-			},
+			sourceMatch: "com.example.rel.AssignRelationSuite.testAssignments(int)",
+			targetMatch: "com.example.rel.AssignRelationSuite.testAssignments(int).local",
+			lineNum:     49,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, "10", m[constants.RelAssignRightExpression])
+				assert.Equal(t, true, m[constants.RelAssignIsInitializer])
 			},
 		},
 		{
-			sourceMatch: "testAssignments(int)",
-			targetMatch: "local",
-			matchMores: func(m map[string]interface{}) bool {
-				return m[constants.RelAssignIsInitializer] == false
-			},
+			sourceMatch: "com.example.rel.AssignRelationSuite.testAssignments(int)",
+			targetMatch: "com.example.rel.AssignRelationSuite.testAssignments(int).local",
+			lineNum:     62,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, "20", m[constants.RelAssignRightExpression])
+				assert.Equal(t, false, m[constants.RelAssignIsInitializer])
 			},
 		},
 		// 4. 成员变量赋值
 		{
-			sourceMatch: "testAssignments(int)",
-			targetMatch: "count",
-			matchMores: func(m map[string]interface{}) bool {
-				return m[constants.RelAssignIsInitializer] == false
-			},
+			sourceMatch: "com.example.rel.AssignRelationSuite.testAssignments(int)",
+			targetMatch: "com.example.rel.AssignRelationSuite.count",
+			lineNum:     75,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, "100", m[constants.RelAssignRightExpression])
+				assert.Equal(t, false, m[constants.RelAssignIsInitializer])
 			},
 		},
 		// 5. 复合赋值
 		{
-			sourceMatch: "testAssignments(int)",
-			targetMatch: "count",
-			matchMores: func(m map[string]interface{}) bool {
-				return m[constants.RelAssignIsInitializer] == false
-			},
+			sourceMatch: "com.example.rel.AssignRelationSuite.testAssignments(int)",
+			targetMatch: "com.example.rel.AssignRelationSuite.count",
+			lineNum:     88,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, "5", m[constants.RelAssignRightExpression])
 				assert.Equal(t, "+=", m[constants.RelAssignOperator])
+				assert.Equal(t, false, m[constants.RelAssignIsInitializer])
 			},
 		},
 		// 6. 链式赋值
 		{
-			sourceMatch: "testAssignments(int)",
-			targetMatch: "a",
+			sourceMatch: "com.example.rel.AssignRelationSuite.testAssignments(int)",
+			targetMatch: "com.example.rel.AssignRelationSuite.testAssignments(int).a",
+			lineNum:     104,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, "b = c = 50", m[constants.RelAssignRightExpression])
 			},
 		},
 		{
-			sourceMatch: "testAssignments(int)",
-			targetMatch: "b",
+			sourceMatch: "com.example.rel.AssignRelationSuite.testAssignments(int)",
+			targetMatch: "com.example.rel.AssignRelationSuite.testAssignments(int).b",
+			lineNum:     104,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, "c = 50", m[constants.RelAssignRightExpression])
 			},
 		},
 		{
-			sourceMatch: "testAssignments(int)",
-			targetMatch: "c",
+			sourceMatch: "com.example.rel.AssignRelationSuite.testAssignments(int)",
+			targetMatch: "com.example.rel.AssignRelationSuite.testAssignments(int).c",
+			lineNum:     104,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, "50", m[constants.RelAssignRightExpression])
 			},
 		},
 		// 7. 更新表达式
 		{
-			sourceMatch: "testAssignments(int)",
-			targetMatch: "count",
-			matchMores: func(m map[string]interface{}) bool {
-				return strings.Contains(fmt.Sprintf("%v", m[constants.RelRawText]), "count++")
-			},
+			sourceMatch: "com.example.rel.AssignRelationSuite.testAssignments(int).",
+			targetMatch: "com.example.rel.AssignRelationSuite.count",
+			lineNum:     116,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, "++", m[constants.RelAssignOperator])
+				assert.Equal(t, "count++", m[constants.RelRawText])
 			},
 		},
 		{
-			sourceMatch: "testAssignments(int)",
-			targetMatch: "count",
-			matchMores: func(m map[string]interface{}) bool {
-				return strings.Contains(fmt.Sprintf("%v", m[constants.RelRawText]), "--count")
-			},
+			sourceMatch: "com.example.rel.AssignRelationSuite.testAssignments(int)",
+			targetMatch: "com.example.rel.AssignRelationSuite.count",
+			lineNum:     117,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, "--", m[constants.RelAssignOperator])
+				assert.Equal(t, "--count", m[constants.RelRawText])
 			},
 		},
 		// 8. 数组元素赋值 (Target 应该是数组变量名)
 		{
-			sourceMatch: "testAssignments(int)",
-			targetMatch: "arr",
-			matchMores: func(m map[string]interface{}) bool {
-				return strings.Contains(fmt.Sprintf("%v", m[constants.RelRawText]), "arr")
+			sourceMatch: "com.example.rel.AssignRelationSuite.testAssignments(int)",
+			targetMatch: "com.example.rel.AssignRelationSuite.testAssignments(int).arr",
+			lineNum:     120,
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "new int[5]", m[constants.RelAssignRightExpression])
+			},
+		},
+		{
+			sourceMatch: "com.example.rel.AssignRelationSuite.testAssignments(int)",
+			targetMatch: "com.example.rel.AssignRelationSuite.testAssignments(int).arr",
+			lineNum:     131,
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "arr[0] = 99", m[constants.RelRawText])
 			},
 		},
 		// 9. Lambda 内部赋值
 		{
-			sourceMatch: "lambda$1",
-			targetMatch: "count",
+			sourceMatch: "com.example.rel.AssignRelationSuite.testAssignments(int).lambda$1",
+			targetMatch: "com.example.rel.AssignRelationSuite.count",
+			lineNum:     145,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, "300", m[constants.RelAssignRightExpression])
+			},
+		},
+		{
+			sourceMatch: "com.example.rel.AssignRelationSuite.testAssignments(int).lambda$1",
+			targetMatch: "com.example.rel.AssignRelationSuite.testAssignments(int).lambda$1.temp",
+			lineNum:     146,
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "1", m[constants.RelAssignRightExpression])
+				assert.Equal(t, true, m[constants.RelAssignIsInitializer])
+			},
+		},
+		{
+			sourceMatch: "com.example.rel.AssignRelationSuite.testAssignments(int).lambda$1",
+			targetMatch: "com.example.rel.AssignRelationSuite.testAssignments(int).lambda$1.temp",
+			lineNum:     147,
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "2", m[constants.RelAssignRightExpression])
+			},
+		},
+		// 10. 构造函数赋值
+		{
+			sourceMatch: "com.example.rel.AssignRelationSuite.AssignRelationSuite(int)",
+			targetMatch: "com.example.rel.AssignRelationSuite.count",
+			lineNum:     163,
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "initialCount", m[constants.RelAssignRightExpression])
+				assert.Equal(t, false, m[constants.RelAssignIsInitializer])
 			},
 		},
 	}
@@ -167,19 +200,18 @@ func TestJavaExtractor_Assign(t *testing.T) {
 				continue
 			}
 
-			// 2. 匹配 Source (支持 QN 后缀匹配)
-			sourceOk := strings.Contains(rel.Source.QualifiedName, exp.sourceMatch)
+			// 2. 匹配 Source
+			sourceOk := rel.Source.QualifiedName == exp.sourceMatch
 
-			// 3. 匹配 Target (支持短名或 QN 匹配)
-			// 关键修复：同时检查 Name 和 QualifiedName
-			targetOk := rel.Target.Name == exp.targetMatch ||
-				strings.HasSuffix(rel.Target.QualifiedName, "."+exp.targetMatch)
+			// 3. 匹配 Target
+			targetOk := rel.Target.QualifiedName == exp.targetMatch
 
-			if sourceOk && targetOk {
-				if exp.matchMores != nil && !exp.matchMores(rel.Mores) {
-					continue
-				}
+			// 4. 行号
+			lineOk := rel.Location.StartLine == exp.lineNum
+
+			if sourceOk && targetOk && lineOk {
 				found = true
+
 				if exp.checkMores != nil {
 					exp.checkMores(t, rel.Mores)
 				}

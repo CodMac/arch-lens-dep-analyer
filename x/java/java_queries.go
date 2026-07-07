@@ -41,6 +41,11 @@ const JavaActionQuery = `
         (field_access field: (identifier) @assign_target)
     ])
 
+  ; 增强 for 循环中的局部迭代变量赋值 (foreach variable)
+  (enhanced_for_statement
+    name: (identifier) @assign_target
+  )
+
   ; 7. 变量声明中的初始化: int a = 10;
   (variable_declarator 
     name: (identifier) @assign_target

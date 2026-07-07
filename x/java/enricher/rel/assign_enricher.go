@@ -20,7 +20,6 @@ func (e *AssignEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 
 	// --- 基础信息补全 ---
 	rel.Mores[constants.RelAssignTargetName] = node.Utf8Text(src)
-	rel.Mores[constants.RelNodeAstKind] = node.Kind()
 
 	// --- 根据context节点类型提取不同的元信息 ---
 	e.extractByContextKind(rel, node, ctx, src)
@@ -67,8 +66,6 @@ func (e *AssignEnricher) extractFromVariableDeclarator(rel *model.DependencyRela
 	} else {
 		rel.Mores[constants.RelAssignRightExpression] = ""
 	}
-
-	rel.Mores[constants.RelRawText] = leftExpr
 }
 
 func (e *AssignEnricher) extractFromAssignmentExpression(rel *model.DependencyRelation, node, ctx *sitter.Node, src []byte) {
@@ -120,8 +117,6 @@ func (e *AssignEnricher) extractFromAssignmentExpression(rel *model.DependencyRe
 			parent = parent.Parent()
 		}
 	}
-
-	rel.Mores[constants.RelRawText] = node.Utf8Text(src)
 }
 
 func (e *AssignEnricher) extractFromUpdateExpression(rel *model.DependencyRelation, node, ctx *sitter.Node, src []byte) {
@@ -142,8 +137,6 @@ func (e *AssignEnricher) extractFromUpdateExpression(rel *model.DependencyRelati
 	}
 
 	rel.Mores[constants.RelAssignRightExpression] = ""
-
-	rel.Mores[constants.RelRawText] = leftExpr
 }
 
 func (e *AssignEnricher) extractFromIdentifierContext(rel *model.DependencyRelation, node, ctx *sitter.Node, src []byte) {
@@ -201,7 +194,6 @@ func (e *AssignEnricher) findAndExtractFromAncestorAssignment(rel *model.Depende
 
 	// 如果没有找到赋值表达式，使用默认处理
 	rel.Mores[constants.RelAssignLeftExpression] = node.Utf8Text(src)
-	rel.Mores[constants.RelRawText] = node.Utf8Text(src)
 	rel.Mores[constants.RelAssignIsInitializer] = false
 	rel.Mores[constants.RelAssignOperator] = "="
 	rel.Mores[constants.RelAssignRightExpression] = "" // 设置空右值
@@ -209,7 +201,6 @@ func (e *AssignEnricher) findAndExtractFromAncestorAssignment(rel *model.Depende
 
 func (e *AssignEnricher) extractGenericAssign(rel *model.DependencyRelation, node, ctx *sitter.Node, src []byte) {
 	rel.Mores[constants.RelAssignLeftExpression] = node.Utf8Text(src)
-	rel.Mores[constants.RelRawText] = node.Utf8Text(src)
 	rel.Mores[constants.RelAssignIsInitializer] = false
 }
 
