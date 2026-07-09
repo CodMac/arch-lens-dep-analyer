@@ -25,6 +25,12 @@ func (es *ExpressionSegmenter) Segment(node *sitter.Node) *ExpressionChain {
 		return nil
 	}
 
+	// 🎯 核心修复点 1：剥离可能包裹在最外层的括号，确保进入解析的节点结构是纯净的
+	node = es.skipParentheses(node)
+	if node == nil {
+		return nil
+	}
+
 	chain := &ExpressionChain{
 		RawText:  strings.TrimSpace(node.Utf8Text(*es.src)),
 		Segments: make([]ExpressionSegment, 0),
@@ -38,15 +44,15 @@ func (es *ExpressionSegmenter) Segment(node *sitter.Node) *ExpressionChain {
 
 // resolveNode 核心递归剥离逻辑
 func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionChain) {
+	if node == nil {
+		return
+	}
+
+	// 🎯 核心修复点 2：在递归步内部也穿透括号，防止中间夹杂的括号影响链条连续性
+	node = es.skipParentheses(node)
 	kind := node.Kind()
 
 	switch kind {
-	case "parenthesized_expression":
-		// 遇到括号表达式 (expr)，脱壳穿透
-		if child := node.NamedChild(0); child != nil {
-			es.resolveNode(child, chain)
-		}
-
 	case "field_access":
 		// 1. 先递归解析左侧的 object 接收者
 		if obj := node.ChildByFieldName("object"); obj != nil {
@@ -110,14 +116,12 @@ func (es *ExpressionSegmenter) buildHead(node *sitter.Node) ExpressionHead {
 	}
 
 	switch kind {
+	case "this":
+		head.Type = HeadThis
+	case "super":
+		head.Type = HeadSuper
 	case "identifier", "type_identifier":
-		if raw == "this" {
-			head.Type = HeadThis
-		} else if raw == "super" {
-			head.Type = HeadSuper
-		} else {
-			head.Type = HeadIdent // 可能是局部变量、类名、包名路径起点
-		}
+		head.Type = HeadIdent // 可能是局部变量、类名、包名路径起点
 	case "object_creation_expression":
 		head.Type = HeadNewExpr
 	case "string_literal", "decimal_integer_literal", "decimal_floating_point_literal", "boolean_literal":
@@ -127,4 +131,17 @@ func (es *ExpressionSegmenter) buildHead(node *sitter.Node) ExpressionHead {
 	}
 
 	return head
+}
+
+// skipParentheses 穿透多层嵌套的括号表达式，直达内部的核心语义节点
+func (es *ExpressionSegmenter) skipParentheses(node *sitter.Node) *sitter.Node {
+	curr := node
+	for curr != nil && curr.Kind() == "parenthesized_expression" {
+		if curr.NamedChildCount() > 0 {
+			curr = curr.NamedChild(0)
+		} else {
+			break
+		}
+	}
+	return curr
 }

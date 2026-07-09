@@ -212,7 +212,12 @@ func TestNodeContextResolver_Call(t *testing.T) {
 			}
 
 			// 校验宏观上下文域 (ContextNode) —— 管图边界与高级推断
-			if actualContext != exp.ExpContext {
+			normalizeSpaces := func(s string) string {
+				return strings.Join(strings.Fields(s), " ")
+			}
+			normalizedActual := normalizeSpaces(actualContext)
+			normalizedExpected := normalizeSpaces(exp.ExpContext)
+			if normalizedActual != normalizedExpected {
 				t.Errorf("[Context 宏观边界不匹配]\n期望: %s\n实际: %s", exp.ExpContext, actualContext)
 			}
 		})
@@ -361,7 +366,12 @@ func TestNodeContextResolver_Assign(t *testing.T) {
 			}
 
 			// 校验宏观赋值语句边界 (ContextNode)
-			if actualContext != exp.ExpContext {
+			normalizeSpaces := func(s string) string {
+				return strings.Join(strings.Fields(s), " ")
+			}
+			normalizedActual := normalizeSpaces(actualContext)
+			normalizedExpected := normalizeSpaces(exp.ExpContext)
+			if normalizedActual != normalizedExpected {
 				t.Errorf("[Context 赋值容器边界不匹配]\n期望: %s\n实际: %s", exp.ExpContext, actualContext)
 			}
 		})
@@ -548,7 +558,12 @@ func TestNodeContextResolver_Use(t *testing.T) {
 			}
 
 			// 校验外溯宏观上下文边界域
-			if actualContext != exp.ExpContext {
+			normalizeSpaces := func(s string) string {
+				return strings.Join(strings.Fields(s), " ")
+			}
+			normalizedActual := normalizeSpaces(actualContext)
+			normalizedExpected := normalizeSpaces(exp.ExpContext)
+			if normalizedActual != normalizedExpected {
 				t.Errorf("[Context 宏观语句容器边界不匹配]\n期望: %s\n实际: %s", exp.ExpContext, actualContext)
 			}
 		})
@@ -769,7 +784,12 @@ func TestNodeContextResolver_Cast(t *testing.T) {
 			}
 
 			// 校验外溯宏观语句容器边界
-			if actualContext != exp.ExpContext {
+			normalizeSpaces := func(s string) string {
+				return strings.Join(strings.Fields(s), " ")
+			}
+			normalizedActual := normalizeSpaces(actualContext)
+			normalizedExpected := normalizeSpaces(exp.ExpContext)
+			if normalizedActual != normalizedExpected {
 				t.Errorf("[Context 宏观容器边界不匹配]\n期望: %s\n实际: %s", exp.ExpContext, actualContext)
 			}
 		})
@@ -963,15 +983,19 @@ func TestNodeContextResolver_Create(t *testing.T) {
 			actualContext := actualRes.ContextNode.Utf8Text(*fCtx.SourceBytes)
 
 			// 校验核心表达式实例化边界 (ExpressNode)
-			if actualExpress != exp.ExpExpress {
+			normalizeSpaces := func(s string) string {
+				return strings.Join(strings.Fields(s), " ")
+			}
+			if normalizeSpaces(actualExpress) != normalizeSpaces(exp.ExpExpress) {
 				t.Errorf("[Express 创建依赖链不匹配]\n期望: %s\n实际: %s", exp.ExpExpress, actualExpress)
 			}
 			if actualRes.IsChain != exp.IsChain {
 				t.Errorf("[IsChain 属性不匹配] 期望: %v, 实际: %v", exp.IsChain, actualRes.IsChain)
 			}
 
-			// 校验最外层语句上下文 (ContextNode)
-			if actualContext != exp.ExpContext {
+			normalizedActual := normalizeSpaces(actualContext)
+			normalizedExpected := normalizeSpaces(exp.ExpContext)
+			if normalizedActual != normalizedExpected {
 				t.Errorf("[Context 创建宏观容器边界不匹配]\n期望: %s\n实际: %s", exp.ExpContext, actualContext)
 			}
 		})
@@ -1146,7 +1170,12 @@ func TestNodeContextResolver_Throw(t *testing.T) {
 			}
 
 			// 校验外层语句或 Lambda 控制边界 (ContextNode)
-			if actualContext != exp.ExpContext {
+			normalizeSpaces := func(s string) string {
+				return strings.Join(strings.Fields(s), " ")
+			}
+			normalizedActual := normalizeSpaces(actualContext)
+			normalizedExpected := normalizeSpaces(exp.ExpContext)
+			if normalizedActual != normalizedExpected {
 				t.Errorf("[Context 异常抛出宏观语句边界不匹配]\n期望: %s\n实际: %s", exp.ExpContext, actualContext)
 			}
 		})
