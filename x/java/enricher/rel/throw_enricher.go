@@ -5,6 +5,7 @@ import (
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
+	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 type ThrowEnricher struct {
@@ -13,7 +14,7 @@ type ThrowEnricher struct {
 }
 
 func (e *ThrowEnricher) EnrichMetadata(rel *model.DependencyRelation) {
-	node, _ := GetRelTmpValue(rel)
+	node, _ := rel.Mores[constants.TmpNode].(*sitter.Node)
 
 	if node != nil {
 		//rel.Mores[constants.RelNodeAstKind] = "throw_statement"

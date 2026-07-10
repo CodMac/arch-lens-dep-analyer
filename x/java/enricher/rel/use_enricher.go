@@ -3,6 +3,8 @@ package rel
 import (
 	"strings"
 
+	sitter "github.com/tree-sitter/go-tree-sitter"
+
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
@@ -15,19 +17,15 @@ type UseEnricher struct {
 }
 
 func (e *UseEnricher) EnrichMetadata(rel *model.DependencyRelation) {
-	node, ctx := GetRelTmpValue(rel)
-	src := *e.fCtx.SourceBytes
-
-	if node == nil || ctx == nil {
+	node, _ := rel.Mores[constants.TmpNode].(*sitter.Node)
+	ctxNode, _ := rel.Mores[constants.TmpCtxNode].(*sitter.Node)
+	if node == nil || ctxNode == nil {
 		return
 	}
 
-	rel.Mores[constants.RelUseTargetName] = node.Utf8Text(src)
-	rel.Mores[constants.RelRawText] = ctx.Utf8Text(src)
-	rel.Mores[constants.RelNodeAstKind] = node.Kind()
+	src := *e.fCtx.SourceBytes
 
-	// 1. 设置 Context 类型 (例如 field_access 或 assignment_expression)
-	rel.Mores[constants.RelContextAstKind] = ctx.Kind()
+	rel.Mores[constants.RelUseTargetName] = node.Utf8Text(src)
 
 	// 2. 提取并填充 Receiver 文本
 	parent := node.Parent()

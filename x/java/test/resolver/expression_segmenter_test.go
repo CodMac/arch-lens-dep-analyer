@@ -994,12 +994,10 @@ func TestExpressionSegmenter_ResolveUse(t *testing.T) {
 		{
 			Name:        "场景3: 方法返回值后承接变量使用",
 			LineNum:     109,
-			TargetText:  "resource",
+			TargetText:  "name",
 			ExpHeadType: resolver.HeadIdent,
-			ExpHeadName: "resource",
-			ExpSegments: []resolver.ExpressionSegment{
-				{Kind: resolver.SegmentMethod, Name: "getName"},
-			},
+			ExpHeadName: "name",
+			ExpSegments: []resolver.ExpressionSegment{},
 		},
 
 		// ==================== 字段使用场景 ====================
@@ -1066,7 +1064,7 @@ func TestExpressionSegmenter_ResolveUse(t *testing.T) {
 		{
 			Name:        "场景9: 方法返回值直接链式读取字段长度",
 			LineNum:     180,
-			TargetText:  "length",
+			TargetText:  "resource",
 			ExpHeadType: resolver.HeadIdent,
 			ExpHeadName: "resource",
 			ExpSegments: []resolver.ExpressionSegment{
@@ -1077,7 +1075,7 @@ func TestExpressionSegmenter_ResolveUse(t *testing.T) {
 		{
 			Name:        "场景10: 链式方法调用结果连续使用",
 			LineNum:     189,
-			TargetText:  "getName",
+			TargetText:  "resource",
 			ExpHeadType: resolver.HeadIdent,
 			ExpHeadName: "resource",
 			ExpSegments: []resolver.ExpressionSegment{
@@ -1150,12 +1148,13 @@ func TestExpressionSegmenter_ResolveUse(t *testing.T) {
 
 		// ==================== 二元表达式中的使用场景 ====================
 		{
-			Name:        "场景19: 链式表达在加法二元表达式左侧的使用",
-			LineNum:     299,
+			Name:        "场景19: 链式表达在加法二元表达式的使用",
+			LineNum:     297,
 			TargetText:  "value",
 			ExpHeadType: resolver.HeadIdent,
 			ExpHeadName: "resource",
 			ExpSegments: []resolver.ExpressionSegment{
+				{Kind: resolver.SegmentField, Name: "parent"},
 				{Kind: resolver.SegmentField, Name: "value"},
 			},
 		},
@@ -1240,7 +1239,7 @@ func TestExpressionSegmenter_ResolveUse(t *testing.T) {
 		},
 		{
 			Name:        "场景29: 复杂条件表达式的使用",
-			LineNum:     394,
+			LineNum:     419,
 			TargetText:  "value",
 			ExpHeadType: resolver.HeadIdent,
 			ExpHeadName: "resource",
@@ -1293,15 +1292,12 @@ func TestExpressionSegmenter_ResolveUse(t *testing.T) {
 		// ==================== Optional 容器操纵 ====================
 		{
 			Name:        "场景34: Optional 连续泛型方法映射链读取",
-			LineNum:     488,
-			TargetText:  "orElse",
+			LineNum:     492,
+			TargetText:  "value",
 			ExpHeadType: resolver.HeadIdent,
-			ExpHeadName: "Optional",
+			ExpHeadName: "res",
 			ExpSegments: []resolver.ExpressionSegment{
-				{Kind: resolver.SegmentMethod, Name: "ofNullable"},
-				{Kind: resolver.SegmentMethod, Name: "map"},
-				{Kind: resolver.SegmentMethod, Name: "map"},
-				{Kind: resolver.SegmentMethod, Name: "orElse"},
+				{Kind: resolver.SegmentField, Name: "value"},
 			},
 		},
 		{

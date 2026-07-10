@@ -14,26 +14,48 @@ type AssignEnricher struct {
 	gCtx *core.GlobalContext
 }
 
+// ============================================================================
+// === 1. 核心生命周期与主入口 ===
+// ============================================================================
+
+// EnrichMetadata 负责对 Java 赋值依赖关系的元数据进行多维度、深层次的补全增强
 func (e *AssignEnricher) EnrichMetadata(rel *model.DependencyRelation) {
-	node, ctx := GetRelTmpValue(rel)
+	node, _ := rel.Mores[constants.TmpNode].(*sitter.Node)
+	ctxNode, _ := rel.Mores[constants.TmpCtxNode].(*sitter.Node)
+	if node == nil || ctxNode == nil {
+		return
+	}
+
 	src := *e.fCtx.SourceBytes
 
-	// --- 基础信息补全 ---
+	// 1. 基础信息补全
 	rel.Mores[constants.RelAssignTargetName] = node.Utf8Text(src)
 
-	// --- 根据context节点类型提取不同的元信息 ---
-	e.extractByContextKind(rel, node, ctx, src)
+	// 2. 根据不同的上下文语法节点(Context Kind)路由至对应分支提取不同的元信息
+	e.extractByContextKind(rel, node, ctxNode, src)
 
-	// --- 提取 Receiver 信息 ---
+	// 3. 补全 Receiver (调用主体) 信息
 	e.extractReceiverInfo(rel, node, src)
 
-	// --- 处理 EnclosingMethod 和 IsCapture ---
+	// 4. 计算 EnclosingMethod 闭包边界以及 IsCapture 状态
 	e.processEnclosingMethod(rel)
 }
 
+// extractByContextKind 识别当前上下文类型并对 AST 树节点做必要的上溯对齐
 func (e *AssignEnricher) extractByContextKind(rel *model.DependencyRelation, node, ctx *sitter.Node, src []byte) {
 	ctxKind := ctx.Kind()
 
+	// 提前防御：如果目标标识符被包裹在 field_access 里，而外层是具体的赋值/自增/声明节点，
+	// 应当优先将上下文指针上溯至最高优先级的表达式节点进行统一处理。
+	if ctxKind == "identifier" || ctxKind == "field_access" {
+		p := ctx.Parent()
+		if p != nil && (p.Kind() == "assignment_expression" || p.Kind() == "update_expression" || p.Kind() == "variable_declarator") {
+			ctx = p
+			ctxKind = p.Kind()
+		}
+	}
+
+	// 路由分发
 	switch ctxKind {
 	case "variable_declarator":
 		e.extractFromVariableDeclarator(rel, node, ctx, src)
@@ -41,169 +63,151 @@ func (e *AssignEnricher) extractByContextKind(rel *model.DependencyRelation, nod
 		e.extractFromAssignmentExpression(rel, node, ctx, src)
 	case "update_expression":
 		e.extractFromUpdateExpression(rel, node, ctx, src)
-	case "identifier":
-		e.extractFromIdentifierContext(rel, node, ctx, src)
 	default:
-		e.extractGenericAssign(rel, node, ctx, src)
+		// 当上下文不在预期节点内时，从当前节点往上探测追溯
+		e.findAndExtractFromAncestorAssignment(rel, node, ctx, src)
 	}
 }
 
+// ============================================================================
+// === 2. 细粒度语法树分支提取器 ===
+// ============================================================================
+
+// extractFromVariableDeclarator 提取变量声明初始化场景: int local = 10;
 func (e *AssignEnricher) extractFromVariableDeclarator(rel *model.DependencyRelation, node, ctx *sitter.Node, src []byte) {
-	rel.Mores[constants.RelAssignIsInitializer] = true
-	rel.Mores[constants.RelAssignOperator] = "="
-
 	leftExpr := node.Utf8Text(src)
-	rel.Mores[constants.RelAssignLeftExpression] = leftExpr
-
 	if nameNode := ctx.ChildByFieldName("name"); nameNode != nil {
-		rel.Mores[constants.RelAssignLeftExpression] = nameNode.Utf8Text(src)
+		leftExpr = nameNode.Utf8Text(src)
 	}
 
-	value := ctx.ChildByFieldName("value")
-	if value != nil {
-		rightExpr := value.Utf8Text(src)
-		rel.Mores[constants.RelAssignRightExpression] = rightExpr
-	} else {
-		rel.Mores[constants.RelAssignRightExpression] = ""
+	rightExpr := ""
+	if valueNode := ctx.ChildByFieldName("value"); valueNode != nil {
+		rightExpr = valueNode.Utf8Text(src)
 	}
+
+	e.fillAssignMores(rel, fillParams{
+		IsInitializer: true,
+		Operator:      "=",
+		LeftExpr:      leftExpr,
+		RightExpr:     rightExpr,
+		RawText:       node.Utf8Text(src),
+	})
 }
 
+// extractFromAssignmentExpression 提取标准赋值表达式场景: a = b = 50; 或者 this.count = 100;
 func (e *AssignEnricher) extractFromAssignmentExpression(rel *model.DependencyRelation, node, ctx *sitter.Node, src []byte) {
-	// 如果ctx不是assignment_expression，说明节点选择器可能有问题
-	// 尝试从node向上找到真正的assignment_expression
-	if ctx.Kind() != "assignment_expression" {
-		parent := ctx
-		for parent != nil {
-			if parent.Kind() == "assignment_expression" {
-				ctx = parent
-				break
-			}
-			parent = parent.Parent()
-		}
+	// 强力向上寻找真正的 assignment_expression 顶层节点
+	for ctx != nil && ctx.Kind() != "assignment_expression" {
+		ctx = ctx.Parent()
 	}
-
-	rel.Mores[constants.RelAssignIsInitializer] = false
-
-	leftNode := ctx.ChildByFieldName("left")
-	if leftNode != nil {
-		rel.Mores[constants.RelAssignLeftExpression] = leftNode.Utf8Text(src)
-	} else {
-		rel.Mores[constants.RelAssignLeftExpression] = node.Utf8Text(src)
-	}
-
-	if op := ctx.ChildByFieldName("operator"); op != nil {
-		rel.Mores[constants.RelAssignOperator] = op.Utf8Text(src)
-	} else {
-		// 默认使用"="操作符
-		rel.Mores[constants.RelAssignOperator] = "="
-	}
-
-	rightNode := ctx.ChildByFieldName("right")
-	if rightNode != nil {
-		rightExpr := rightNode.Utf8Text(src)
-		rel.Mores[constants.RelAssignRightExpression] = rightExpr
-	} else {
-		// 如果找不到right，可能是因为ctx不是真正的assignment_expression
-		// 尝试再次向上查找
-		parent := ctx.Parent()
-		for parent != nil && rightNode == nil {
-			if parent.Kind() == "assignment_expression" {
-				right := parent.ChildByFieldName("right")
-				if right != nil {
-					rel.Mores[constants.RelAssignRightExpression] = right.Utf8Text(src)
-					break
-				}
-			}
-			parent = parent.Parent()
-		}
-	}
-}
-
-func (e *AssignEnricher) extractFromUpdateExpression(rel *model.DependencyRelation, node, ctx *sitter.Node, src []byte) {
-	rel.Mores[constants.RelAssignIsInitializer] = false
-
-	leftExpr := node.Utf8Text(src)
-	rel.Mores[constants.RelAssignLeftExpression] = leftExpr
-
-	rawText := ctx.Utf8Text(src)
-	if strings.HasSuffix(rawText, "++") {
-		rel.Mores[constants.RelAssignOperator] = "++"
-	} else if strings.HasSuffix(rawText, "--") {
-		rel.Mores[constants.RelAssignOperator] = "--"
-	} else if strings.HasPrefix(rawText, "++") {
-		rel.Mores[constants.RelAssignOperator] = "++"
-	} else if strings.HasPrefix(rawText, "--") {
-		rel.Mores[constants.RelAssignOperator] = "--"
-	}
-
-	rel.Mores[constants.RelAssignRightExpression] = ""
-}
-
-func (e *AssignEnricher) extractFromIdentifierContext(rel *model.DependencyRelation, node, ctx *sitter.Node, src []byte) {
-	parent := node.Parent()
-	if parent == nil {
+	if ctx == nil {
+		e.extractGenericAssign(rel, node, ctx, src)
 		return
 	}
 
-	parentKind := parent.Kind()
-
-	switch parentKind {
-	case "assignment_expression":
-		e.extractFromAssignmentExpression(rel, node, parent, src)
-	case "variable_declarator":
-		e.extractFromVariableDeclarator(rel, node, parent, src)
-	case "update_expression":
-		e.extractFromUpdateExpression(rel, node, parent, src)
-	default:
-		e.findAndExtractFromAncestorAssignment(rel, node, parent, src)
+	leftExpr := node.Utf8Text(src)
+	if leftNode := ctx.ChildByFieldName("left"); leftNode != nil {
+		leftExpr = leftNode.Utf8Text(src)
 	}
+
+	operator := "="
+	if opNode := ctx.ChildByFieldName("operator"); opNode != nil {
+		operator = opNode.Utf8Text(src)
+	}
+
+	rightExpr := ""
+	if rightNode := ctx.ChildByFieldName("right"); rightNode != nil {
+		rightExpr = rightNode.Utf8Text(src)
+	}
+
+	e.fillAssignMores(rel, fillParams{
+		IsInitializer: false,
+		Operator:      operator,
+		LeftExpr:      leftExpr,
+		RightExpr:     rightExpr,
+		RawText:       ctx.Utf8Text(src),
+	})
 }
 
+// extractFromUpdateExpression 提取一元自增自减表达式场景: ++count; 或者 count--;
+func (e *AssignEnricher) extractFromUpdateExpression(rel *model.DependencyRelation, node, ctx *sitter.Node, src []byte) {
+	for ctx != nil && ctx.Kind() != "update_expression" {
+		ctx = ctx.Parent()
+	}
+	if ctx == nil {
+		return
+	}
+
+	leftExpr := node.Utf8Text(src)
+	if leftNode := ctx.ChildByFieldName("argument"); leftNode != nil {
+		leftExpr = leftNode.Utf8Text(src)
+	}
+
+	rawText := ctx.Utf8Text(src)
+	operator := ""
+	if strings.Contains(rawText, "++") {
+		operator = "++"
+	} else if strings.Contains(rawText, "--") {
+		operator = "--"
+	}
+
+	e.fillAssignMores(rel, fillParams{
+		IsInitializer: false,
+		Operator:      operator,
+		LeftExpr:      leftExpr,
+		RightExpr:     "",
+		RawText:       rawText,
+	})
+}
+
+// findAndExtractFromAncestorAssignment 动态祖先节点回溯提取器
 func (e *AssignEnricher) findAndExtractFromAncestorAssignment(rel *model.DependencyRelation, node, startNode *sitter.Node, src []byte) {
 	current := startNode
-	maxDepth := 10 // 防止无限循环
+	maxDepth := 10
 
-	// 向上查找assignment_expression节点
 	for current != nil && maxDepth > 0 {
 		kind := current.Kind()
-
-		if kind == "assignment_expression" {
-			// 找到赋值表达式节点，提取元信息
+		switch kind {
+		case "assignment_expression":
 			e.extractFromAssignmentExpression(rel, node, current, src)
 			return
-		}
-
-		if kind == "variable_declarator" {
+		case "variable_declarator":
 			e.extractFromVariableDeclarator(rel, node, current, src)
 			return
-		}
-
-		if kind == "update_expression" {
+		case "update_expression":
 			e.extractFromUpdateExpression(rel, node, current, src)
 			return
-		}
-
-		// 避免无限循环，检查一些不需要继续查找的节点类型
-		if kind == "method_declaration" || kind == "constructor_declaration" || kind == "class_declaration" || kind == "program" {
+		case "method_declaration", "constructor_declaration", "class_declaration", "program":
+			// 触碰到作用域边界，提前终止防止跨阻隔检索
 			break
 		}
-
 		current = current.Parent()
 		maxDepth--
 	}
 
-	// 如果没有找到赋值表达式，使用默认处理
-	rel.Mores[constants.RelAssignLeftExpression] = node.Utf8Text(src)
-	rel.Mores[constants.RelAssignIsInitializer] = false
-	rel.Mores[constants.RelAssignOperator] = "="
-	rel.Mores[constants.RelAssignRightExpression] = "" // 设置空右值
+	// 降级兜底处理
+	e.fillAssignMores(rel, fillParams{
+		IsInitializer: false,
+		Operator:      "=",
+		LeftExpr:      node.Utf8Text(src),
+		RightExpr:     "",
+		RawText:       rel.Mores[constants.RelRawText].(string),
+	})
 }
 
+// extractGenericAssign 极端边界兜底赋值函数
 func (e *AssignEnricher) extractGenericAssign(rel *model.DependencyRelation, node, ctx *sitter.Node, src []byte) {
-	rel.Mores[constants.RelAssignLeftExpression] = node.Utf8Text(src)
+	if node != nil {
+		rel.Mores[constants.RelAssignLeftExpression] = node.Utf8Text(src)
+	}
 	rel.Mores[constants.RelAssignIsInitializer] = false
 }
 
+// ============================================================================
+// === 3. 通用上下文元数据提取与环境推导 ===
+// ============================================================================
+
+// extractReceiverInfo 提取当前赋值变量所绑定的接收者(Receiver)主体
 func (e *AssignEnricher) extractReceiverInfo(rel *model.DependencyRelation, node *sitter.Node, src []byte) {
 	parent := node.Parent()
 	if parent != nil && parent.Kind() == "field_access" {
@@ -215,22 +219,46 @@ func (e *AssignEnricher) extractReceiverInfo(rel *model.DependencyRelation, node
 	}
 }
 
+// processEnclosingMethod 逆向截断推导所属方法区，并甄别是否属于闭包内变量捕获(Capture)
 func (e *AssignEnricher) processEnclosingMethod(rel *model.DependencyRelation) {
-	if rel.Source != nil {
-		qn := rel.Source.QualifiedName
-		stopMarkers := []string{".lambda", ".anonymousClass", "$", ".block"}
-		for _, marker := range stopMarkers {
-			if idx := strings.Index(qn, marker); idx != -1 {
-				rel.Mores[constants.RelAssignEnclosingMethod] = qn[:idx]
-				break
-			}
-		}
+	if rel.Source == nil {
+		return
+	}
 
-		isSubScope := strings.Contains(qn, "lambda$") || strings.Contains(qn, ".anonymousClass")
-		isTargetField := rel.Target != nil && rel.Target.Kind == model.Field
-
-		if isSubScope && isTargetField {
-			rel.Mores[constants.RelAssignIsCapture] = true
+	qn := rel.Source.QualifiedName
+	stopMarkers := []string{".lambda", ".anonymousClass", "$", ".block"}
+	for _, marker := range stopMarkers {
+		if idx := strings.Index(qn, marker); idx != -1 {
+			rel.Mores[constants.RelAssignEnclosingMethod] = qn[:idx]
+			break
 		}
 	}
+
+	isSubScope := strings.Contains(qn, "lambda$") || strings.Contains(qn, ".anonymousClass")
+	isTargetField := rel.Target != nil && rel.Target.Kind == model.Field
+
+	if isSubScope && isTargetField {
+		rel.Mores[constants.RelAssignIsCapture] = true
+	}
+}
+
+// ============================================================================
+// === 4. 辅助重构工具方法 ===
+// ============================================================================
+
+type fillParams struct {
+	IsInitializer bool
+	Operator      string
+	LeftExpr      string
+	RightExpr     string
+	RawText       string
+}
+
+// fillAssignMores 抽象提取出来的公共结构体映射赋值方法
+func (e *AssignEnricher) fillAssignMores(rel *model.DependencyRelation, params fillParams) {
+	rel.Mores[constants.RelAssignIsInitializer] = params.IsInitializer
+	rel.Mores[constants.RelAssignOperator] = params.Operator
+	rel.Mores[constants.RelAssignLeftExpression] = params.LeftExpr
+	rel.Mores[constants.RelAssignRightExpression] = params.RightExpr
+	rel.Mores[constants.RelRawText] = params.RawText
 }

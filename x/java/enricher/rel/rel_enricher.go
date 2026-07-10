@@ -3,8 +3,6 @@ package rel
 import (
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
-	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
-	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 type IEnricher interface {
@@ -41,14 +39,4 @@ func (e *Enricher) EnrichCoreMetadata(rel *model.DependencyRelation) {
 	if enricher, ok := e.enricherMap[rel.Type]; ok {
 		enricher.EnrichMetadata(rel)
 	}
-}
-
-// =============================================================================
-// 包级公开辅助函数
-// =============================================================================
-
-func GetRelTmpValue(rel *model.DependencyRelation) (*sitter.Node, *sitter.Node) {
-	node, _ := rel.Mores[constants.TmpNode].(*sitter.Node)
-	ctxNode, _ := rel.Mores[constants.TmpExpressNode].(*sitter.Node)
-	return node, ctxNode
 }

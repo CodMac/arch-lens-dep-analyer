@@ -6,6 +6,7 @@ import (
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
+	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 type CreateEnricher struct {
@@ -14,37 +15,26 @@ type CreateEnricher struct {
 }
 
 func (e *CreateEnricher) EnrichMetadata(rel *model.DependencyRelation) {
-	_, ctx := GetRelTmpValue(rel)
-	src := *e.fCtx.SourceBytes
-
-	if ctx == nil {
+	node, _ := rel.Mores[constants.TmpNode].(*sitter.Node)
+	ctxNode, _ := rel.Mores[constants.TmpCtxNode].(*sitter.Node)
+	if node == nil || ctxNode == nil {
 		return
 	}
+	src := *e.fCtx.SourceBytes
 
-	// 1. 通用属性
-	rel.Mores[constants.RelNodeAstKind] = ctx.Kind()
-	rel.Mores[constants.RelRawText] = ctx.Utf8Text(src)
-
-	// 2. 专用属性提取：变量名 (RelCreateVariableName)
-	contextNode := ctx
-	if ctx.Kind() == "object_creation_expression" || ctx.Kind() == "array_creation_expression" {
-		if p := ctx.Parent(); p != nil && p.Kind() == "variable_declarator" {
-			contextNode = p
-		}
-	}
-	if contextNode.Kind() == "variable_declarator" {
-		if nameNode := contextNode.ChildByFieldName("name"); nameNode != nil {
+	if ctxNode.Kind() == "variable_declarator" {
+		if nameNode := ctxNode.ChildByFieldName("name"); nameNode != nil {
 			rel.Mores[constants.RelCreateVariableName] = nameNode.Utf8Text(src)
 		}
 	}
 
 	// 3. 专用属性提取：数组 (RelCreateIsArray)
-	if ctx.Kind() == "array_creation_expression" {
+	if ctxNode.Kind() == "array_creation_expression" {
 		rel.Mores[constants.RelCreateIsArray] = true
 	}
 
 	// 4. 特殊处理 super() -> Object 的情况
-	if ctx.Kind() == "explicit_constructor_invocation" && strings.Contains(ctx.Utf8Text(src), "super") {
+	if ctxNode.Kind() == "explicit_constructor_invocation" && strings.Contains(ctxNode.Utf8Text(src), "super") {
 		rel.Target.Name = "Object"
 		rel.Target.QualifiedName = "Object"
 	}

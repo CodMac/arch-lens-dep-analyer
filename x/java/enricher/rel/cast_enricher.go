@@ -4,6 +4,7 @@ import (
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
+	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 type CastEnricher struct {
@@ -12,13 +13,11 @@ type CastEnricher struct {
 }
 
 func (e *CastEnricher) EnrichMetadata(rel *model.DependencyRelation) {
-	_, ctx := GetRelTmpValue(rel)
-	src := *e.fCtx.SourceBytes
-
-	if ctx == nil {
+	node, _ := rel.Mores[constants.TmpNode].(*sitter.Node)
+	ctxNode, _ := rel.Mores[constants.TmpCtxNode].(*sitter.Node)
+	if node == nil || ctxNode == nil {
 		return
 	}
-	rel.Mores[constants.RelNodeAstKind] = ctx.Kind()
-	rel.Mores[constants.RelRawText] = ctx.Utf8Text(src)
-	rel.Mores[constants.RelCastIsInstanceof] = ctx.Kind() == "instanceof_expression"
+
+	rel.Mores[constants.RelCastIsInstanceof] = ctxNode.Kind() == "instanceof_expression"
 }
