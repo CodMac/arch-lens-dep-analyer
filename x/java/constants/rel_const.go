@@ -15,7 +15,6 @@ const (
 	RelCallIsFunctional      = "java.rel.call.is_functional"      // 是否为方法引用 (eg,: this::simpleMethod)
 	RelCallEnclosingMethod   = "java.rel.call.enclosing_method"   // 调用发生的外部方法 QN (常用于 Lambda/内部类溯源)
 	RelAssignReceiver        = "java.rel.assign.receiver"         // 赋值接收者 (如 "this", "super", 或变量名)
-	RelAssignReceiverType    = "java.rel.assign.receiver_type"    // 发起调用的类名 (QN)
 	RelAssignTargetName      = "java.rel.assign.target_name"      // 赋值语句目标 (谁被改变了)
 	RelAssignOperator        = "java.rel.assign.operator"         // 赋值运算符，如 "=", "+=", "++"
 	RelAssignIsInitializer   = "java.rel.assign.is_initializer"   // 是否为声明时的初始化赋值 (如 int i = 0)
