@@ -70,7 +70,7 @@ func TestJavaExtractor_Use(t *testing.T) {
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, "identifier", m[constants.RelNodeAstKind])
 				assert.Equal(t, "method_invocation", m[constants.RelContextAstKind])
-				assert.Equal(t, "CONSTANT", m[constants.RelRawText])
+				assert.Equal(t, "System.out.println(CONSTANT)", m[constants.RelRawText])
 			},
 		},
 		{
@@ -92,7 +92,7 @@ func TestJavaExtractor_Use(t *testing.T) {
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, "identifier", m[constants.RelNodeAstKind])
 				assert.Equal(t, "method_invocation", m[constants.RelContextAstKind])
-				assert.Equal(t, "local", m[constants.RelRawText])
+				assert.Equal(t, "genericMethod(local)", m[constants.RelRawText])
 			},
 		},
 		{
@@ -119,7 +119,7 @@ func TestJavaExtractor_Use(t *testing.T) {
 		{
 			name:        "Case 8: 增强 for 循环体内的迭代项引用 (item)",
 			sourceMatch: "com.example.rel.UseRelationSuite.testUseCases(int)",
-			targetMatch: "com.example.rel.UseRelationSuite.testUseCases(int).item",
+			targetMatch: "com.example.rel.UseRelationSuite.testUseCases(int).block$1.item",
 			lineNum:     65,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
 				assert.Equal(t, "identifier", m[constants.RelNodeAstKind])
@@ -135,7 +135,7 @@ func TestJavaExtractor_Use(t *testing.T) {
 				assert.Equal(t, "identifier", m[constants.RelNodeAstKind])
 				assert.Equal(t, "method_invocation", m[constants.RelContextAstKind])
 				assert.Equal(t, true, m[constants.RelUseIsCapture])
-				assert.Equal(t, "fieldVar", m[constants.RelRawText])
+				assert.Equal(t, "System.out.println(fieldVar)", m[constants.RelRawText])
 			},
 		},
 		{

@@ -18,19 +18,29 @@ type UseEnricher struct {
 
 func (e *UseEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 	node, _ := rel.Mores[constants.TmpNode].(*sitter.Node)
+	exprNode, _ := rel.Mores[constants.TmpExpressNode].(*sitter.Node)
 	ctxNode, _ := rel.Mores[constants.TmpCtxNode].(*sitter.Node)
+
 	if node == nil || ctxNode == nil {
 		return
+	}
+	if exprNode == nil {
+		exprNode = node
 	}
 
 	src := *e.fCtx.SourceBytes
 
+	// 1. 基础依赖目标名称
 	rel.Mores[constants.RelUseTargetName] = node.Utf8Text(src)
 
-	// 2. 提取并填充 Receiver 文本
-	parent := node.Parent()
-	if parent != nil && parent.Kind() == "field_access" {
-		if obj := parent.ChildByFieldName("object"); obj != nil {
+	// 2. 提取并填充 Receiver 文本（只看 field_access 级别的亲属节点，不盲目向上扩大到 method_invocation）
+	// TODO: Remember the previous request to convert Receiver strings to TypeSymbols as a to-do item for java_collector.
+	if p := exprNode.Parent(); p != nil && p.Kind() == "field_access" {
+		if obj := p.ChildByFieldName("object"); obj != nil {
+			rel.Mores[constants.RelUseReceiver] = obj.Utf8Text(src)
+		}
+	} else if node.Parent() != nil && node.Parent().Kind() == "field_access" {
+		if obj := node.Parent().ChildByFieldName("object"); obj != nil {
 			rel.Mores[constants.RelUseReceiver] = obj.Utf8Text(src)
 		}
 	} else if rel.Target != nil && rel.Target.Kind == model.Field {
@@ -39,44 +49,45 @@ func (e *UseEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 	}
 
 	// 3. 填充 ReceiverType
-	// 逻辑：如果 Target 是一个 Field，其 ReceiverType 通常是该 Field 所属类的 QualifiedName
-	if rel.Target != nil && rel.Target.Kind == model.Field {
-		qn := rel.Target.QualifiedName
-		if idx := strings.LastIndex(qn, "."); idx != -1 {
-			// 截取掉最后的字段名，保留类全路径
-			rel.Mores[constants.RelUseReceiverType] = qn[:idx]
-		}
-	}
-
-	// --- 提取接收者类型 QN ---
-	// 这里利用你之前从 Target.Extra 中收集到的 RawType
-	if rel.Target != nil && rel.Target.Extra != nil {
-		keys := []string{constants.FieldRawType, constants.VariableRawType}
-		for _, k := range keys {
-			if rt, ok := rel.Target.Extra.Mores[k].(string); ok {
-				// e.clean 会去掉泛型和修饰符，保留纯粹的类型名
-				rel.Mores[constants.RelUseReceiverType] = helper.Clean(rt)
-				break
+	// 区分 Field（所属类全路径）和 Variable（变量自身的原始类型）
+	if rel.Target != nil {
+		if rel.Target.Kind == model.Field {
+			qn := rel.Target.QualifiedName
+			if idx := strings.LastIndex(qn, "."); idx != -1 {
+				rel.Mores[constants.RelUseReceiverType] = qn[:idx]
+			}
+		} else if rel.Target.Kind == model.Variable && rel.Target.Extra != nil {
+			keys := []string{constants.VariableRawType, constants.FieldRawType}
+			for _, k := range keys {
+				if rt, ok := rel.Target.Extra.Mores[k].(string); ok {
+					rel.Mores[constants.RelUseReceiverType] = helper.Clean(rt)
+					break
+				}
 			}
 		}
 	}
 
-	// 处理 EnclosingMethod 和 IsCapture
+	// 4. 处理 EnclosingMethod 和跨作用域捕获 (IsCapture)
 	if rel.Source != nil {
 		qn := rel.Source.QualifiedName
 
-		// 1. 溯源 EnclosingMethod
+		// 溯源 EnclosingMethod
 		stopMarkers := []string{".lambda", ".anonymousClass", "$", ".block"}
 		for _, marker := range stopMarkers {
+			if idx := strings.Index(qn, "lambda$"); idx != -1 {
+				// 特殊处理 lambda$ 格式
+				rel.Mores[constants.RelUseEnclosingMethod] = qn[:idx] + "lambda"
+				break
+			}
 			if idx := strings.Index(qn, marker); idx != -1 {
 				rel.Mores[constants.RelUseEnclosingMethod] = qn[:idx]
 				break
 			}
 		}
 
-		// 2. 识别跨作用域捕获 (IsCapture)
+		// 识别跨作用域捕获 (IsCapture)
 		isSubScope := strings.Contains(qn, "lambda$") || strings.Contains(qn, ".anonymousClass")
-		if isSubScope {
+		if isSubScope && rel.Target != nil {
 			if rel.Target.Kind == model.Field {
 				rel.Mores[constants.RelUseIsCapture] = true
 			}
