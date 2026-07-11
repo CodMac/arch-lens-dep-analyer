@@ -2,7 +2,6 @@ package extractor
 
 import (
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/CodMac/arch-lens-dep-analyer/model"
@@ -153,204 +152,241 @@ func TestJavaExtractor_Use(t *testing.T) {
 	RunCases(t, expectedRels, allRelations, model.Use)
 }
 
-func TestJavaExtractor_Use_Advanced(t *testing.T) {
-	// 定义测试文件组
-	case1 := test.GetTestFilePath(filepath.Join("extractor", "use", "case1", "ScopeTest.java"))
+func TestJavaExtractor_Use_Case1(t *testing.T) {
+	// 1. 准备与提取
+	testFile := test.GetTestFilePath(filepath.Join("extractor", "use", "case1", "ScopeTest.java"))
+	files := []string{testFile}
+
+	gCtx := test.RunPhase1Collection(t, files)
+	extractor := java.NewJavaExtractor()
+	allRelations, err := extractor.Extract(testFile, gCtx)
+	if err != nil {
+		t.Fatalf("Extraction failed: %v", err)
+	}
+
+	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Use})
+
+	// 2. 定义断言数据集 (引入 rawText 辅助排他性精确定位)
+	expectedRels := []ExpectedCase{
+		{
+			sourceMatch: "com.example.rel.use.case1.ScopeTest.test(String)",
+			targetMatch: "com.example.rel.use.case1.ScopeTest.test(String).block$1.name",
+			lineNum:     10,
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "System.out.println(name)", m[constants.RelRawText])
+			},
+		},
+		{
+			sourceMatch: "com.example.rel.use.case1.ScopeTest.test(String)",
+			targetMatch: "com.example.rel.use.case1.ScopeTest.test(String).name",
+			lineNum:     12,
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "System.out.println(name)", m[constants.RelRawText])
+			},
+		},
+	}
+
+	RunCases(t, expectedRels, allRelations, model.Use)
+}
+
+func TestJavaExtractor_Use_Case2(t *testing.T) {
+	// 1. 准备与提取
 	case2Parent := test.GetTestFilePath(filepath.Join("extractor", "use", "case2", "Parent.java"))
 	case2Child := test.GetTestFilePath(filepath.Join("extractor", "use", "case2", "Child.java"))
+	files := []string{case2Parent, case2Child}
+
+	gCtx := test.RunPhase1Collection(t, files)
+	extractor := java.NewJavaExtractor()
+	allRelations, err := extractor.Extract(case2Child, gCtx)
+	if err != nil {
+		t.Fatalf("Extraction failed: %v", err)
+	}
+
+	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Use})
+
+	// 2. 定义断言数据集 (引入 rawText 辅助排他性精确定位)
+	expectedRels := []ExpectedCase{
+		{
+			sourceMatch: "com.example.rel.use.case2.Child.print()",
+			targetMatch: "com.example.rel.use.case2.Child.count",
+			lineNum:     7,
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "System.out.println(count)", m[constants.RelRawText])
+			},
+		},
+		{
+			sourceMatch: "com.example.rel.use.case2.Child.print()",
+			targetMatch: "com.example.rel.use.case2.Parent.TAG",
+			lineNum:     8,
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "System.out.println(TAG)", m[constants.RelRawText])
+			},
+		},
+	}
+
+	RunCases(t, expectedRels, allRelations, model.Use)
+}
+
+func TestJavaExtractor_Use_Case3(t *testing.T) {
+	// 1. 准备与提取
 	case3Base := test.GetTestFilePath(filepath.Join("extractor", "use", "case3", "Base.java"))
 	case3Sub := test.GetTestFilePath(filepath.Join("extractor", "use", "case3", "Sub.java"))
-	case4 := test.GetTestFilePath(filepath.Join("extractor", "use", "case4", "StaticTest.java"))
-	case5 := test.GetTestFilePath(filepath.Join("extractor", "use", "case5", "ClosureTest.java"))
+	files := []string{case3Base, case3Sub}
+
+	gCtx := test.RunPhase1Collection(t, files)
+	extractor := java.NewJavaExtractor()
+	allRelations, err := extractor.Extract(case3Sub, gCtx)
+	if err != nil {
+		t.Fatalf("Extraction failed: %v", err)
+	}
+
+	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Use})
+
+	// 2. 定义断言数据集 (引入 rawText 辅助排他性精确定位)
+	expectedRels := []ExpectedCase{
+		{
+			sourceMatch: "com.example.rel.use.case3.pk2.Sub.check()",
+			targetMatch: "com.example.rel.use.case3.pk1.Base.protectedVar",
+			lineNum:     7,
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "System.out.println(protectedVar)", m[constants.RelRawText])
+			},
+		},
+		// 应解析失败(跨包不可见)
+		//{
+		//	sourceMatch: "com.example.rel.use.case3.pk2.Sub.check()",
+		//	targetMatch: "com.example.rel.use.case3.pk1.Base.packageVar",
+		//	lineNum:     8,
+		//	checkMores: func(t *testing.T, m map[string]interface{}) {
+		//		assert.Equal(t, "System.out.println(packageVar)", m[constants.RelRawText])
+		//	},
+		//},
+	}
+
+	RunCases(t, expectedRels, allRelations, model.Use)
+}
+
+func TestJavaExtractor_Use_Case4(t *testing.T) {
+	// 1. 准备与提取
+	testFile := test.GetTestFilePath(filepath.Join("extractor", "use", "case4", "StaticTest.java"))
+	files := []string{testFile}
+
+	gCtx := test.RunPhase1Collection(t, files)
+	extractor := java.NewJavaExtractor()
+	allRelations, err := extractor.Extract(testFile, gCtx)
+	if err != nil {
+		t.Fatalf("Extraction failed: %v", err)
+	}
+
+	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Use})
+
+	// 2. 定义断言数据集 (引入 rawText 辅助排他性精确定位)
+	expectedRels := []ExpectedCase{
+		// 应解析成功
+		{
+			sourceMatch: "com.example.rel.use.case4.StaticTest.staticMethod()",
+			targetMatch: "com.example.rel.use.case4.StaticTest.staticVar",
+			lineNum:     8,
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "System.out.println(staticVar)", m[constants.RelRawText])
+			},
+		},
+		// 应解析失败 (静态方法不能引用非静态变量)
+		{
+			sourceMatch: "com.example.rel.use.case4.StaticTest.staticMethod()",
+			targetMatch: "com.example.rel.use.case4.StaticTest.instanceVar",
+			lineNum:     9,
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "System.out.println(instanceVar)", m[constants.RelRawText])
+			},
+		},
+	}
+
+	RunCases(t, expectedRels, allRelations, model.Use)
+}
+
+func TestJavaExtractor_Use_Case5(t *testing.T) {
+	// 1. 准备与提取
+	testFile := test.GetTestFilePath(filepath.Join("extractor", "use", "case5", "ClosureTest.java"))
+	files := []string{testFile}
+
+	gCtx := test.RunPhase1Collection(t, files)
+	extractor := java.NewJavaExtractor()
+	allRelations, err := extractor.Extract(testFile, gCtx)
+	if err != nil {
+		t.Fatalf("Extraction failed: %v", err)
+	}
+
+	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Use})
+
+	// 2. 定义断言数据集 (引入 rawText 辅助排他性精确定位)
+	expectedRels := []ExpectedCase{
+		{
+			sourceMatch: "com.example.rel.use.case5.ClosureTest.run().anonymousClass$1.run()",
+			targetMatch: "com.example.rel.use.case5.ClosureTest.run().anonymousClass$1.context",
+			lineNum:     11,
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "System.out.println(context)", m[constants.RelRawText])
+			},
+		},
+		{
+			sourceMatch: "com.example.rel.use.case5.ClosureTest.run().lambda$1",
+			targetMatch: "com.example.rel.use.case5.ClosureTest.context",
+			lineNum:     17,
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "System.out.println(context)", m[constants.RelRawText])
+			},
+		},
+	}
+
+	RunCases(t, expectedRels, allRelations, model.Use)
+}
+
+func TestJavaExtractor_Use_Case6(t *testing.T) {
+	// 1. 准备与提取
 	case6ReceiverTest := test.GetTestFilePath(filepath.Join("extractor", "use", "case6", "ReceiverTest.java"))
 	case6User := test.GetTestFilePath(filepath.Join("extractor", "use", "case6", "User.java"))
+	files := []string{case6ReceiverTest, case6User}
 
-	// 预运行：收集所有相关文件的定义到全局上下文
-	allFiles := []string{case1, case2Parent, case2Child, case3Base, case3Sub, case4, case5, case6ReceiverTest, case6User}
-	gCtx := test.RunPhase1Collection(t, allFiles)
+	gCtx := test.RunPhase1Collection(t, files)
 	extractor := java.NewJavaExtractor()
+	allRelations, err := extractor.Extract(case6ReceiverTest, gCtx)
+	if err != nil {
+		t.Fatalf("Extraction failed: %v", err)
+	}
 
-	// 验证逻辑
-	testCases := []struct {
-		name       string
-		targetFile string
-		expected   []struct {
-			relType    model.DependencyType
-			sourceQN   string
-			targetQN   string // 这里的 targetQN 期待的是解析后的全限定名
-			targetKind model.ElementKind
-		}
-	}{
+	test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Use, model.Call, model.Assign})
+
+	// 2. 定义断言数据集 (引入 rawText 辅助排他性精确定位)
+	expectedRelsForAssign := []ExpectedCase{
 		{
-			name:       "Case 1: Lexical Scope Shadowing",
-			targetFile: case1,
-			expected: []struct {
-				relType    model.DependencyType
-				sourceQN   string
-				targetQN   string
-				targetKind model.ElementKind
-			}{
-				// [Case 1] if块内的 name 应该解析为块内定义的局部变量
-				{
-					relType:    model.Use,
-					sourceQN:   "com.example.rel.use.case1.ScopeTest.test(String)",
-					targetQN:   "com.example.rel.use.case1.ScopeTest.test(String).block$1.name",
-					targetKind: model.Variable,
-				},
-				// [Case 2] if块外的 name 应该解析为方法的参数
-				{
-					relType:    model.Use,
-					sourceQN:   "com.example.rel.use.case1.ScopeTest.test(String)",
-					targetQN:   "com.example.rel.use.case1.ScopeTest.test(String).name",
-					targetKind: model.Variable,
-				},
-			},
-		},
-		{
-			name:       "Case 2: Inheritance and Shadowing",
-			targetFile: case2Child,
-			expected: []struct {
-				relType    model.DependencyType
-				sourceQN   string
-				targetQN   string
-				targetKind model.ElementKind
-			}{
-				// [Case 3] count 遮蔽：应解析为 Child 自己的字段而非 Parent 的
-				{
-					relType:    model.Use,
-					sourceQN:   "com.example.rel.use.case2.Child.print()",
-					targetQN:   "com.example.rel.use.case2.Child.count",
-					targetKind: model.Field,
-				},
-				// [Case 4] 静态继承：应解析到 Parent.TAG
-				{
-					relType:    model.Use,
-					sourceQN:   "com.example.rel.use.case2.Child.print()",
-					targetQN:   "com.example.rel.use.case2.Parent.TAG",
-					targetKind: model.Field,
-				},
-			},
-		},
-		{
-			name:       "Case 3: Visibility (Protected vs Package)",
-			targetFile: case3Sub,
-			expected: []struct {
-				relType    model.DependencyType
-				sourceQN   string
-				targetQN   string
-				targetKind model.ElementKind
-			}{
-				// [Case 5] Protected 变量在子类可见
-				{
-					relType:    model.Use,
-					sourceQN:   "com.example.rel.use.case3.pk2.Sub.check()",
-					targetQN:   "com.example.rel.use.case3.pk1.Base.protectedVar",
-					targetKind: model.Field,
-				},
-				// [Case 6] Package 变量跨包不可见，resolver 应返回 nil
-			},
-		},
-		{
-			name:       "Case 4: Static Constraint",
-			targetFile: case4,
-			expected: []struct {
-				relType    model.DependencyType
-				sourceQN   string
-				targetQN   string
-				targetKind model.ElementKind
-			}{
-				// [Case 7] 静态方法访问静态变量
-				{
-					relType:    model.Use,
-					sourceQN:   "com.example.rel.use.case4.StaticTest.staticMethod()",
-					targetQN:   "com.example.rel.use.case4.StaticTest.staticVar",
-					targetKind: model.Field,
-				},
-				// [Case 8] 静态方法访问实例变量 (解析器应因 checkVisibility 或 static 校验而拒绝)
-				// 注意：如果 resolver 实现了静态校验，这里 targetQN 不应是全路径
-			},
-		},
-		{
-			name:       "Case 5: Closures (Anonymous Class & Lambda)",
-			targetFile: case5,
-			expected: []struct {
-				relType    model.DependencyType
-				sourceQN   string
-				targetQN   string
-				targetKind model.ElementKind
-			}{
-				// [Case 9] 匿名内部类访问自己的 context
-				{
-					relType:    model.Use,
-					sourceQN:   "com.example.rel.use.case5.ClosureTest.run().anonymousClass$1.run()",
-					targetQN:   "com.example.rel.use.case5.ClosureTest.run().anonymousClass$1.context",
-					targetKind: model.Field,
-				},
-				// [Case 10] Lambda 捕获外部类的 context
-				{
-					relType:    model.Use,
-					sourceQN:   "com.example.rel.use.case5.ClosureTest.run().lambda$1",
-					targetQN:   "com.example.rel.use.case5.ClosureTest.context",
-					targetKind: model.Field,
-				},
-			},
-		},
-		{
-			name:       "Case 6: Chained Receiver Trace",
-			targetFile: case6ReceiverTest,
-			expected: []struct {
-				relType    model.DependencyType
-				sourceQN   string
-				targetQN   string
-				targetKind model.ElementKind
-			}{
-				// 1. 变量使用：user 应该指向方法内的局部变量
-				{
-					relType:    model.Use,
-					sourceQN:   "com.example.rel.use.case6.ReceiverTest.test()",
-					targetQN:   "com.example.rel.use.case6.ReceiverTest.test().user",
-					targetKind: model.Variable,
-				},
-				// 2. 方法调用：getName() 的 Receiver 是 user (User类型)
-				//{
-				//	relType:    model.Call,
-				//	sourceQN:   "com.example.rel.use.case6.ReceiverTest.test()",
-				//	targetQN:   "com.example.rel.use.case6.User.getName()", // 理想目标
-				//	targetKind: model.Method,
-				//},
-				// 3. 链式调用：trim() 的 Receiver 是 getName() 的返回值 (String类型)
-				//{
-				//	relType:    model.Call,
-				//	sourceQN:   "com.example.rel.use.case6.ReceiverTest.test()",
-				//	targetQN:   "String.trim()", // 理想目标
-				//	targetKind: model.Method,
-				//},
+			sourceMatch: "com.example.rel.use.case6.ReceiverTest.test()",
+			targetMatch: "com.example.rel.use.case6.ReceiverTest.test().user",
+			lineNum:     5,
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "new User()", m[constants.RelRawText])
 			},
 		},
 	}
+	RunCases(t, expectedRelsForAssign, allRelations, model.Assign)
 
-	// 执行测试循环
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			allRelations, err := extractor.Extract(tc.targetFile, gCtx)
-			assert.NoError(t, err)
-
-			test.PrintRelationsOnKinds(allRelations, []model.DependencyType{model.Use})
-
-			for _, exp := range tc.expected {
-				found := false
-				for _, rel := range allRelations {
-					// 匹配逻辑：源 QN 包含预期后缀，且目标 QN 完全匹配
-					if rel.Type == exp.relType &&
-						rel.Target.QualifiedName == exp.targetQN &&
-						strings.Contains(rel.Source.QualifiedName, exp.sourceQN) {
-						found = true
-						assert.Equal(t, exp.targetKind, rel.Target.Kind)
-						break
-					}
-				}
-				assert.True(t, found, "Missing Rel: [%s] from %s to %s", exp.relType, exp.sourceQN, exp.targetQN)
-			}
-		})
+	expectedRelsForCall := []ExpectedCase{
+		{
+			sourceMatch: "com.example.rel.use.case6.ReceiverTest.test()",
+			targetMatch: "com.example.rel.use.case6.User.getName()",
+			lineNum:     6,
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "user.getName().trim()", m[constants.RelRawText])
+			},
+		},
+		{
+			sourceMatch: "com.example.rel.use.case6.ReceiverTest.test()",
+			targetMatch: "String.trim()",
+			lineNum:     6,
+			checkMores: func(t *testing.T, m map[string]interface{}) {
+				assert.Equal(t, "user.getName().trim()", m[constants.RelRawText])
+			},
+		},
 	}
+	RunCases(t, expectedRelsForCall, allRelations, model.Call)
 }
