@@ -364,7 +364,7 @@ func TestJavaExtractor_Use_Case6(t *testing.T) {
 			targetMatch: "com.example.rel.use.case6.ReceiverTest.test().user",
 			lineNum:     5,
 			checkMores: func(t *testing.T, m map[string]interface{}) {
-				assert.Equal(t, "new User()", m[constants.RelRawText])
+				assert.Equal(t, "user = new User()", m[constants.RelRawText])
 			},
 		},
 	}

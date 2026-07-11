@@ -89,10 +89,9 @@ func (r *NodeContextResolver) resolveTwoTrackPipeline(actionType model.Dependenc
 func (r *NodeContextResolver) specializeSemanticAction(actionType model.DependencyType, originNode *sitter.Node, res *Result) {
 	switch actionType {
 	case model.Assign:
-		// 赋值写关系：确保核心链条归属于赋值表达式的左值
+		// 赋值与初始化关系：确保核心链条归属于赋值表达式的左值或变量声明的标识符
 		if assignExpr := helper.FindNearestKind(originNode, "assignment_expression"); assignExpr != nil {
 			if leftNode := assignExpr.ChildByFieldName("left"); leftNode != nil {
-				// 🎯 1. 修正表达链条（ExpressNode）
 				if r.isIdentifier(leftNode.Kind()) {
 					res.ExpressNode = leftNode
 				} else if chainedLeft := r.findChainedAssignLeft(originNode); chainedLeft != nil {
@@ -102,10 +101,18 @@ func (r *NodeContextResolver) specializeSemanticAction(actionType model.Dependen
 				}
 				res.ExpressKind = res.ExpressNode.Kind()
 
-				// 🎯 2. 核心修复：显式锚定 ContextNode 为 assignment_expression
-				// 这样在流水线的第三步外溯时，即使找不到更外层的 macro 结构，也能保底留住赋值语句边界
 				res.ContextNode = assignExpr
 				res.ContextKind = "assignment_expression"
+			}
+		} else if varDecl := helper.FindNearestKind(originNode, "variable_declarator"); varDecl != nil {
+			// 🎯 新增：完美支持 User user = new User() 类型的本地声明初始化
+			if nameNode := varDecl.ChildByFieldName("name"); nameNode != nil {
+				res.ExpressNode = nameNode
+				res.ExpressKind = nameNode.Kind()
+
+				// 锚定 Context 为整个声明子单元
+				res.ContextNode = varDecl
+				res.ContextKind = "variable_declarator"
 			}
 		}
 

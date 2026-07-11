@@ -24,63 +24,126 @@ func NewChainResolver(gCtx *core.GlobalContext, fCtx *core.FileContext) *ChainRe
 	}
 }
 
-// ResolveChain 接收精准解构对齐后的 ExpressionChain 指针
+// ResolveChain 核心入口：驱动链式调用的逐层类型流转
 func (cr *ChainResolver) ResolveChain(chain *ExpressionChain) *model.CodeElement {
 	if chain == nil {
 		return nil
 	}
 
-	// 1. 消费 Head 节点，推导基础上下文状态
-	currType, isStaticContext := cr.resolveHead(chain.Head)
+	// 1. 解析 Head 节点（获取当前变量/引用的符号实体，以及解包后的目标类型）
+	headElem, currType, isStaticContext := cr.resolveHeadWithUnwrap(chain.Head)
 	if currType == nil {
+		if headElem != nil {
+			return headElem
+		}
 		return nil
 	}
 
-	fromCtx := helper.GetBestElement(cr.fCtx, chain.Head.ASTNode, []model.ElementKind{model.Method, model.Class, model.ScopeBlock})
+	// 如果没有后续段落（单一代号场景），直接返回
+	if len(chain.Segments) == 0 {
+		if headElem != nil {
+			return headElem
+		}
+		return currType
+	}
 
-	// 2. 向前串联驱动所有的 Segments 后续层级
+	// 获取调用发生的上下文环境（方法、类或作用域块）
+	fromCtx := helper.GetBestElement(cr.fCtx, chain.Head.ASTNode, []model.ElementKind{model.Method, model.Class, model.ScopeBlock})
+	var lastResolvedEntity *model.CodeElement
+
+	// 2. 依次迭代后续的所有 Segments 段落
 	for _, seg := range chain.Segments {
-		if seg.Kind == SegmentMethod {
-			// 解析当前层的实参节点推导
-			argTypes := cr.inferArgs(seg.ASTNode)
-			methodElem := cr.memberResolver.ResolveMethod(currType, seg.Name, argTypes, isStaticContext, fromCtx)
-			if methodElem == nil {
-				return nil
-			}
-			currType = cr.extractElementByReturnType(methodElem)
+		switch seg.Kind {
+		case SegmentMethod:
+			lastResolvedEntity = cr.resolveMethodSegment(seg, currType, isStaticContext, fromCtx)
+			currType = cr.extractElementByReturnType(lastResolvedEntity)
 			isStaticContext = false
-		} else if seg.Kind == SegmentField {
-			fieldElem := cr.memberResolver.ResolveField(currType, seg.Name, isStaticContext, fromCtx)
-			if fieldElem == nil {
-				return nil
-			}
-			currType = cr.extractElementByFieldType(fieldElem)
+
+		case SegmentField:
+			lastResolvedEntity = cr.resolveFieldSegment(seg, currType, isStaticContext, fromCtx)
+			currType = cr.extractElementByFieldType(lastResolvedEntity)
 			isStaticContext = false
-		} else if seg.Kind == SegmentArray {
-			// 数组访问保持当前元素底层类型或降级处理
+
+		case SegmentArray:
 			isStaticContext = false
 		}
 
+		// 如果在中途连当前类型都无法追踪了，直接阻断后续解析
 		if currType == nil {
-			return nil
+			break
 		}
 	}
 
+	// 如果最终产生了明确的方法或字段调用，返回该目标实体
+	if lastResolvedEntity != nil {
+		return lastResolvedEntity
+	}
 	return currType
 }
 
-func (cr *ChainResolver) resolveHead(head ExpressionHead) (*model.CodeElement, bool) {
+// ==================== 针对各种 Segment 的定向解析函数 ====================
+
+func (cr *ChainResolver) resolveMethodSegment(seg ExpressionSegment, currType *model.CodeElement, isStatic bool, fromCtx *model.CodeElement) *model.CodeElement {
+	// 防御性安全适配：获取合法的 method_invocation 节点用以推导参数
+	methodCallNode := cr.safeGetMethodInvocationNode(seg.ASTNode)
+	argTypes := cr.inferArgs(methodCallNode)
+
+	methodElem := cr.memberResolver.ResolveMethod(currType, seg.Name, argTypes, isStatic, fromCtx)
+
+	// Fallback 保底机制：如果项目源码中查无此法（如 JDK 的 String.trim），构建外部虚拟节点
+	if methodElem == nil {
+		fallbackQN := currType.QualifiedName + "." + seg.Name + "()"
+		methodElem = &model.CodeElement{
+			QualifiedName:  fallbackQN,
+			Name:           seg.Name + "()",
+			Kind:           model.Method,
+			IsFormExternal: true,
+			Extra: &model.Extra{
+				Mores: map[string]interface{}{
+					"parent_qn": currType.QualifiedName,
+				},
+			},
+		}
+	}
+	return methodElem
+}
+
+func (cr *ChainResolver) resolveFieldSegment(seg ExpressionSegment, currType *model.CodeElement, isStatic bool, fromCtx *model.CodeElement) *model.CodeElement {
+	fieldElem := cr.memberResolver.ResolveField(currType, seg.Name, isStatic, fromCtx)
+
+	// Field 虚拟保底
+	if fieldElem == nil {
+		fallbackQN := currType.QualifiedName + "." + seg.Name
+		fieldElem = &model.CodeElement{
+			QualifiedName:  fallbackQN,
+			Name:           seg.Name,
+			Kind:           model.Field,
+			IsFormExternal: true,
+			Extra: &model.Extra{
+				Mores: map[string]interface{}{
+					"parent_qn": currType.QualifiedName,
+				},
+			},
+		}
+	}
+	return fieldElem
+}
+
+// ==================== 基础符号与上下文解包 (Head) ====================
+
+func (cr *ChainResolver) resolveHeadWithUnwrap(head ExpressionHead) (*model.CodeElement, *model.CodeElement, bool) {
 	switch head.Type {
 	case HeadNewExpr:
 		typeName := helper.Clean(head.Name)
 		entries := helper.PreciseResolve(cr.gCtx, cr.fCtx, typeName)
 		if len(entries) > 0 {
-			return entries[0].Element, false
+			return entries[0].Element, entries[0].Element, false
 		}
-		return nil, false
+		return nil, nil, false
 
 	case HeadThis:
-		return helper.GetBestElement(cr.fCtx, head.ASTNode, []model.ElementKind{model.Class, model.AnonymousClass}), false
+		elem := helper.GetBestElement(cr.fCtx, head.ASTNode, []model.ElementKind{model.Class, model.AnonymousClass})
+		return elem, elem, false
 
 	case HeadSuper:
 		container := helper.GetBestElement(cr.fCtx, head.ASTNode, []model.ElementKind{model.Class, model.AnonymousClass})
@@ -88,25 +151,32 @@ func (cr *ChainResolver) resolveHead(head ExpressionHead) (*model.CodeElement, b
 			if sc, ok := container.Extra.Mores[constants.ClassSuperClass].(string); ok && sc != "" {
 				entries := helper.PreciseResolve(cr.gCtx, cr.fCtx, helper.Clean(sc))
 				if len(entries) > 0 {
-					return entries[0].Element, false
+					return entries[0].Element, entries[0].Element, false
 				}
 			}
 		}
-		return nil, false
+		return nil, nil, false
 
 	case HeadLiteral:
-		// 字面量不具备向后点号引用的实际结构体或返回空
-		return nil, false
+		return nil, nil, false
 
 	case HeadIdent:
-		// 本地变量或形参作用域浮动检索
+		// 1. 局部变量/方法参数查找
 		container := helper.GetBestElement(cr.fCtx, head.ASTNode, []model.ElementKind{model.Method, model.Class, model.ScopeBlock})
 		if container != nil {
+			if container.Kind == model.Method {
+				localVariableQN := container.QualifiedName + "." + head.Name
+				if entry, ok := cr.gCtx.FindByQualifiedName(localVariableQN); ok {
+					return entry.Element, cr.extractElementByFieldType(entry.Element), false
+				}
+			}
+
+			// 作用域链向上爬升
 			curr := container.QualifiedName
 			for curr != "" {
 				targetQN := curr + "." + head.Name
 				if entry, ok := cr.gCtx.FindByQualifiedName(targetQN); ok {
-					return cr.extractElementByFieldType(entry.Element), false
+					return entry.Element, cr.extractElementByFieldType(entry.Element), false
 				}
 				if pEntry, ok := cr.gCtx.FindByQualifiedName(curr); ok {
 					curr = pEntry.ParentQN
@@ -116,23 +186,46 @@ func (cr *ChainResolver) resolveHead(head ExpressionHead) (*model.CodeElement, b
 			}
 		}
 
-		// 静态类上下文访问查找
+		// 2. 当前类及父类中的成员字段/方法隐式调用查找
+		if currentClass := helper.GetBestElement(cr.fCtx, head.ASTNode, []model.ElementKind{model.Class, model.AnonymousClass}); currentClass != nil {
+			if fieldElem := cr.memberResolver.ResolveField(currentClass, head.Name, false, container); fieldElem != nil {
+				return fieldElem, cr.extractElementByFieldType(fieldElem), false
+			}
+			if methodElem := cr.memberResolver.ResolveMethod(currentClass, head.Name, []string{}, false, container); methodElem != nil {
+				return methodElem, cr.extractElementByReturnType(methodElem), false
+			}
+		}
+
+		// 3. 静态类/接口/枚举类型直接访问查找
 		entries := helper.PreciseResolve(cr.gCtx, cr.fCtx, head.Name)
 		if len(entries) > 0 {
 			k := entries[0].Element.Kind
 			if k == model.Class || k == model.Interface || k == model.Enum {
-				return entries[0].Element, true
+				return entries[0].Element, entries[0].Element, true
 			}
-			return entries[0].Element, false
+			return entries[0].Element, entries[0].Element, false
 		}
 	}
+	return nil, nil, false
+}
 
-	return nil, false
+// ==================== AST 辅助及参数推导工具 ====================
+
+func (cr *ChainResolver) safeGetMethodInvocationNode(node *sitter.Node) *sitter.Node {
+	if node == nil {
+		return nil
+	}
+	if node.Kind() == "identifier" {
+		if parent := node.Parent(); parent != nil && parent.Kind() == "method_invocation" {
+			return parent
+		}
+	}
+	return node
 }
 
 func (cr *ChainResolver) inferArgs(methodInvocationNode *sitter.Node) []string {
 	var types []string
-	if methodInvocationNode == nil {
+	if methodInvocationNode == nil || methodInvocationNode.Kind() != "method_invocation" {
 		return types
 	}
 
@@ -147,8 +240,7 @@ func (cr *ChainResolver) inferArgs(methodInvocationNode *sitter.Node) []string {
 		if arg == nil {
 			continue
 		}
-		kind := arg.Kind()
-		switch kind {
+		switch arg.Kind() {
 		case "string_literal":
 			types = append(types, "java.lang.String")
 		case "decimal_integer_literal", "hex_integer_literal":
@@ -182,11 +274,15 @@ func (cr *ChainResolver) extractElementByFieldType(element *model.CodeElement) *
 	} else if raw, ok := element.Extra.Mores[constants.VariableRawType].(string); ok {
 		typeQN = raw
 	}
+
 	if typeQN != "" {
 		entries := helper.PreciseResolve(cr.gCtx, cr.fCtx, typeQN)
 		if len(entries) > 0 {
 			return entries[0].Element
 		}
+
+		// 🎯 核心兜底：如果是外部依赖类/JDK 类（源码中查无此项），就地构建虚拟 Class 节点保证链条延续
+		return cr.createExternalClassFallback(typeQN)
 	}
 	return element
 }
@@ -201,11 +297,40 @@ func (cr *ChainResolver) extractElementByReturnType(methodElement *model.CodeEle
 	} else if raw, ok := methodElement.Extra.Mores[constants.MethodReturnType].(string); ok {
 		returnQN = raw
 	}
+
 	if returnQN != "" {
+		if returnQN == "void" {
+			return nil
+		}
+
 		entries := helper.PreciseResolve(cr.gCtx, cr.fCtx, returnQN)
 		if len(entries) > 0 {
 			return entries[0].Element
 		}
+
+		// 🎯 核心兜底：针对外部返回类型（如 String 等）做虚拟 Class 节点保底
+		return cr.createExternalClassFallback(returnQN)
 	}
 	return nil
+}
+
+// 辅助函数：统一收拢外部依赖/JDK 类的虚拟 Class 节点构造逻辑
+func (cr *ChainResolver) createExternalClassFallback(qualifiedName string) *model.CodeElement {
+	shortName := qualifiedName
+	for i := len(qualifiedName) - 1; i >= 0; i-- {
+		if qualifiedName[i] == '.' {
+			shortName = qualifiedName[i+1:]
+			break
+		}
+	}
+
+	return &model.CodeElement{
+		QualifiedName:  qualifiedName,
+		Name:           shortName,
+		Kind:           model.Class,
+		IsFormExternal: true,
+		Extra: &model.Extra{
+			Mores: make(map[string]interface{}),
+		},
+	}
 }
