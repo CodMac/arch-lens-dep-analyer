@@ -65,6 +65,12 @@ func (cr *ChainResolver) ResolveChain(chain *ExpressionChain) *model.CodeElement
 			isStaticContext = false
 
 		case SegmentArray:
+			// 数组索引操作（如 arr[0]）是对根节点符号/上一层实体的直接操作。
+			// 如果在此之前没有产生过字段或方法偏移（lastResolvedEntity == nil），
+			// 说明当前依然在操作 Head 变量本身，将其锁定为上一次的符号实体，防止其降级为基础类型 Class。
+			if lastResolvedEntity == nil && headElem != nil {
+				lastResolvedEntity = headElem
+			}
 			isStaticContext = false
 		}
 
@@ -74,7 +80,7 @@ func (cr *ChainResolver) ResolveChain(chain *ExpressionChain) *model.CodeElement
 		}
 	}
 
-	// 如果最终产生了明确的方法或字段调用，返回该目标实体
+	// 如果最终产生了明确的方法、字段或数组操作实体，返回该目标实体
 	if lastResolvedEntity != nil {
 		return lastResolvedEntity
 	}
