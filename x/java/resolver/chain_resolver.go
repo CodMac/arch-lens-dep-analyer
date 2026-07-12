@@ -24,13 +24,13 @@ func NewChainResolver(gCtx *core.GlobalContext, fCtx *core.FileContext) *ChainRe
 	}
 }
 
-// ResolveChain 核心入口：驱动链式调用的逐层类型流转
+// ResolveChain 核心入口：专注于链式调用/单调用中 Target 符号的逐层流转与精准对齐
 func (cr *ChainResolver) ResolveChain(chain *ExpressionChain) *model.CodeElement {
 	if chain == nil {
 		return nil
 	}
 
-	// 1. 解析 Head 节点（获取当前变量/引用的符号实体，以及解包后的目标类型）
+	// 1. 解析 Head 节点：获取当前起点变量的符号实体（headElem）以及它解包后的类型（currType）
 	headElem, currType, isStaticContext := cr.resolveHeadWithUnwrap(chain.Head)
 	if currType == nil {
 		if headElem != nil {
@@ -39,7 +39,7 @@ func (cr *ChainResolver) ResolveChain(chain *ExpressionChain) *model.CodeElement
 		return nil
 	}
 
-	// 如果没有后续段落（单一代号场景），直接返回
+	// 如果没有后续段落（例如纯粹的单代号隐式调用方法或局部变量），直接返回 Head 识别出的目标
 	if len(chain.Segments) == 0 {
 		if headElem != nil {
 			return headElem
@@ -47,11 +47,11 @@ func (cr *ChainResolver) ResolveChain(chain *ExpressionChain) *model.CodeElement
 		return currType
 	}
 
-	// 获取调用发生的上下文环境（方法、类或作用域块）
+	// 获取调用发生的上下文环境（从哪个方法或类发起的调用）
 	fromCtx := helper.GetBestElement(cr.fCtx, chain.Head.ASTNode, []model.ElementKind{model.Method, model.Class, model.ScopeBlock})
 	var lastResolvedEntity *model.CodeElement
 
-	// 2. 依次迭代后续的所有 Segments 段落
+	// 2. 依次迭代后续的所有 Segments 段落，确保类型链条对齐不坍塌
 	for _, seg := range chain.Segments {
 		switch seg.Kind {
 		case SegmentMethod:
@@ -65,22 +65,17 @@ func (cr *ChainResolver) ResolveChain(chain *ExpressionChain) *model.CodeElement
 			isStaticContext = false
 
 		case SegmentArray:
-			// 数组索引操作（如 arr[0]）是对根节点符号/上一层实体的直接操作。
-			// 如果在此之前没有产生过字段或方法偏移（lastResolvedEntity == nil），
-			// 说明当前依然在操作 Head 变量本身，将其锁定为上一次的符号实体，防止其降级为基础类型 Class。
 			if lastResolvedEntity == nil && headElem != nil {
 				lastResolvedEntity = headElem
 			}
 			isStaticContext = false
 		}
 
-		// 如果在中途连当前类型都无法追踪了，直接阻断后续解析
 		if currType == nil {
 			break
 		}
 	}
 
-	// 如果最终产生了明确的方法、字段或数组操作实体，返回该目标实体
 	if lastResolvedEntity != nil {
 		return lastResolvedEntity
 	}
@@ -90,13 +85,12 @@ func (cr *ChainResolver) ResolveChain(chain *ExpressionChain) *model.CodeElement
 // ==================== 针对各种 Segment 的定向解析函数 ====================
 
 func (cr *ChainResolver) resolveMethodSegment(seg ExpressionSegment, currType *model.CodeElement, isStatic bool, fromCtx *model.CodeElement) *model.CodeElement {
-	// 防御性安全适配：获取合法的 method_invocation 节点用以推导参数
 	methodCallNode := cr.safeGetMethodInvocationNode(seg.ASTNode)
 	argTypes := cr.inferArgs(methodCallNode)
 
 	methodElem := cr.memberResolver.ResolveMethod(currType, seg.Name, argTypes, isStatic, fromCtx)
 
-	// Fallback 保底机制：如果项目源码中查无此法（如 JDK 的 String.trim），构建外部虚拟节点
+	// 保底机制：如果项目源码中查无此法（如外部依赖），就地构建合法的外部 METHOD 节点而非降级
 	if methodElem == nil {
 		fallbackQN := currType.QualifiedName + "." + seg.Name + "()"
 		methodElem = &model.CodeElement{
@@ -104,11 +98,6 @@ func (cr *ChainResolver) resolveMethodSegment(seg ExpressionSegment, currType *m
 			Name:           seg.Name + "()",
 			Kind:           model.Method,
 			IsFormExternal: true,
-			Extra: &model.Extra{
-				Mores: map[string]interface{}{
-					"parent_qn": currType.QualifiedName,
-				},
-			},
 		}
 	}
 	return methodElem
@@ -117,7 +106,6 @@ func (cr *ChainResolver) resolveMethodSegment(seg ExpressionSegment, currType *m
 func (cr *ChainResolver) resolveFieldSegment(seg ExpressionSegment, currType *model.CodeElement, isStatic bool, fromCtx *model.CodeElement) *model.CodeElement {
 	fieldElem := cr.memberResolver.ResolveField(currType, seg.Name, isStatic, fromCtx)
 
-	// Field 虚拟保底
 	if fieldElem == nil {
 		fallbackQN := currType.QualifiedName + "." + seg.Name
 		fieldElem = &model.CodeElement{
@@ -125,11 +113,6 @@ func (cr *ChainResolver) resolveFieldSegment(seg ExpressionSegment, currType *mo
 			Name:           seg.Name,
 			Kind:           model.Field,
 			IsFormExternal: true,
-			Extra: &model.Extra{
-				Mores: map[string]interface{}{
-					"parent_qn": currType.QualifiedName,
-				},
-			},
 		}
 	}
 	return fieldElem
@@ -166,9 +149,37 @@ func (cr *ChainResolver) resolveHeadWithUnwrap(head ExpressionHead) (*model.Code
 	case HeadLiteral:
 		return nil, nil, false
 
-	case HeadIdent:
-		// 1. 局部变量/方法参数查找
+	case HeadImplicitMethod:
+		// 🎯 100% 确定是当前类或父类的隐式方法调用
+		currentClass := helper.GetBestElement(cr.fCtx, head.ASTNode, []model.ElementKind{model.Class, model.AnonymousClass})
 		container := helper.GetBestElement(cr.fCtx, head.ASTNode, []model.ElementKind{model.Method, model.Class, model.ScopeBlock})
+
+		if currentClass != nil {
+			// 推导参数类型
+			argTypes := cr.inferArgs(head.ASTNode)
+			if methodElem := cr.memberResolver.ResolveMethod(currentClass, head.Name, argTypes, false, container); methodElem != nil {
+				return methodElem, cr.extractElementByReturnType(methodElem), false
+			}
+		}
+
+		// 保底：如果是外部或未识别的隐式方法，不降级为类，直接构建方法虚拟节点
+		fallbackQN := ""
+		if currentClass != nil {
+			fallbackQN = currentClass.QualifiedName + "." + head.Name + "()"
+		} else {
+			fallbackQN = head.Name + "()"
+		}
+		return &model.CodeElement{
+			QualifiedName:  fallbackQN,
+			Name:           head.Name + "()",
+			Kind:           model.Method,
+			IsFormExternal: true,
+		}, nil, false
+
+	case HeadIdent:
+		container := helper.GetBestElement(cr.fCtx, head.ASTNode, []model.ElementKind{model.Method, model.Class, model.ScopeBlock})
+
+		// 1. 局部变量/方法参数查找
 		if container != nil {
 			if container.Kind == model.Method {
 				localVariableQN := container.QualifiedName + "." + head.Name
@@ -176,7 +187,6 @@ func (cr *ChainResolver) resolveHeadWithUnwrap(head ExpressionHead) (*model.Code
 					return entry.Element, cr.extractElementByFieldType(entry.Element), false
 				}
 			}
-
 			// 作用域链向上爬升
 			curr := container.QualifiedName
 			for curr != "" {
@@ -192,17 +202,14 @@ func (cr *ChainResolver) resolveHeadWithUnwrap(head ExpressionHead) (*model.Code
 			}
 		}
 
-		// 2. 当前类及父类中的成员字段/方法隐式调用查找
+		// 2. 隐式字段查找 (此时排除了方法的干扰)
 		if currentClass := helper.GetBestElement(cr.fCtx, head.ASTNode, []model.ElementKind{model.Class, model.AnonymousClass}); currentClass != nil {
 			if fieldElem := cr.memberResolver.ResolveField(currentClass, head.Name, false, container); fieldElem != nil {
 				return fieldElem, cr.extractElementByFieldType(fieldElem), false
 			}
-			if methodElem := cr.memberResolver.ResolveMethod(currentClass, head.Name, []string{}, false, container); methodElem != nil {
-				return methodElem, cr.extractElementByReturnType(methodElem), false
-			}
 		}
 
-		// 3. 静态类/接口/枚举类型直接访问查找
+		// 3. 静态类/接口/枚举类型路径起点
 		entries := helper.PreciseResolve(cr.gCtx, cr.fCtx, head.Name)
 		if len(entries) > 0 {
 			k := entries[0].Element.Kind
@@ -286,8 +293,6 @@ func (cr *ChainResolver) extractElementByFieldType(element *model.CodeElement) *
 		if len(entries) > 0 {
 			return entries[0].Element
 		}
-
-		// 🎯 核心兜底：如果是外部依赖类/JDK 类（源码中查无此项），就地构建虚拟 Class 节点保证链条延续
 		return cr.createExternalClassFallback(typeQN)
 	}
 	return element
@@ -313,14 +318,11 @@ func (cr *ChainResolver) extractElementByReturnType(methodElement *model.CodeEle
 		if len(entries) > 0 {
 			return entries[0].Element
 		}
-
-		// 🎯 核心兜底：针对外部返回类型（如 String 等）做虚拟 Class 节点保底
 		return cr.createExternalClassFallback(returnQN)
 	}
 	return nil
 }
 
-// 辅助函数：统一收拢外部依赖/JDK 类的虚拟 Class 节点构造逻辑
 func (cr *ChainResolver) createExternalClassFallback(qualifiedName string) *model.CodeElement {
 	shortName := qualifiedName
 	for i := len(qualifiedName) - 1; i >= 0; i-- {

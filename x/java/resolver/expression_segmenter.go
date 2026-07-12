@@ -48,17 +48,14 @@ func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionC
 		return
 	}
 
-	// 🎯 核心修复点 2：在递归步内部也穿透括号，防止中间夹杂的括号影响链条连续性
 	node = es.skipParentheses(node)
 	kind := node.Kind()
 
 	switch kind {
 	case "field_access":
-		// 1. 先递归解析左侧的 object 接收者
 		if obj := node.ChildByFieldName("object"); obj != nil {
 			es.resolveNode(obj, chain)
 		}
-		// 2. 将当前字段访问追加到右侧
 		fieldNode := node.ChildByFieldName("field")
 		if fieldNode != nil {
 			chain.Segments = append(chain.Segments, ExpressionSegment{
@@ -70,27 +67,30 @@ func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionC
 		}
 
 	case "method_invocation":
-		// 1. 递归解析隐式或显式的接收者 object
-		if obj := node.ChildByFieldName("object"); obj != nil {
+		obj := node.ChildByFieldName("object")
+		if obj != nil {
+			// 1. 有 object：说明是显式链式调用（如 obj.method()），正常向前递归
 			es.resolveNode(obj, chain)
-		}
-		// 2. 追加当前的方法调用段
-		nameNode := node.ChildByFieldName("name")
-		if nameNode != nil {
-			chain.Segments = append(chain.Segments, ExpressionSegment{
-				Kind:    SegmentMethod,
-				Name:    helper.Clean(nameNode.Utf8Text(*es.src)),
-				ASTNode: node,
-				RawText: node.Utf8Text(*es.src),
-			})
+
+			nameNode := node.ChildByFieldName("name")
+			if nameNode != nil {
+				chain.Segments = append(chain.Segments, ExpressionSegment{
+					Kind:    SegmentMethod,
+					Name:    helper.Clean(nameNode.Utf8Text(*es.src)),
+					ASTNode: node,
+					RawText: node.Utf8Text(*es.src),
+				})
+			}
+		} else {
+			// 2. 🎯 没有 object：说明是独立的隐式方法调用（如 simpleMethod()）
+			// 它本身就是链条的起点（Head），直接在此处截断，不进 default
+			chain.Head = es.buildHead(node)
 		}
 
 	case "array_access":
-		// 1. 递归解析数组所属的对象（基座）
 		if arrayObj := node.ChildByFieldName("array"); arrayObj != nil {
 			es.resolveNode(arrayObj, chain)
 		}
-		// 2. 追加数组读取段
 		chain.Segments = append(chain.Segments, ExpressionSegment{
 			Kind:    SegmentArray,
 			Name:    "",
@@ -99,7 +99,6 @@ func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionC
 		})
 
 	default:
-		// 终点边界：当无法再剥离出子 object 时，说明触达了链条的起点（Head）
 		chain.Head = es.buildHead(node)
 	}
 }
@@ -120,8 +119,14 @@ func (es *ExpressionSegmenter) buildHead(node *sitter.Node) ExpressionHead {
 		head.Type = HeadThis
 	case "super":
 		head.Type = HeadSuper
+	case "method_invocation":
+		// 🎯 核心识别：没有 object 的 method_invocation 提取其 name 作为 Head 的 Name
+		head.Type = HeadImplicitMethod
+		if nameNode := node.ChildByFieldName("name"); nameNode != nil {
+			head.Name = helper.Clean(nameNode.Utf8Text(*es.src))
+		}
 	case "identifier", "type_identifier":
-		head.Type = HeadIdent // 可能是局部变量、类名、包名路径起点
+		head.Type = HeadIdent
 	case "object_creation_expression":
 		head.Type = HeadNewExpr
 	case "string_literal", "decimal_integer_literal", "decimal_floating_point_literal", "boolean_literal":
