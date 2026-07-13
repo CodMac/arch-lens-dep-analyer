@@ -12,7 +12,8 @@ const JavaActionQuery = `
   ; 3. 对象与数组创建 (Create)
   (object_creation_expression
     type: [
-        (type_identifier) @create_target 
+        (type_identifier) @create_target
+        (scoped_type_identifier (type_identifier) @create_target)
         (generic_type (type_identifier) @create_target)
     ]) @create_stmt
 

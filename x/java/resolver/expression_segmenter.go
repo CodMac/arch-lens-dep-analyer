@@ -50,6 +50,29 @@ func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionC
 	kind := node.Kind()
 
 	switch kind {
+	case "object_creation_expression":
+		// 遍历 NamedChild, 兼容处理A.B.C()场景
+		var typeNode *sitter.Node
+		namedCount := int(node.NamedChildCount())
+		for i := 0; i < namedCount; i++ {
+			child := node.NamedChild(uint(i))
+			childKind := child.Kind()
+			// 匹配 Java 中 new 关键字后面允许出现的三种核心类型节点
+			if childKind == "scoped_type_identifier" || childKind == "type_identifier" || childKind == "generic_type" {
+				typeNode = child
+				break
+			}
+		}
+
+		if typeNode != nil {
+			es.resolveTypeNode(typeNode, chain)
+			// 修正 Head 类型，使其符合 NewExpr 的整体语义特征
+			chain.Head.Type = HeadNewExpr
+		} else {
+			// 降级兜底
+			chain.Head = es.buildHead(node)
+		}
+
 	case "field_access":
 		if obj := node.ChildByFieldName("object"); obj != nil {
 			es.resolveNode(obj, chain)
@@ -58,11 +81,12 @@ func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionC
 		fieldNode := node.ChildByFieldName("field")
 		if fieldNode != nil {
 			fieldName := helper.Clean(fieldNode.Utf8Text(*es.src))
-			// 🎯 动态判定 Segment 类型：如果该段落符合类名潜质（如大写开头），则识别为 SegmentClass 辅助精细解析
+
 			segKind := SegmentField
 			if helper.IsPotentialClassName(fieldName) {
 				segKind = SegmentClass
 			}
+
 			chain.Segments = append(chain.Segments, ExpressionSegment{
 				Kind:    segKind,
 				Name:    fieldName,
@@ -73,7 +97,6 @@ func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionC
 
 	case "method_invocation":
 		if obj := node.ChildByFieldName("object"); obj != nil {
-			// 1. 有 object：说明是显式链式调用（如 obj.method()），正常向前递归
 			es.resolveNode(obj, chain)
 
 			nameNode := node.ChildByFieldName("name")
@@ -86,8 +109,6 @@ func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionC
 				})
 			}
 		} else {
-			// 2. 没有 object：说明是独立的隐式方法调用（如 simpleMethod()）
-			// 它本身就是链条的起点（Head），直接在此处截断，不进 default
 			chain.Head = es.buildHead(node)
 		}
 
@@ -118,6 +139,55 @@ func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionC
 		})
 
 	default:
+		chain.Head = es.buildHead(node)
+	}
+}
+
+// resolveTypeNode 统一解构 Java 类型节点（支持嵌套内部类、泛型、普通类）
+func (es *ExpressionSegmenter) resolveTypeNode(node *sitter.Node, chain *ExpressionChain) {
+	if node == nil {
+		return
+	}
+
+	kind := node.Kind()
+	switch kind {
+	case "generic_type":
+		// 1. 泛型穿透：对 generic_type 的第一个命名子节点（真正的类名节点）展开递归
+		if node.NamedChildCount() > 0 {
+			es.resolveTypeNode(node.NamedChild(0), chain)
+		}
+
+	case "scoped_type_identifier":
+		// 2. 嵌套类处理（左结合树规约）：
+		// 按照从左到右语义，第一个命名子节点（左子树）向前递归推进
+		if node.NamedChildCount() > 0 {
+			es.resolveTypeNode(node.NamedChild(0), chain)
+		}
+
+		// 第二个命名子节点一定是当前层级的内部类标识符，转换为后置的 SegmentClass 压入链条
+		if node.NamedChildCount() > 1 {
+			right := node.NamedChild(1)
+			rightName := helper.Clean(right.Utf8Text(*es.src))
+			chain.Segments = append(chain.Segments, ExpressionSegment{
+				Kind:    SegmentClass,
+				Name:    rightName,
+				ASTNode: right,
+				RawText: right.Utf8Text(*es.src),
+			})
+		}
+
+	case "type_identifier", "identifier":
+		// 3. 基本标识符（递归终点/最左起点）：确立为 Head 起点
+		raw := strings.TrimSpace(node.Utf8Text(*es.src))
+		chain.Head = ExpressionHead{
+			Type:    HeadIdent,
+			Name:    helper.Clean(raw),
+			ASTNode: node,
+			RawText: raw,
+		}
+
+	default:
+		// 异常兜底
 		chain.Head = es.buildHead(node)
 	}
 }
@@ -157,6 +227,16 @@ func (es *ExpressionSegmenter) buildHead(node *sitter.Node) ExpressionHead {
 		head.Type = HeadIdent
 	case "object_creation_expression":
 		head.Type = HeadNewExpr
+		// 统一使用过滤命名节点的方式兜底提取简要名称
+		namedCount := int(node.NamedChildCount())
+		for i := 0; i < namedCount; i++ {
+			child := node.NamedChild(uint(i))
+			ck := child.Kind()
+			if ck == "scoped_type_identifier" || ck == "type_identifier" || ck == "generic_type" {
+				head.Name = helper.Clean(child.Utf8Text(*es.src))
+				break
+			}
+		}
 	case "string_literal", "decimal_integer_literal", "decimal_floating_point_literal", "boolean_literal":
 		head.Type = HeadLiteral
 	default:
@@ -166,7 +246,7 @@ func (es *ExpressionSegmenter) buildHead(node *sitter.Node) ExpressionHead {
 	return head
 }
 
-// skipParentheses 穿透多层嵌套的括号表达式，直达内部的核心语义节点
+// skipParentheses 穿透多层嵌套的括号表达式
 func (es *ExpressionSegmenter) skipParentheses(node *sitter.Node) *sitter.Node {
 	curr := node
 	for curr != nil && curr.Kind() == "parenthesized_expression" {

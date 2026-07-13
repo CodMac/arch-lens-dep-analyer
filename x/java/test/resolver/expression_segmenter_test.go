@@ -1433,18 +1433,8 @@ func TestExpressionSegmenter_ResolveInnerClass(t *testing.T) {
 			},
 		},
 		{
-			Name:        "场景6: 显式带有外部全路径的内部类创建 (NewExpr)",
-			LineNum:     44,
-			TargetText:  "StaticInner",
-			ExpHeadType: resolver.HeadNewExpr,
-			ExpHeadName: "InnerClassExpressionSegmenterCase",
-			ExpSegments: []resolver.ExpressionSegment{
-				{Kind: resolver.SegmentClass, Name: "StaticInner"},
-			},
-		},
-		{
 			Name:        "场景7: 多层嵌套静态内部类的静态方法调用 (Class 节点识别)",
-			LineNum:     47,
+			LineNum:     49,
 			TargetText:  "staticDoSomething",
 			ExpHeadType: resolver.HeadIdent,
 			ExpHeadName: "InnerClassExpressionSegmenterCase",
@@ -1455,10 +1445,24 @@ func TestExpressionSegmenter_ResolveInnerClass(t *testing.T) {
 			},
 		},
 	}
+	createExpectations := []SegmentExpectation{
+		{
+			Name:        "场景6: 显式带有外部全路径的内部类创建 (NewExpr)",
+			LineNum:     44,
+			TargetText:  "StaticInner",
+			ExpHeadType: resolver.HeadNewExpr,
+			ExpHeadName: "InnerClassExpressionSegmenterCase",
+			ExpSegments: []resolver.ExpressionSegment{
+				{Kind: resolver.SegmentClass, Name: "StaticInner"},
+			},
+		},
+	}
+	fmt.Printf("%d, %d", len(callExpectations), len(useExpectations))
 
 	// 触发全关系双轨断言验证
 	runSegmentTestLoops(t, fCtx, q, ctxResolver, segmenter, model.Use, useExpectations)
 	runSegmentTestLoops(t, fCtx, q, ctxResolver, segmenter, model.Call, callExpectations)
+	runSegmentTestLoops(t, fCtx, q, ctxResolver, segmenter, model.Create, createExpectations)
 }
 
 // --- 🛠️ 抽象通用的双轨集成测试驱动引擎（带 USE 节点噪音过滤） ---

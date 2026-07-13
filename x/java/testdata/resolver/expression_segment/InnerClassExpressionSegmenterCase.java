@@ -42,8 +42,10 @@ public class InnerClassExpressionSegmenterCase {
 
         // 场景 6: 静态内部类构造函数路径限制
         StaticInner staticObj2 = new InnerClassExpressionSegmenterCase.StaticInner(); // Line 44
+        InnerClassExpressionSegmenterCase obj1 = new InnerClassExpressionSegmenterCase(); // Line 45
+        InnerClassExpressionSegmenterCase obj2 = new InnerClassExpressionSegmenterCase<String>(); // Line 46 ,这个泛型声明再代码中不存在,这里仅为了测试AST
 
         // 场景 7: 静态内部类的静态方法多层级调用
-        InnerClassExpressionSegmenterCase.StaticInner.staticDoSomething(); // Line 48
+        InnerClassExpressionSegmenterCase.StaticInner.staticDoSomething(); // Line 49
     }
 }
