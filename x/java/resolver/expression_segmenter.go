@@ -57,9 +57,15 @@ func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionC
 
 		fieldNode := node.ChildByFieldName("field")
 		if fieldNode != nil {
+			fieldName := helper.Clean(fieldNode.Utf8Text(*es.src))
+			// 🎯 动态判定 Segment 类型：如果该段落符合类名潜质（如大写开头），则识别为 SegmentClass 辅助精细解析
+			segKind := SegmentField
+			if helper.IsPotentialClassName(fieldName) {
+				segKind = SegmentClass
+			}
 			chain.Segments = append(chain.Segments, ExpressionSegment{
-				Kind:    SegmentField,
-				Name:    helper.Clean(fieldNode.Utf8Text(*es.src)),
+				Kind:    segKind,
+				Name:    fieldName,
 				ASTNode: node,
 				RawText: node.Utf8Text(*es.src),
 			})
@@ -136,6 +142,9 @@ func (es *ExpressionSegmenter) buildHead(node *sitter.Node) ExpressionHead {
 		if strings.HasPrefix(raw, "super") {
 			head.Type = HeadSuperConstructor
 			head.Name = "super"
+		} else if strings.HasPrefix(raw, "this") {
+			head.Type = HeadThisConstructor
+			head.Name = "this"
 		} else {
 			head.Type = HeadUnknown
 		}

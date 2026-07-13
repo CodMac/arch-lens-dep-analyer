@@ -16,6 +16,7 @@ const (
 	HeadIdent                               // 标识符（局部变量、类名、实例字段）
 	HeadImplicitMethod                      // 隐式方法调用起点（如 simpleMethod()）
 	HeadSuperConstructor                    // 显式父类构造调用起点（如 super()）
+	HeadThisConstructor                     // 显式本类构造调用起点（如 this()）
 )
 
 // ExpressionHead 链式调用的入口节点
@@ -33,6 +34,7 @@ const (
 	SegmentField  SegmentKind = iota // .field 字段访问
 	SegmentMethod                    // .method(...) 方法调用
 	SegmentArray                     // [...] 数组下标读取
+	SegmentClass                     // 内部类或多层级包路径节点（如 User.Man 中的 User / Man）
 )
 
 // ExpressionSegment 链式调用向后递进的每一个切片

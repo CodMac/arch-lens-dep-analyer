@@ -1361,6 +1361,106 @@ func TestExpressionSegmenter_ResolveUse(t *testing.T) {
 	runSegmentTestLoops(t, fCtx, q, ctxResolver, segmenter, model.Use, useExpectations)
 }
 
+func TestExpressionSegmenter_ResolveInnerClass(t *testing.T) {
+	testFile := test.GetTestFilePath(filepath.Join("resolver", "expression_segment", "InnerClassExpressionSegmenterCase.java"))
+	gCtx := test.RunPhase1Collection(t, []string{testFile})
+	fCtx := gCtx.FileContexts[testFile]
+
+	tsLang, _ := core.GetLanguage(core.LangJava)
+	q, err := sitter.NewQuery(tsLang, java.JavaActionQuery)
+	if err != nil {
+		t.Fatalf("Failed to compile JavaActionQuery: %v", err)
+	}
+	defer q.Close()
+
+	ctxResolver := resolver.NewNodeContextResolver(fCtx)
+	segmenter := resolver.NewExpressionSegmenter(fCtx)
+
+	// 基于最新版核心用例的精确绝对行号断言
+	useExpectations := []SegmentExpectation{
+		{
+			Name:        "场景1: 通过 Outer.this 显式限定符访问外部类字段",
+			LineNum:     19,
+			TargetText:  "outerField",
+			ExpHeadType: resolver.HeadIdent,
+			ExpHeadName: "InnerClassExpressionSegmenterCase",
+			ExpSegments: []resolver.ExpressionSegment{
+				{Kind: resolver.SegmentField, Name: "this"},
+				{Kind: resolver.SegmentField, Name: "outerField"},
+			},
+		},
+		{
+			Name:        "场景4: 内部类实例的属性读取",
+			LineNum:     32,
+			TargetText:  "staticInnerField",
+			ExpHeadType: resolver.HeadIdent,
+			ExpHeadName: "staticObj",
+			ExpSegments: []resolver.ExpressionSegment{
+				{Kind: resolver.SegmentField, Name: "staticInnerField"},
+			},
+		},
+	}
+	callExpectations := []SegmentExpectation{
+		{
+			Name:        "场景2: 通过 Outer.this 显式限定符调用外部类方法",
+			LineNum:     22,
+			TargetText:  "toString",
+			ExpHeadType: resolver.HeadIdent,
+			ExpHeadName: "InnerClassExpressionSegmenterCase",
+			ExpSegments: []resolver.ExpressionSegment{
+				{Kind: resolver.SegmentField, Name: "this"},
+				{Kind: resolver.SegmentMethod, Name: "toString"},
+			},
+		},
+		{
+			Name:        "场景3: 内部类实例的方法调用",
+			LineNum:     29,
+			TargetText:  "doSomething",
+			ExpHeadType: resolver.HeadIdent,
+			ExpHeadName: "staticObj",
+			ExpSegments: []resolver.ExpressionSegment{
+				{Kind: resolver.SegmentMethod, Name: "doSomething"},
+			},
+		},
+		{
+			Name:        "场景5: 匿名内部类闭包捕获外部局部变量调用",
+			LineNum:     39,
+			TargetText:  "doSomething",
+			ExpHeadType: resolver.HeadIdent,
+			ExpHeadName: "staticObj",
+			ExpSegments: []resolver.ExpressionSegment{
+				{Kind: resolver.SegmentMethod, Name: "doSomething"},
+			},
+		},
+		{
+			Name:        "场景6: 显式带有外部全路径的内部类创建 (NewExpr)",
+			LineNum:     44,
+			TargetText:  "StaticInner",
+			ExpHeadType: resolver.HeadNewExpr,
+			ExpHeadName: "InnerClassExpressionSegmenterCase",
+			ExpSegments: []resolver.ExpressionSegment{
+				{Kind: resolver.SegmentClass, Name: "StaticInner"},
+			},
+		},
+		{
+			Name:        "场景7: 多层嵌套静态内部类的静态方法调用 (Class 节点识别)",
+			LineNum:     47,
+			TargetText:  "staticDoSomething",
+			ExpHeadType: resolver.HeadIdent,
+			ExpHeadName: "InnerClassExpressionSegmenterCase",
+			// 🎯 这里的关键：StaticInner 首字母大写且非全大写，必须被识别为 SegmentClass，而非普通的 SegmentField
+			ExpSegments: []resolver.ExpressionSegment{
+				{Kind: resolver.SegmentClass, Name: "StaticInner"},
+				{Kind: resolver.SegmentMethod, Name: "staticDoSomething"},
+			},
+		},
+	}
+
+	// 触发全关系双轨断言验证
+	runSegmentTestLoops(t, fCtx, q, ctxResolver, segmenter, model.Use, useExpectations)
+	runSegmentTestLoops(t, fCtx, q, ctxResolver, segmenter, model.Call, callExpectations)
+}
+
 // --- 🛠️ 抽象通用的双轨集成测试驱动引擎（带 USE 节点噪音过滤） ---
 func runSegmentTestLoops(t *testing.T, fCtx *core.FileContext, q *sitter.Query, ctxResolver *resolver.NodeContextResolver, segmenter *resolver.ExpressionSegmenter, actType model.DependencyType, expectations []SegmentExpectation) {
 	qc := sitter.NewQueryCursor()
