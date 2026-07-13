@@ -8,13 +8,14 @@ import (
 type ExpressionHeadType int
 
 const (
-	HeadUnknown        ExpressionHeadType = iota
-	HeadThis                              // this 关键字
-	HeadSuper                             // super 关键字
-	HeadLiteral                           // "str", 123 等字面量起点
-	HeadNewExpr                           // new Object() 匿名对象起点
-	HeadIdent                             // 标识符（局部变量、类名、实例字段）
-	HeadImplicitMethod                    // 隐式方法调用起点（如 simpleMethod()）
+	HeadUnknown          ExpressionHeadType = iota
+	HeadThis                                // this 关键字
+	HeadSuper                               // super 关键字
+	HeadLiteral                             // "str", 123 等字面量起点
+	HeadNewExpr                             // new Object() 匿名对象起点
+	HeadIdent                               // 标识符（局部变量、类名、实例字段）
+	HeadImplicitMethod                      // 隐式方法调用起点（如 simpleMethod()）
+	HeadSuperConstructor                    // 显式父类构造调用起点（如 super()）
 )
 
 // ExpressionHead 链式调用的入口节点

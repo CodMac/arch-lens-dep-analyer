@@ -1,11 +1,12 @@
 package resolver
 
 import (
+	"strings"
+
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
-	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 type ChainResolver struct {
@@ -85,8 +86,8 @@ func (cr *ChainResolver) ResolveChain(chain *ExpressionChain) *model.CodeElement
 // ==================== 针对各种 Segment 的定向解析函数 ====================
 
 func (cr *ChainResolver) resolveMethodSegment(seg ExpressionSegment, currType *model.CodeElement, isStatic bool, fromCtx *model.CodeElement) *model.CodeElement {
-	methodCallNode := cr.safeGetMethodInvocationNode(seg.ASTNode)
-	argTypes := cr.inferArgs(methodCallNode)
+	methodCallNode := helper.GetMethodInvocationNode(seg.ASTNode)
+	argTypes := helper.InferMethodArgs(methodCallNode, *cr.fCtx.SourceBytes)
 
 	methodElem := cr.memberResolver.ResolveMethod(currType, seg.Name, argTypes, isStatic, fromCtx)
 
@@ -123,12 +124,42 @@ func (cr *ChainResolver) resolveFieldSegment(seg ExpressionSegment, currType *mo
 func (cr *ChainResolver) resolveHeadWithUnwrap(head ExpressionHead) (*model.CodeElement, *model.CodeElement, bool) {
 	switch head.Type {
 	case HeadNewExpr:
-		typeName := helper.Clean(head.Name)
-		entries := helper.PreciseResolve(cr.gCtx, cr.fCtx, typeName)
+		// 🎯 核心重构：New 表达式对应的生成物是构造函数（Method）
+		rawName := cr.cleanGenericType(helper.Clean(head.Name))
+
+		// 1. 获取构造方法应该具备的参数类型
+		argTypes := helper.InferMethodArgs(head.ASTNode, *cr.fCtx.SourceBytes)
+
+		// 2. 先尝试精准判定关联的类实体
+		entries := helper.PreciseResolve(cr.gCtx, cr.fCtx, rawName)
 		if len(entries) > 0 {
-			return entries[0].Element, entries[0].Element, false
+			classElem := entries[0].Element
+			// 通过 memberResolver 在该类中寻找到对应的构造方法
+			if constructorElem := cr.memberResolver.ResolveMethod(classElem, classElem.Name, argTypes, false, nil); constructorElem != nil {
+				return constructorElem, classElem, false
+			}
+
+			// 如果类存在但没找到匹配的显式构造函数，虚构一个对应的隐式默认构造函数 Method 节点
+			fallbackConstructor := &model.CodeElement{
+				QualifiedName:  classElem.QualifiedName + "." + classElem.Name + "()",
+				Name:           classElem.Name + "()",
+				Kind:           model.Method,
+				IsFormExternal: classElem.IsFormExternal,
+			}
+			return fallbackConstructor, classElem, false
 		}
-		return nil, nil, false
+
+		// 3. 兜底判定：如果属于外部依赖类（Imports 映射或保持原样短类名）
+		fullQN := cr.tryResolveExternalFullQN(rawName)
+		extClass := cr.createExternalClassFallback(fullQN)
+
+		extConstructor := &model.CodeElement{
+			QualifiedName:  extClass.QualifiedName + "." + extClass.Name + "()",
+			Name:           extClass.Name + "()",
+			Kind:           model.Method,
+			IsFormExternal: true,
+		}
+		return extConstructor, extClass, false
 
 	case HeadThis:
 		elem := helper.GetBestElement(cr.fCtx, head.ASTNode, []model.ElementKind{model.Class, model.AnonymousClass})
@@ -156,7 +187,7 @@ func (cr *ChainResolver) resolveHeadWithUnwrap(head ExpressionHead) (*model.Code
 
 		if currentClass != nil {
 			// 推导参数类型
-			argTypes := cr.inferArgs(head.ASTNode)
+			argTypes := helper.InferMethodArgs(head.ASTNode, *cr.fCtx.SourceBytes)
 			if methodElem := cr.memberResolver.ResolveMethod(currentClass, head.Name, argTypes, false, container); methodElem != nil {
 				return methodElem, cr.extractElementByReturnType(methodElem), false
 			}
@@ -177,11 +208,22 @@ func (cr *ChainResolver) resolveHeadWithUnwrap(head ExpressionHead) (*model.Code
 		}, nil, false
 
 	case HeadIdent:
-		container := helper.GetBestElement(cr.fCtx, head.ASTNode, []model.ElementKind{model.Method, model.Class, model.ScopeBlock})
+		// 1. 类
+		if helper.IsPotentialClassName(helper.Clean(head.Name)) {
+			entries := helper.PreciseResolve(cr.gCtx, cr.fCtx, head.Name)
+			if len(entries) > 0 {
+				k := entries[0].Element.Kind
+				if k == model.Class || k == model.Interface || k == model.Enum {
+					return entries[0].Element, entries[0].Element, true
+				}
+				return entries[0].Element, entries[0].Element, false
+			}
+		}
 
-		// 1. 局部变量/方法参数查找
+		// 2. 变量/方法参数/lambda表达式查找
+		container := helper.GetBestElement(cr.fCtx, head.ASTNode, []model.ElementKind{model.Method, model.Class, model.ScopeBlock, model.Lambda})
 		if container != nil {
-			if container.Kind == model.Method {
+			if container.Kind == model.Method || container.Kind == model.ScopeBlock {
 				localVariableQN := container.QualifiedName + "." + head.Name
 				if entry, ok := cr.gCtx.FindByQualifiedName(localVariableQN); ok {
 					return entry.Element, cr.extractElementByFieldType(entry.Element), false
@@ -202,85 +244,41 @@ func (cr *ChainResolver) resolveHeadWithUnwrap(head ExpressionHead) (*model.Code
 			}
 		}
 
-		// 2. 隐式字段查找 (此时排除了方法的干扰)
+		// 3. 隐式字段查找
 		if currentClass := helper.GetBestElement(cr.fCtx, head.ASTNode, []model.ElementKind{model.Class, model.AnonymousClass}); currentClass != nil {
 			if fieldElem := cr.memberResolver.ResolveField(currentClass, head.Name, false, container); fieldElem != nil {
 				return fieldElem, cr.extractElementByFieldType(fieldElem), false
 			}
 		}
 
-		// 3. 静态类/接口/枚举类型路径起点
-		entries := helper.PreciseResolve(cr.gCtx, cr.fCtx, head.Name)
-		if len(entries) > 0 {
-			k := entries[0].Element.Kind
-			if k == model.Class || k == model.Interface || k == model.Enum {
-				return entries[0].Element, entries[0].Element, true
-			}
-			return entries[0].Element, entries[0].Element, false
-		}
 	}
 	return nil, nil, false
 }
 
 // ==================== AST 辅助及参数推导工具 ====================
 
-func (cr *ChainResolver) safeGetMethodInvocationNode(node *sitter.Node) *sitter.Node {
-	if node == nil {
-		return nil
+func (cr *ChainResolver) cleanGenericType(typeName string) string {
+	if idx := strings.Index(typeName, "<"); idx != -1 {
+		return strings.TrimSpace(typeName[:idx])
 	}
-	if node.Kind() == "identifier" {
-		if parent := node.Parent(); parent != nil && parent.Kind() == "method_invocation" {
-			return parent
-		}
-	}
-	return node
+	return typeName
 }
 
-func (cr *ChainResolver) inferArgs(methodInvocationNode *sitter.Node) []string {
-	var types []string
-	if methodInvocationNode == nil || methodInvocationNode.Kind() != "method_invocation" {
-		return types
-	}
-
-	argsNode := methodInvocationNode.ChildByFieldName("arguments")
-	if argsNode == nil {
-		return types
-	}
-
-	count := argsNode.NamedChildCount()
-	for i := uint(0); i < count; i++ {
-		arg := argsNode.NamedChild(i)
-		if arg == nil {
-			continue
-		}
-		switch arg.Kind() {
-		case "string_literal":
-			types = append(types, "java.lang.String")
-		case "decimal_integer_literal", "hex_integer_literal":
-			types = append(types, "int")
-		case "decimal_floating_point_literal":
-			types = append(types, "double")
-		case "true", "false":
-			types = append(types, "boolean")
-		case "null_literal":
-			types = append(types, "null")
-		case "object_creation_expression", "cast_expression":
-			if typeNode := arg.ChildByFieldName("type"); typeNode != nil {
-				types = append(types, helper.GetNodeContent(typeNode, cr.src))
-			} else {
-				types = append(types, "unknown")
-			}
-		default:
-			types = append(types, "unknown")
+func (cr *ChainResolver) tryResolveExternalFullQN(shortName string) string {
+	shortName = cr.cleanGenericType(shortName)
+	if cr.fCtx != nil && cr.fCtx.Imports != nil {
+		if imps, ok := cr.fCtx.Imports[shortName]; ok && len(imps) > 0 {
+			return imps[0].RawImportPath
 		}
 	}
-	return types
+	return shortName
 }
 
 func (cr *ChainResolver) extractElementByFieldType(element *model.CodeElement) *model.CodeElement {
 	if element == nil || element.Extra == nil {
 		return element
 	}
+
 	var typeQN string
 	if qn, ok := element.Extra.Mores[constants.VariableTypeWithQN].(string); ok && qn != "" {
 		typeQN = qn
@@ -288,20 +286,24 @@ func (cr *ChainResolver) extractElementByFieldType(element *model.CodeElement) *
 		typeQN = raw
 	}
 
-	if typeQN != "" {
-		entries := helper.PreciseResolve(cr.gCtx, cr.fCtx, typeQN)
-		if len(entries) > 0 {
-			return entries[0].Element
-		}
-		return cr.createExternalClassFallback(typeQN)
+	if typeQN == "" || typeQN == "void" {
+		return element
 	}
-	return element
+
+	typeQN = cr.cleanGenericType(typeQN)
+	entries := helper.PreciseResolve(cr.gCtx, cr.fCtx, typeQN)
+	if len(entries) > 0 {
+		return entries[0].Element
+	}
+
+	return cr.createExternalClassFallback(cr.tryResolveExternalFullQN(typeQN))
 }
 
 func (cr *ChainResolver) extractElementByReturnType(methodElement *model.CodeElement) *model.CodeElement {
 	if methodElement == nil || methodElement.Extra == nil {
 		return nil
 	}
+
 	var returnQN string
 	if qn, ok := methodElement.Extra.Mores[constants.MethodReturnTypeWithQN].(string); ok && qn != "" {
 		returnQN = qn
@@ -309,21 +311,21 @@ func (cr *ChainResolver) extractElementByReturnType(methodElement *model.CodeEle
 		returnQN = raw
 	}
 
-	if returnQN != "" {
-		if returnQN == "void" {
-			return nil
-		}
-
-		entries := helper.PreciseResolve(cr.gCtx, cr.fCtx, returnQN)
-		if len(entries) > 0 {
-			return entries[0].Element
-		}
-		return cr.createExternalClassFallback(returnQN)
+	if returnQN == "" || returnQN == "void" {
+		return nil
 	}
-	return nil
+
+	returnQN = cr.cleanGenericType(returnQN)
+	entries := helper.PreciseResolve(cr.gCtx, cr.fCtx, returnQN)
+	if len(entries) > 0 {
+		return entries[0].Element
+	}
+
+	return cr.createExternalClassFallback(cr.tryResolveExternalFullQN(returnQN))
 }
 
 func (cr *ChainResolver) createExternalClassFallback(qualifiedName string) *model.CodeElement {
+	qualifiedName = cr.cleanGenericType(qualifiedName)
 	shortName := qualifiedName
 	for i := len(qualifiedName) - 1; i >= 0; i-- {
 		if qualifiedName[i] == '.' {

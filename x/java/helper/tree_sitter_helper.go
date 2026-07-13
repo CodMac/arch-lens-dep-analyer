@@ -63,6 +63,71 @@ func IsNodeContained(container, node *sitter.Node) bool {
 	return container.StartByte() <= node.StartByte() && node.EndByte() <= container.EndByte()
 }
 
+// GetMethodInvocationNode 返回最近的方法调用点
+func GetMethodInvocationNode(identifier *sitter.Node) *sitter.Node {
+	if identifier == nil {
+		return nil
+	}
+
+	if identifier.Kind() != "identifier" {
+		return identifier
+	}
+
+	return FindNearestKind(identifier, "method_invocation", "method_reference")
+}
+
+// InferMethodArgs 推断并返回方法调用点的参数
+func InferMethodArgs(methodInvocationNode *sitter.Node, src []byte) []string {
+	var types []string
+	if methodInvocationNode == nil {
+		return types
+	}
+
+	argsNode := methodInvocationNode.ChildByFieldName("arguments")
+	if argsNode == nil && methodInvocationNode.Kind() == "explicit_constructor_invocation" {
+		for i := uint(0); i < methodInvocationNode.ChildCount(); i++ {
+			c := methodInvocationNode.Child(i)
+			if c != nil && c.Kind() == "argument_list" {
+				argsNode = c
+				break
+			}
+		}
+	}
+
+	if argsNode == nil {
+		return types
+	}
+
+	count := argsNode.NamedChildCount()
+	for i := uint(0); i < count; i++ {
+		arg := argsNode.NamedChild(i)
+		if arg == nil {
+			continue
+		}
+		switch arg.Kind() {
+		case "string_literal":
+			types = append(types, "java.lang.String")
+		case "decimal_integer_literal", "hex_integer_literal":
+			types = append(types, "int")
+		case "decimal_floating_point_literal":
+			types = append(types, "double")
+		case "true", "false":
+			types = append(types, "boolean")
+		case "null_literal":
+			types = append(types, "null")
+		case "object_creation_expression", "cast_expression":
+			if typeNode := arg.ChildByFieldName("type"); typeNode != nil {
+				types = append(types, Clean(GetNodeContent(typeNode, src)))
+			} else {
+				types = append(types, "unknown")
+			}
+		default:
+			types = append(types, "unknown")
+		}
+	}
+	return types
+}
+
 // =============================================================================
 // 【tree-sitter节点】 Location相关方法
 // =============================================================================

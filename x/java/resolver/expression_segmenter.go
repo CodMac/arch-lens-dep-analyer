@@ -3,9 +3,8 @@ package resolver
 import (
 	"strings"
 
-	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
-
 	"github.com/CodMac/arch-lens-dep-analyer/core"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -25,7 +24,6 @@ func (es *ExpressionSegmenter) Segment(node *sitter.Node) *ExpressionChain {
 		return nil
 	}
 
-	// 🎯 核心修复点 1：剥离可能包裹在最外层的括号，确保进入解析的节点结构是纯净的
 	node = es.skipParentheses(node)
 	if node == nil {
 		return nil
@@ -56,6 +54,7 @@ func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionC
 		if obj := node.ChildByFieldName("object"); obj != nil {
 			es.resolveNode(obj, chain)
 		}
+
 		fieldNode := node.ChildByFieldName("field")
 		if fieldNode != nil {
 			chain.Segments = append(chain.Segments, ExpressionSegment{
@@ -67,8 +66,7 @@ func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionC
 		}
 
 	case "method_invocation":
-		obj := node.ChildByFieldName("object")
-		if obj != nil {
+		if obj := node.ChildByFieldName("object"); obj != nil {
 			// 1. 有 object：说明是显式链式调用（如 obj.method()），正常向前递归
 			es.resolveNode(obj, chain)
 
@@ -82,9 +80,24 @@ func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionC
 				})
 			}
 		} else {
-			// 2. 🎯 没有 object：说明是独立的隐式方法调用（如 simpleMethod()）
+			// 2. 没有 object：说明是独立的隐式方法调用（如 simpleMethod()）
 			// 它本身就是链条的起点（Head），直接在此处截断，不进 default
 			chain.Head = es.buildHead(node)
+		}
+
+	case "method_reference":
+		if obj := node.ChildByFieldName("object"); obj != nil {
+			es.resolveNode(obj, chain)
+		}
+
+		nameNode := node.ChildByFieldName("name")
+		if nameNode != nil {
+			chain.Segments = append(chain.Segments, ExpressionSegment{
+				Kind:    SegmentMethod,
+				Name:    helper.Clean(nameNode.Utf8Text(*es.src)),
+				ASTNode: node,
+				RawText: node.Utf8Text(*es.src),
+			})
 		}
 
 	case "array_access":
@@ -103,8 +116,8 @@ func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionC
 	}
 }
 
-// buildHead 将基底节点归类为标准的 Head 结构
 func (es *ExpressionSegmenter) buildHead(node *sitter.Node) ExpressionHead {
+	node = es.skipParentheses(node)
 	raw := strings.TrimSpace(node.Utf8Text(*es.src))
 	kind := node.Kind()
 
@@ -119,8 +132,14 @@ func (es *ExpressionSegmenter) buildHead(node *sitter.Node) ExpressionHead {
 		head.Type = HeadThis
 	case "super":
 		head.Type = HeadSuper
+	case "explicit_constructor_invocation":
+		if strings.HasPrefix(raw, "super") {
+			head.Type = HeadSuperConstructor
+			head.Name = "super"
+		} else {
+			head.Type = HeadUnknown
+		}
 	case "method_invocation":
-		// 🎯 核心识别：没有 object 的 method_invocation 提取其 name 作为 Head 的 Name
 		head.Type = HeadImplicitMethod
 		if nameNode := node.ChildByFieldName("name"); nameNode != nil {
 			head.Name = helper.Clean(nameNode.Utf8Text(*es.src))

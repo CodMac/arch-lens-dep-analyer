@@ -53,7 +53,7 @@ func RunCases(t *testing.T, expectedRels []ExpectedCase, allRelations []*model.D
 			break
 		}
 
-		assert.True(t, found, "Missing %s relation: %s -> %s", relType, exp.sourceMatch, exp.targetMatch)
+		assert.True(t, found, "Missing %s relation: [%d]: %s -> %s", exp.lineNum, relType, exp.sourceMatch, exp.targetMatch)
 	}
 }
 

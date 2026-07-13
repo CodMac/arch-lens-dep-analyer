@@ -110,18 +110,38 @@ func GetRealPackage(gc *core.GlobalContext, elem *model.CodeElement) string {
 func GetOwnerClassQN(gc *core.GlobalContext, elem *model.CodeElement) string {
 	curr := elem
 	for curr != nil {
-		if curr.Kind == model.Class || curr.Kind == model.Interface || curr.Kind == model.AnonymousClass {
-			return curr.QualifiedName
-		}
 		if entry, ok := gc.FindByQualifiedName(curr.QualifiedName); ok && entry.ParentQN != "" {
 			if next, ok := gc.FindByQualifiedName(entry.ParentQN); ok {
 				curr = next.Element
 				continue
 			}
 		}
+
+		if curr.Kind == model.Class || curr.Kind == model.Interface || curr.Kind == model.AnonymousClass {
+			return curr.QualifiedName
+		}
 		break
 	}
 	return ""
+}
+
+// GetOwnerClass 获得Element的持有类
+func GetOwnerClass(gc *core.GlobalContext, elem *model.CodeElement) *model.CodeElement {
+	curr := elem
+	for curr != nil {
+		if entry, ok := gc.FindByQualifiedName(curr.QualifiedName); ok && entry.ParentQN != "" {
+			if next, ok := gc.FindByQualifiedName(entry.ParentQN); ok {
+				curr = next.Element
+				continue
+			}
+		}
+
+		if curr.Kind == model.Class || curr.Kind == model.Interface || curr.Kind == model.AnonymousClass {
+			return curr
+		}
+		break
+	}
+	return curr
 }
 
 // GetOutermostClassQN 获取最外层的类名 (例如把 A.B.C$1 还原为 A)
