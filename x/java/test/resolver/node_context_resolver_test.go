@@ -14,6 +14,18 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
+// 辅助映射字典
+var captureTypeMap = map[string]model.DependencyType{
+	"call_target":               model.Call,
+	"ref_target":                model.Call,
+	"create_target":             model.Create,
+	"explicit_constructor_stmt": model.Create,
+	"assign_target":             model.Assign,
+	"id_atom":                   model.Use,
+	"throw_target":              model.Throw,
+	"cast_target":               model.Cast,
+}
+
 type TestCaseExpectation struct {
 	Name       string
 	ActionType model.DependencyType
@@ -810,7 +822,7 @@ func TestNodeContextResolver_Create(t *testing.T) {
 			Name:       "Case 1: 基本对象创建",
 			ActionType: model.Create,
 			LineNum:    10,
-			TargetText: "BasicClass",
+			TargetText: "new BasicClass()",
 			ExpExpress: "BasicClass",
 			ExpContext: "new BasicClass()",
 			IsChain:    false,
@@ -819,7 +831,7 @@ func TestNodeContextResolver_Create(t *testing.T) {
 			Name:       "Case 2: 带参数的构造函数创建",
 			ActionType: model.Create,
 			LineNum:    18,
-			TargetText: "ParamClass",
+			TargetText: "new ParamClass(paramA, paramB)",
 			ExpExpress: "ParamClass",
 			ExpContext: "new ParamClass(paramA, paramB)",
 			IsChain:    false,
@@ -828,7 +840,7 @@ func TestNodeContextResolver_Create(t *testing.T) {
 			Name:       "Case 3: 基础数组类型创建",
 			ActionType: model.Create,
 			LineNum:    26,
-			TargetText: "String",
+			TargetText: "new String[10]",
 			ExpExpress: "String",
 			ExpContext: "new String[10]",
 			IsChain:    false,
@@ -837,7 +849,7 @@ func TestNodeContextResolver_Create(t *testing.T) {
 			Name:       "Case 4: 匿名内部类实例化",
 			ActionType: model.Create,
 			LineNum:    31,
-			TargetText: "Runnable",
+			TargetText: "new Runnable() { // line 31\n            @Override\n            public void run() {\n                System.out.println(\"Anonymous class\");\n            }\n        }",
 			ExpExpress: "Runnable",
 			ExpContext: "new Runnable() { // line 31\n            @Override\n            public void run() {\n                System.out.println(\"Anonymous class\");\n            }\n        }",
 			IsChain:    false,
@@ -846,7 +858,7 @@ func TestNodeContextResolver_Create(t *testing.T) {
 			Name:       "Case 5: 带有钻石操作符的泛型对象创建",
 			ActionType: model.Create,
 			LineNum:    41,
-			TargetText: "GenericClass",
+			TargetText: "new GenericClass<>()",
 			ExpExpress: "GenericClass<>",
 			ExpContext: "new GenericClass<>()",
 			IsChain:    false,
@@ -855,7 +867,7 @@ func TestNodeContextResolver_Create(t *testing.T) {
 			Name:       "Case 6: 集合接口具体类实例化",
 			ActionType: model.Create,
 			LineNum:    47,
-			TargetText: "ArrayList",
+			TargetText: "new ArrayList<>()",
 			ExpExpress: "ArrayList<>",
 			ExpContext: "new ArrayList<>()",
 			IsChain:    false,
@@ -864,7 +876,7 @@ func TestNodeContextResolver_Create(t *testing.T) {
 			Name:       "Case 7: 多维/二维数组创建",
 			ActionType: model.Create,
 			LineNum:    52,
-			TargetText: "String",
+			TargetText: "new String[5][10]",
 			ExpExpress: "String",
 			ExpContext: "new String[5][10]",
 			IsChain:    false,
@@ -873,7 +885,7 @@ func TestNodeContextResolver_Create(t *testing.T) {
 			Name:       "Case 8: 带大括号显式初始化的数组创建",
 			ActionType: model.Create,
 			LineNum:    57,
-			TargetText: "String",
+			TargetText: "new String[]{1, 2, 3, 4, 5}",
 			ExpExpress: "String",
 			ExpContext: "new String[]{1, 2, 3, 4, 5}",
 			IsChain:    false,
@@ -891,7 +903,7 @@ func TestNodeContextResolver_Create(t *testing.T) {
 			Name:       "Case 11: 泛型数组退化创建",
 			ActionType: model.Create,
 			LineNum:    81,
-			TargetText: "List",
+			TargetText: "new List[10]",
 			ExpExpress: "List",
 			ExpContext: "new List[10]",
 			IsChain:    false,
@@ -909,7 +921,7 @@ func TestNodeContextResolver_Create(t *testing.T) {
 			Name:       "Case 14: 带初始化块的对象创建",
 			ActionType: model.Create,
 			LineNum:    103,
-			TargetText: "InitBlockClass",
+			TargetText: "new InitBlockClass()",
 			ExpExpress: "InitBlockClass",
 			ExpContext: "new InitBlockClass()",
 			IsChain:    false,
@@ -932,7 +944,7 @@ func TestNodeContextResolver_Create(t *testing.T) {
 			capName := q.CaptureNames()[cap.Index]
 
 			// Create 动作在规则中常通过 create_target 进行捕获映射
-			if capName != "create_target" && capName != "lambda_target" {
+			if capName != "create_target" {
 				continue
 			}
 
@@ -1172,16 +1184,4 @@ func TestNodeContextResolver_Throw(t *testing.T) {
 			}
 		})
 	}
-}
-
-// 辅助映射字典
-var captureTypeMap = map[string]model.DependencyType{
-	"call_target":               model.Call,
-	"ref_target":                model.Call,
-	"create_target":             model.Create,
-	"explicit_constructor_stmt": model.Create,
-	"assign_target":             model.Assign,
-	"id_atom":                   model.Use,
-	"throw_target":              model.Throw,
-	"cast_target":               model.Cast,
 }

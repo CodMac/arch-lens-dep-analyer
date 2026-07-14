@@ -522,7 +522,7 @@ func TestExpressionSegmenter_ResolveAssign(t *testing.T) {
 		},
 	}
 
-	runSegmentTestLoops(t, fCtx, q, ctxResolver, segmenter, model.Assign, assignExpectations)
+	runSegmentTestMatchNodeText(t, fCtx, q, ctxResolver, segmenter, model.Assign, assignExpectations)
 }
 
 func TestExpressionSegmenter_ResolveCall(t *testing.T) {
@@ -954,7 +954,7 @@ func TestExpressionSegmenter_ResolveCall(t *testing.T) {
 
 	// 执行与 Assign 完全对齐的循环驱动断言逻辑
 	// 注意这里将关联类型传递为了 model.Call
-	runSegmentTestLoops(t, fCtx, q, ctxResolver, segmenter, model.Call, callExpectations)
+	runSegmentTestMatchNodeText(t, fCtx, q, ctxResolver, segmenter, model.Call, callExpectations)
 }
 
 func TestExpressionSegmenter_ResolveUse(t *testing.T) {
@@ -1358,7 +1358,7 @@ func TestExpressionSegmenter_ResolveUse(t *testing.T) {
 	}
 
 	// 驱动底层运行，将关系定义锁定为 model.Use 语义类型
-	runSegmentTestLoops(t, fCtx, q, ctxResolver, segmenter, model.Use, useExpectations)
+	runSegmentTestMatchNodeText(t, fCtx, q, ctxResolver, segmenter, model.Use, useExpectations)
 }
 
 func TestExpressionSegmenter_ResolveInnerClass(t *testing.T) {
@@ -1458,13 +1458,13 @@ func TestExpressionSegmenter_ResolveInnerClass(t *testing.T) {
 	fmt.Printf("%d, %d", len(callExpectations), len(useExpectations))
 
 	// 触发全关系双轨断言验证
-	//runSegmentTestLoops(t, fCtx, q, ctxResolver, segmenter, model.Use, useExpectations)
-	//runSegmentTestLoops(t, fCtx, q, ctxResolver, segmenter, model.Call, callExpectations)
-	runSegmentTestLoops(t, fCtx, q, ctxResolver, segmenter, model.Create, createExpectations)
+	//runSegmentTestMatchNodeText(t, fCtx, q, ctxResolver, segmenter, model.Use, useExpectations)
+	//runSegmentTestMatchNodeText(t, fCtx, q, ctxResolver, segmenter, model.Call, callExpectations)
+	runSegmentTestMatchExprText(t, fCtx, q, ctxResolver, segmenter, model.Create, createExpectations)
 }
 
 // --- 🛠️ 抽象通用的双轨集成测试驱动引擎（带 USE 节点噪音过滤） ---
-func runSegmentTestLoops(t *testing.T, fCtx *core.FileContext, q *sitter.Query, ctxResolver *resolver.NodeContextResolver, segmenter *resolver.ExpressionSegmenter, actType model.DependencyType, expectations []SegmentExpectation) {
+func runSegmentTestMatchNodeText(t *testing.T, fCtx *core.FileContext, q *sitter.Query, ctxResolver *resolver.NodeContextResolver, segmenter *resolver.ExpressionSegmenter, actType model.DependencyType, expectations []SegmentExpectation) {
 	qc := sitter.NewQueryCursor()
 	matches := qc.Matches(q, fCtx.RootNode, *fCtx.SourceBytes)
 
@@ -1602,5 +1602,90 @@ func runSegmentTestLoops(t *testing.T, fCtx *core.FileContext, q *sitter.Query, 
 				}
 			}
 		})
+	}
+}
+
+func runSegmentTestMatchExprText(t *testing.T, fCtx *core.FileContext, q *sitter.Query, ctxResolver *resolver.NodeContextResolver, segmenter *resolver.ExpressionSegmenter, actType model.DependencyType, expectations []SegmentExpectation) {
+	qc := sitter.NewQueryCursor()
+	matches := qc.Matches(q, fCtx.RootNode, *fCtx.SourceBytes)
+
+	// 建立快捷索引，只处理我们在 expectations 里声明的行
+	targetLines := make(map[int]bool)
+	for _, exp := range expectations {
+		targetLines[exp.LineNum] = true
+	}
+
+	// 捕获链
+	capturedChains := make(map[string]*resolver.ExpressionChain)
+	for {
+		match := matches.Next()
+		if match == nil {
+			break
+		}
+
+		for _, cap := range match.Captures {
+			lineNum := int(cap.Node.StartPosition().Row) + 1
+
+			// 过滤 1: 如果当前行不是我们断言关心的行，直接跳过，过滤大量无关的 USE 捕获
+			if !targetLines[lineNum] {
+				continue
+			}
+
+			// 过滤 2: 验证捕获动作类型
+			capName := q.CaptureNames()[cap.Index]
+			if captureTypeMap[capName] != actType {
+				continue
+			}
+
+			// 借助 NodeContextResolver 定位出完整的 ExpressNode
+			res := ctxResolver.ResolveContext(actType, &cap.Node)
+			if res == nil || res.ExpressNode == nil {
+				continue
+			}
+
+			// 将 ExpressNode 转化为被平铺的解析链条
+			chain := segmenter.Segment(res.ExpressNode)
+			if chain == nil {
+				continue
+			}
+
+			// 过滤 3: 目标表达式
+			exprText := res.ExpressNode.Utf8Text(*fCtx.SourceBytes)
+			uniqueKey := fmt.Sprintf("%d:%s", lineNum, exprText)
+			capturedChains[uniqueKey] = chain
+		}
+	}
+
+	// 验证所有目标点位的拉平求值拓扑结构
+	for _, exp := range expectations {
+		targetKey := fmt.Sprintf("%d:%s", exp.LineNum, exp.TargetText)
+
+		actualChain, found := capturedChains[targetKey]
+		if !found {
+			t.Fatalf("【断言失败】未能在行号 %d 处捕捉到动作为 %v 且关联文本为 %s 的表达式链", exp.LineNum, actType, exp.TargetText)
+		}
+
+		// 1. 验证链条起点 (Head) 的准确度
+		if actualChain.Head.Type != exp.ExpHeadType {
+			t.Errorf("Head 类型不匹配. 期望: %v, 实际: %v (文本: %s)", exp.ExpHeadType, actualChain.Head.Type, actualChain.Head.RawText)
+		}
+		if actualChain.Head.Name != exp.ExpHeadName {
+			t.Errorf("Head 标识符不匹配. 期望: %s, 实际: %s", exp.ExpHeadName, actualChain.Head.Name)
+		}
+
+		// 2. 验证递进分段 (Segments) 的求值拓扑顺序与广度是否一致
+		if len(actualChain.Segments) != len(exp.ExpSegments) {
+			t.Fatalf("Segments 拓扑长度不匹配.\n期望级数: %d\n实际级数: %d\n完整解析链: %s", len(exp.ExpSegments), len(actualChain.Segments), actualChain.RawText)
+		}
+
+		for i, segExpect := range exp.ExpSegments {
+			actualSeg := actualChain.Segments[i]
+			if actualSeg.Kind != segExpect.Kind {
+				t.Errorf("第 [%d] 步分段依赖性质 Kind 错位. 期望: %v, 实际: %v", i, segExpect.Kind, actualSeg.Kind)
+			}
+			if segExpect.Name != "" && actualSeg.Name != segExpect.Name {
+				t.Errorf("第 [%d] 步分段映射标识符 Name 错误. 期望: %s, 实际: %s", i, segExpect.Name, actualSeg.Name)
+			}
+		}
 	}
 }
