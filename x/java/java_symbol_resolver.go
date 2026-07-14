@@ -120,6 +120,7 @@ func (jsr *SymbolResolver) ResolveAction(gCtx *core.GlobalContext, fCtx *core.Fi
 
 	default:
 		// 对于 RETURN、THROW、CAST、CREATE 等其他类型，期望返回 Class/Type 实体
+
 		if targetEle.Kind != model.Class && targetEle.Kind != model.Interface && targetEle.Kind != model.AnonymousClass {
 			class := helper.GetOwnerClass(gCtx, targetEle)
 			if class != nil {

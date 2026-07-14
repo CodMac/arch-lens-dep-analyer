@@ -10,15 +10,8 @@ const JavaActionQuery = `
   (method_reference (identifier) @ref_target) @ref_stmt
   
   ; 3. 对象与数组创建 (Create)
-  (object_creation_expression
-    type: [
-        (type_identifier) @create_target
-        (scoped_type_identifier (type_identifier) @create_target)
-        (generic_type (type_identifier) @create_target)
-    ]) @create_stmt
-
-  (array_creation_expression
-    type: (type_identifier) @create_target) @create_stmt
+  (object_creation_expression) @create_target
+  (array_creation_expression) @create_target
 
   ; 4. 显式构造函数调用 (super/this)
   (explicit_constructor_invocation) @explicit_constructor_stmt
@@ -55,11 +48,7 @@ const JavaActionQuery = `
   ; 8. 抛出异常 (Throw)
   (throw_statement
     [
-      (object_creation_expression 
-        type: [
-          (type_identifier) @throw_target 
-          (generic_type (type_identifier) @throw_target)
-        ])
+      (object_creation_expression) @throw_stmt
       (identifier) @throw_target
     ]
   ) @throw_stmt

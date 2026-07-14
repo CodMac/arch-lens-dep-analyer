@@ -110,6 +110,10 @@ func GetRealPackage(gc *core.GlobalContext, elem *model.CodeElement) string {
 func GetOwnerClassQN(gc *core.GlobalContext, elem *model.CodeElement) string {
 	curr := elem
 	for curr != nil {
+		if curr.Kind == model.Class || curr.Kind == model.Interface || curr.Kind == model.AnonymousClass {
+			return curr.QualifiedName
+		}
+
 		if entry, ok := gc.FindByQualifiedName(curr.QualifiedName); ok && entry.ParentQN != "" {
 			if next, ok := gc.FindByQualifiedName(entry.ParentQN); ok {
 				curr = next.Element
@@ -117,9 +121,6 @@ func GetOwnerClassQN(gc *core.GlobalContext, elem *model.CodeElement) string {
 			}
 		}
 
-		if curr.Kind == model.Class || curr.Kind == model.Interface || curr.Kind == model.AnonymousClass {
-			return curr.QualifiedName
-		}
 		break
 	}
 	return ""
@@ -129,6 +130,10 @@ func GetOwnerClassQN(gc *core.GlobalContext, elem *model.CodeElement) string {
 func GetOwnerClass(gc *core.GlobalContext, elem *model.CodeElement) *model.CodeElement {
 	curr := elem
 	for curr != nil {
+		if curr.Kind == model.Class || curr.Kind == model.Interface || curr.Kind == model.AnonymousClass {
+			return curr
+		}
+
 		if entry, ok := gc.FindByQualifiedName(curr.QualifiedName); ok && entry.ParentQN != "" {
 			if next, ok := gc.FindByQualifiedName(entry.ParentQN); ok {
 				curr = next.Element
@@ -136,9 +141,6 @@ func GetOwnerClass(gc *core.GlobalContext, elem *model.CodeElement) *model.CodeE
 			}
 		}
 
-		if curr.Kind == model.Class || curr.Kind == model.Interface || curr.Kind == model.AnonymousClass {
-			return curr
-		}
 		break
 	}
 	return curr

@@ -35,6 +35,16 @@ func IsPotentialClassName(name string) bool {
 	return hasLower
 }
 
+// IsPrimitiveType 辅助判定是否为 Java 的基础数据类型节点（用于数组定义，如 new int[10]）
+func IsPrimitiveType(kind string) bool {
+	switch kind {
+	case "boolean_type", "integral_type", "floating_point_type", "void_type":
+		return true
+	default:
+		return false
+	}
+}
+
 func Contains(s []string, str string) bool {
 	for _, v := range s {
 		if v == str {

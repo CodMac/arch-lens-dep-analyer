@@ -39,7 +39,6 @@ func (r *NodeContextResolver) ResolveContext(actionType model.DependencyType, no
 
 	switch actionType {
 	case model.Use, model.Assign, model.Call:
-		// 🎯 核心重构：将 USE、ASSIGN、CALL 归纳为统一的双轨三步流流水线处理
 		return r.resolveTwoTrackPipeline(actionType, node)
 	case model.Create:
 		return r.resolveForCreate(node)
@@ -73,8 +72,7 @@ func (r *NodeContextResolver) resolveTwoTrackPipeline(actionType model.Dependenc
 		res.ContextNode = outerBound
 		res.ContextKind = outerBound.Kind()
 	} else {
-		// 🎯 完美保底：如果外溯没找到更宏观的，且目前的 ContextNode 范围还不如 ExpressNode 大
-		// 说明没有被特化层提前锚定（如 Assign 提前锁死了语句），此时无条件对齐 ExpressNode
+		// 完美保底
 		if res.ContextNode == nil || res.ContextNode.EndPosition().Row < res.ExpressNode.EndPosition().Row || res.ContextNode.Kind() == "identifier" {
 			res.ContextNode = res.ExpressNode
 			res.ContextKind = res.ExpressNode.Kind()
@@ -89,7 +87,6 @@ func (r *NodeContextResolver) resolveTwoTrackPipeline(actionType model.Dependenc
 func (r *NodeContextResolver) specializeSemanticAction(actionType model.DependencyType, originNode *sitter.Node, res *Result) {
 	switch actionType {
 	case model.Assign:
-		// 赋值与初始化关系：确保核心链条归属于赋值表达式的左值或变量声明的标识符
 		if assignExpr := helper.FindNearestKind(originNode, "assignment_expression"); assignExpr != nil {
 			if leftNode := assignExpr.ChildByFieldName("left"); leftNode != nil {
 				if r.isIdentifier(leftNode.Kind()) {
@@ -105,19 +102,16 @@ func (r *NodeContextResolver) specializeSemanticAction(actionType model.Dependen
 				res.ContextKind = "assignment_expression"
 			}
 		} else if varDecl := helper.FindNearestKind(originNode, "variable_declarator"); varDecl != nil {
-			// 🎯 新增：完美支持 User user = new User() 类型的本地声明初始化
 			if nameNode := varDecl.ChildByFieldName("name"); nameNode != nil {
 				res.ExpressNode = nameNode
 				res.ExpressKind = nameNode.Kind()
 
-				// 锚定 Context 为整个声明子单元
 				res.ContextNode = varDecl
 				res.ContextKind = "variable_declarator"
 			}
 		}
 
 	case model.Call:
-		// 调用关系：如果当前节点是方法的叶子标识符，确保其能顺势覆盖到它所代表的直接 method_invocation 表达单元
 		if !r.isInvocationExpression(res.ExpressNode) {
 			parent := res.ExpressNode.Parent()
 			for parent != nil {
@@ -128,7 +122,6 @@ func (r *NodeContextResolver) specializeSemanticAction(actionType model.Dependen
 							targetNode = outer
 						}
 					}
-					// 🎯 只修正表达链条，不越权干涉外部 Context 边界
 					res.ExpressNode = targetNode
 					res.ExpressKind = targetNode.Kind()
 					break
@@ -138,7 +131,7 @@ func (r *NodeContextResolver) specializeSemanticAction(actionType model.Dependen
 		}
 
 	case model.Use:
-		// 纯读关系：天然契合双轨流的默认提取结果，保持原样即可
+		// 保持默认
 	}
 }
 
@@ -146,7 +139,6 @@ func (r *NodeContextResolver) specializeSemanticAction(actionType model.Dependen
 // 高内聚一元化工具爬升层
 // =============================================================================
 
-// findCoreChain 提取专门用于符号引用的局部连续连缀链，杜绝被外部算术/条件运算截断
 func (r *NodeContextResolver) findCoreChain(node *sitter.Node) *sitter.Node {
 	parent := node.Parent()
 	var outerChainNode *sitter.Node
@@ -167,7 +159,7 @@ func (r *NodeContextResolver) findCoreChain(node *sitter.Node) *sitter.Node {
 		case "method_invocation":
 			nameNode := parent.ChildByFieldName("name")
 			if nameNode != nil && nameNode.Id() == node.Id() {
-				return outerChainNode // 作为方法名时，其本身的 receiver 连缀至此阻断
+				return outerChainNode
 			}
 			objNode := parent.ChildByFieldName("object")
 			if objNode != nil && helper.IsNodeContained(objNode, node) {
@@ -184,7 +176,7 @@ func (r *NodeContextResolver) findCoreChain(node *sitter.Node) *sitter.Node {
 				return outerChainNode
 			}
 		case "assignment_expression", "binary_expression", "ternary_expression":
-			return outerChainNode // 撞见这些底层流式运算符号，说明符号连缀链条已达物理终点
+			return outerChainNode
 		default:
 			if r.canChainInKind(kind) {
 				node = parent
@@ -197,7 +189,6 @@ func (r *NodeContextResolver) findCoreChain(node *sitter.Node) *sitter.Node {
 	return outerChainNode
 }
 
-// findOuterBoundary 向上寻找宏观表达式的最外层合法的独立语义边界
 func (r *NodeContextResolver) findOuterBoundary(startNode *sitter.Node) *sitter.Node {
 	var bestBound *sitter.Node
 	curr := startNode
@@ -206,12 +197,10 @@ func (r *NodeContextResolver) findOuterBoundary(startNode *sitter.Node) *sitter.
 	for parent != nil {
 		kind := parent.Kind()
 
-		// 命中具有高级推断或拓扑价值的宏观表达式
 		if r.isMacroExpressionKind(kind) {
 			bestBound = parent
 		}
 
-		// 根据统一的穿透名单阻断或前行
 		if !r.canPenetrateUpward(kind) {
 			break
 		}
@@ -277,16 +266,40 @@ func (r *NodeContextResolver) findChainedAssignLeft(capturedNode *sitter.Node) *
 // =============================================================================
 
 func (r *NodeContextResolver) resolveForCreate(node *sitter.Node) *Result {
-	if createStmt := helper.FindNearestKind(node, "object_creation_expression", "array_creation_expression"); createStmt != nil {
-		return &Result{
-			ContextNode: createStmt,
-			ContextKind: createStmt.Kind(),
-			ExpressNode: createStmt,
-			ExpressKind: createStmt.Kind(),
-			IsChain:     false,
+	createExpr := helper.FindNearestKind(node, "object_creation_expression", "array_creation_expression")
+	if createExpr == nil {
+		return r.buildDefaultResult(node)
+	}
+
+	// 1. 统一提取类型节点作为 ExpressNode
+	expressNode := createExpr
+	namedCount := int(createExpr.NamedChildCount())
+	for i := 0; i < namedCount; i++ {
+		child := createExpr.NamedChild(uint(i))
+		ck := child.Kind()
+		// 涵盖对象类型、嵌套/限定类型、泛型以及数组的基础/对象类型节点
+		if ck == "scoped_type_identifier" || ck == "type_identifier" || ck == "generic_type" || helper.IsPrimitiveType(ck) {
+			expressNode = child
+			break
 		}
 	}
-	return r.buildDefaultResult(node)
+
+	// 2. 动态检测是否为链条组件（如：new int[10].clone() 或 new A.B().foo()）
+	isChain := false
+	if parent := createExpr.Parent(); parent != nil {
+		parentKind := parent.Kind()
+		if parentKind == "field_access" || parentKind == "method_invocation" {
+			isChain = true
+		}
+	}
+
+	return &Result{
+		ContextNode: createExpr,
+		ContextKind: createExpr.Kind(),
+		ExpressNode: expressNode,
+		ExpressKind: expressNode.Kind(),
+		IsChain:     isChain,
+	}
 }
 
 func (r *NodeContextResolver) resolveForThrow(node *sitter.Node) *Result {
@@ -351,7 +364,6 @@ func (r *NodeContextResolver) canPenetrateUpward(kind string) bool {
 		kind == "argument_list" || kind == "arguments" ||
 		kind == "variable_declarator" || kind == "parenthesized_expression" ||
 		kind == "binary_expression" || kind == "array_access" ||
-		// 🎯 允许穿透语句和块的语法噪音，从而能够顺利高攀到外部包裹着的 lambda_expression
 		kind == "expression_statement" || kind == "block"
 }
 
