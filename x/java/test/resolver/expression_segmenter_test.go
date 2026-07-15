@@ -11,17 +11,17 @@ import (
 	"github.com/CodMac/arch-lens-dep-analyer/x/java"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/resolver"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
-	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 // SegmentExpectation 定义单个分段测试的断言指标
 type SegmentExpectation struct {
-	Name        string
-	LineNum     int
-	TargetText  string // 触发捕获的原始核心文本
-	ExpHeadType resolver.ExpressionHeadType
-	ExpHeadName string
-	ExpSegments []resolver.ExpressionSegment // 期望被拉平求值的后续分段顺序
+	Name            string
+	LineNum         int
+	TargetText      string // 触发捕获的原始核心文本
+	ExpHeadType     resolver.ExpressionHeadType
+	ExpHeadName     string
+	ExpHeadCastType string
+	ExpSegments     []resolver.ExpressionSegment // 期望被拉平求值的后续分段顺序
 }
 
 func TestExpressionSegmenter_ResolveAssign(t *testing.T) {
@@ -29,12 +29,11 @@ func TestExpressionSegmenter_ResolveAssign(t *testing.T) {
 	gCtx := test.RunPhase1Collection(t, []string{testFile})
 	fCtx := gCtx.FileContexts[testFile]
 
-	tsLang, _ := core.GetLanguage(core.LangJava)
-	q, err := sitter.NewQuery(tsLang, java.JavaActionQuery)
+	// 2. 初始化核心规则与待测 Extractor
+	captures, err := java.NewJavaExtractor().GetCaptures(fCtx)
 	if err != nil {
-		t.Fatalf("Failed to compile JavaActionQuery: %v", err)
+		t.Fatal(err)
 	}
-	defer q.Close()
 
 	ctxResolver := resolver.NewNodeContextResolver(fCtx)
 	segmenter := resolver.NewExpressionSegmenter(fCtx)
@@ -522,7 +521,7 @@ func TestExpressionSegmenter_ResolveAssign(t *testing.T) {
 		},
 	}
 
-	runSegmentTestMatchNodeText(t, fCtx, q, ctxResolver, segmenter, model.Assign, assignExpectations)
+	runSegmentTestMatchNodeText(t, fCtx, captures, ctxResolver, segmenter, model.Assign, assignExpectations)
 }
 
 func TestExpressionSegmenter_ResolveCall(t *testing.T) {
@@ -530,12 +529,11 @@ func TestExpressionSegmenter_ResolveCall(t *testing.T) {
 	gCtx := test.RunPhase1Collection(t, []string{testFile})
 	fCtx := gCtx.FileContexts[testFile]
 
-	tsLang, _ := core.GetLanguage(core.LangJava)
-	q, err := sitter.NewQuery(tsLang, java.JavaActionQuery)
+	// 2. 初始化核心规则与待测 Extractor
+	captures, err := java.NewJavaExtractor().GetCaptures(fCtx)
 	if err != nil {
-		t.Fatalf("Failed to compile JavaActionQuery: %v", err)
+		t.Fatal(err)
 	}
-	defer q.Close()
 
 	ctxResolver := resolver.NewNodeContextResolver(fCtx)
 	segmenter := resolver.NewExpressionSegmenter(fCtx)
@@ -954,7 +952,7 @@ func TestExpressionSegmenter_ResolveCall(t *testing.T) {
 
 	// 执行与 Assign 完全对齐的循环驱动断言逻辑
 	// 注意这里将关联类型传递为了 model.Call
-	runSegmentTestMatchNodeText(t, fCtx, q, ctxResolver, segmenter, model.Call, callExpectations)
+	runSegmentTestMatchNodeText(t, fCtx, captures, ctxResolver, segmenter, model.Call, callExpectations)
 }
 
 func TestExpressionSegmenter_ResolveUse(t *testing.T) {
@@ -962,12 +960,11 @@ func TestExpressionSegmenter_ResolveUse(t *testing.T) {
 	gCtx := test.RunPhase1Collection(t, []string{testFile})
 	fCtx := gCtx.FileContexts[testFile]
 
-	tsLang, _ := core.GetLanguage(core.LangJava)
-	q, err := sitter.NewQuery(tsLang, java.JavaActionQuery)
+	// 2. 初始化核心规则与待测 Extractor
+	captures, err := java.NewJavaExtractor().GetCaptures(fCtx)
 	if err != nil {
-		t.Fatalf("Failed to compile JavaActionQuery: %v", err)
+		t.Fatal(err)
 	}
-	defer q.Close()
 
 	ctxResolver := resolver.NewNodeContextResolver(fCtx)
 	segmenter := resolver.NewExpressionSegmenter(fCtx)
@@ -1358,116 +1355,10 @@ func TestExpressionSegmenter_ResolveUse(t *testing.T) {
 	}
 
 	// 驱动底层运行，将关系定义锁定为 model.Use 语义类型
-	runSegmentTestMatchNodeText(t, fCtx, q, ctxResolver, segmenter, model.Use, useExpectations)
+	runSegmentTestMatchNodeText(t, fCtx, captures, ctxResolver, segmenter, model.Use, useExpectations)
 }
 
-func TestExpressionSegmenter_ResolveInnerClass(t *testing.T) {
-	testFile := test.GetTestFilePath(filepath.Join("resolver", "expression_segment", "InnerClassExpressionSegmenterCase.java"))
-	gCtx := test.RunPhase1Collection(t, []string{testFile})
-	fCtx := gCtx.FileContexts[testFile]
-
-	tsLang, _ := core.GetLanguage(core.LangJava)
-	q, err := sitter.NewQuery(tsLang, java.JavaActionQuery)
-	if err != nil {
-		t.Fatalf("Failed to compile JavaActionQuery: %v", err)
-	}
-	defer q.Close()
-
-	ctxResolver := resolver.NewNodeContextResolver(fCtx)
-	segmenter := resolver.NewExpressionSegmenter(fCtx)
-
-	// 基于最新版核心用例的精确绝对行号断言
-	useExpectations := []SegmentExpectation{
-		{
-			Name:        "场景1: 通过 Outer.this 显式限定符访问外部类字段",
-			LineNum:     19,
-			TargetText:  "outerField",
-			ExpHeadType: resolver.HeadIdent,
-			ExpHeadName: "InnerClassExpressionSegmenterCase",
-			ExpSegments: []resolver.ExpressionSegment{
-				{Kind: resolver.SegmentField, Name: "this"},
-				{Kind: resolver.SegmentField, Name: "outerField"},
-			},
-		},
-		{
-			Name:        "场景4: 内部类实例的属性读取",
-			LineNum:     32,
-			TargetText:  "staticInnerField",
-			ExpHeadType: resolver.HeadIdent,
-			ExpHeadName: "staticObj",
-			ExpSegments: []resolver.ExpressionSegment{
-				{Kind: resolver.SegmentField, Name: "staticInnerField"},
-			},
-		},
-	}
-	callExpectations := []SegmentExpectation{
-		{
-			Name:        "场景2: 通过 Outer.this 显式限定符调用外部类方法",
-			LineNum:     22,
-			TargetText:  "toString",
-			ExpHeadType: resolver.HeadIdent,
-			ExpHeadName: "InnerClassExpressionSegmenterCase",
-			ExpSegments: []resolver.ExpressionSegment{
-				{Kind: resolver.SegmentField, Name: "this"},
-				{Kind: resolver.SegmentMethod, Name: "toString"},
-			},
-		},
-		{
-			Name:        "场景3: 内部类实例的方法调用",
-			LineNum:     29,
-			TargetText:  "doSomething",
-			ExpHeadType: resolver.HeadIdent,
-			ExpHeadName: "staticObj",
-			ExpSegments: []resolver.ExpressionSegment{
-				{Kind: resolver.SegmentMethod, Name: "doSomething"},
-			},
-		},
-		{
-			Name:        "场景5: 匿名内部类闭包捕获外部局部变量调用",
-			LineNum:     39,
-			TargetText:  "doSomething",
-			ExpHeadType: resolver.HeadIdent,
-			ExpHeadName: "staticObj",
-			ExpSegments: []resolver.ExpressionSegment{
-				{Kind: resolver.SegmentMethod, Name: "doSomething"},
-			},
-		},
-		{
-			Name:        "场景7: 多层嵌套静态内部类的静态方法调用 (Class 节点识别)",
-			LineNum:     49,
-			TargetText:  "staticDoSomething",
-			ExpHeadType: resolver.HeadIdent,
-			ExpHeadName: "InnerClassExpressionSegmenterCase",
-			// 🎯 这里的关键：StaticInner 首字母大写且非全大写，必须被识别为 SegmentClass，而非普通的 SegmentField
-			ExpSegments: []resolver.ExpressionSegment{
-				{Kind: resolver.SegmentClass, Name: "StaticInner"},
-				{Kind: resolver.SegmentMethod, Name: "staticDoSomething"},
-			},
-		},
-	}
-	createExpectations := []SegmentExpectation{
-		{
-			Name:        "场景6: 显式带有外部全路径的内部类创建 (NewExpr)",
-			LineNum:     44,
-			TargetText:  "InnerClassExpressionSegmenterCase.StaticInner",
-			ExpHeadType: resolver.HeadNewExpr,
-			ExpHeadName: "InnerClassExpressionSegmenterCase.StaticInner",
-			ExpSegments: []resolver.ExpressionSegment{},
-		},
-	}
-	fmt.Printf("%d, %d", len(callExpectations), len(useExpectations))
-
-	// 触发全关系双轨断言验证
-	//runSegmentTestMatchNodeText(t, fCtx, q, ctxResolver, segmenter, model.Use, useExpectations)
-	//runSegmentTestMatchNodeText(t, fCtx, q, ctxResolver, segmenter, model.Call, callExpectations)
-	runSegmentTestMatchExprText(t, fCtx, q, ctxResolver, segmenter, model.Create, createExpectations)
-}
-
-// --- 🛠️ 抽象通用的双轨集成测试驱动引擎（带 USE 节点噪音过滤） ---
-func runSegmentTestMatchNodeText(t *testing.T, fCtx *core.FileContext, q *sitter.Query, ctxResolver *resolver.NodeContextResolver, segmenter *resolver.ExpressionSegmenter, actType model.DependencyType, expectations []SegmentExpectation) {
-	qc := sitter.NewQueryCursor()
-	matches := qc.Matches(q, fCtx.RootNode, *fCtx.SourceBytes)
-
+func runSegmentTestMatchNodeText(t *testing.T, fCtx *core.FileContext, captures []*java.CaptureTarget, ctxResolver *resolver.NodeContextResolver, segmenter *resolver.ExpressionSegmenter, actType model.DependencyType, expectations []SegmentExpectation) {
 	// 使用行号作为第一层隔离，Value 为该行所有合法的拉平表达式链
 	// 允许一行内存在多个不同的捕获链
 	capturedChains := make(map[string]*resolver.ExpressionChain)
@@ -1482,72 +1373,65 @@ func runSegmentTestMatchNodeText(t *testing.T, fCtx *core.FileContext, q *sitter
 		targetLines[exp.LineNum] = true
 	}
 
-	for {
-		match := matches.Next()
-		if match == nil {
-			break
+	// 捕获链
+	for _, cap := range captures {
+		lineNum := int(cap.Node.StartPosition().Row) + 1
+
+		// 过滤 1: 如果当前行不是我们断言关心的行，直接跳过，过滤大量无关的 USE 捕获
+		if !targetLines[lineNum] {
+			continue
 		}
 
-		for _, cap := range match.Captures {
-			lineNum := int(cap.Node.StartPosition().Row) + 1
+		// 过滤 2: 验证捕获动作类型
+		if captureTypeMap[cap.CapName] != actType {
+			continue
+		}
 
-			// 过滤 1: 如果当前行不是我们断言关心的行，直接跳过，过滤大量无关的 USE 捕获
-			if !targetLines[lineNum] {
-				continue
-			}
+		// 借助 NodeContextResolver 定位出完整的 ExpressNode
+		res := ctxResolver.ResolveContext(actType, cap.Node)
+		if res == nil || res.ExpressNode == nil {
+			continue
+		}
 
-			// 过滤 2: 验证捕获动作类型
-			capName := q.CaptureNames()[cap.Index]
-			if captureTypeMap[capName] != actType {
-				continue
-			}
+		// 过滤 3: 去重同一个表达式触发的多次 identifier 捕获。
+		// 比如 container.inner1.data 会触发 3 次捕获，但它们往上找的 ExpressNode 是同一个。
+		// 我们只处理完整长表达式的第一次解析（Tree-sitter 深度优先遍历通常先遇到大表达式或特定边缘）
+		exprKey := fmt.Sprintf("%d-%d", res.ExpressNode.StartByte(), res.ExpressNode.EndByte())
 
-			// 借助 NodeContextResolver 定位出完整的 ExpressNode
-			res := ctxResolver.ResolveContext(actType, &cap.Node)
-			if res == nil || res.ExpressNode == nil {
-				continue
-			}
+		// 将 ExpressNode 转化为被平铺的解析链条
+		chain := segmenter.Segment(res.ExpressNode, actType)
+		if chain == nil {
+			continue
+		}
 
-			// 过滤 3: 去重同一个表达式触发的多次 identifier 捕获。
-			// 比如 container.inner1.data 会触发 3 次捕获，但它们往上找的 ExpressNode 是同一个。
-			// 我们只处理完整长表达式的第一次解析（Tree-sitter 深度优先遍历通常先遇到大表达式或特定边缘）
-			exprKey := fmt.Sprintf("%d-%d", res.ExpressNode.StartByte(), res.ExpressNode.EndByte())
+		rawText := cap.Node.Utf8Text(*fCtx.SourceBytes)
 
-			// 将 ExpressNode 转化为被平铺的解析链条
-			chain := segmenter.Segment(res.ExpressNode)
-			if chain == nil {
-				continue
-			}
-
-			rawText := cap.Node.Utf8Text(*fCtx.SourceBytes)
-
-			// 过滤 4: 精准对齐。只保留当前捕获词刚好是链条最后一段名称，或者是链条 Head 名称的有效节点
-			// 这模拟了 Extractor 的有效引用过滤
-			isTargetComponent := false
-			if chain.Head.Name == rawText {
+		// 过滤 4: 精准对齐。只保留当前捕获词刚好是链条最后一段名称，或者是链条 Head 名称的有效节点
+		// 这模拟了 Extractor 的有效引用过滤
+		isTargetComponent := false
+		if chain.Head.Name == rawText {
+			isTargetComponent = true
+		}
+		for _, seg := range chain.Segments {
+			if seg.Name == rawText {
 				isTargetComponent = true
+				break
 			}
-			for _, seg := range chain.Segments {
-				if seg.Name == rawText {
-					isTargetComponent = true
-					break
-				}
-			}
-
-			if !isTargetComponent {
-				continue
-			}
-
-			if seenExpressions[exprKey] {
-				// 如果这个长表达式已经录入过了，后续子 identifier 的重复触发直接略过
-				continue
-			}
-			seenExpressions[exprKey] = true
-
-			// 拼装精准 Key
-			uniqueKey := fmt.Sprintf("%d:%s", lineNum, rawText)
-			capturedChains[uniqueKey] = chain
 		}
+
+		if !isTargetComponent {
+			continue
+		}
+
+		if seenExpressions[exprKey] {
+			// 如果这个长表达式已经录入过了，后续子 identifier 的重复触发直接略过
+			continue
+		}
+		seenExpressions[exprKey] = true
+
+		// 拼装精准 Key
+		uniqueKey := fmt.Sprintf("%d:%s", lineNum, rawText)
+		capturedChains[uniqueKey] = chain
 	}
 
 	// 验证所有目标点位的拉平求值拓扑结构
@@ -1605,10 +1489,232 @@ func runSegmentTestMatchNodeText(t *testing.T, fCtx *core.FileContext, q *sitter
 	}
 }
 
-func runSegmentTestMatchExprText(t *testing.T, fCtx *core.FileContext, q *sitter.Query, ctxResolver *resolver.NodeContextResolver, segmenter *resolver.ExpressionSegmenter, actType model.DependencyType, expectations []SegmentExpectation) {
-	qc := sitter.NewQueryCursor()
-	matches := qc.Matches(q, fCtx.RootNode, *fCtx.SourceBytes)
+func TestExpressionSegmenter_ResolveCreate(t *testing.T) {
+	// 1. 获取打样文件的 AST 树上下文 (非侵入式加载)
+	testFile := test.GetTestFilePath(filepath.Join("resolver", "expression_segment", "CreateSegmentCase.java"))
+	gCtx := test.RunPhase1Collection(t, []string{testFile})
+	fCtx := gCtx.FileContexts[testFile]
 
+	// 2. 初始化核心规则与待测 Extractor
+	captures, err := java.NewJavaExtractor().GetCaptures(fCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctxResolver := resolver.NewNodeContextResolver(fCtx)
+	segmenter := resolver.NewExpressionSegmenter(fCtx)
+
+	// 3. 定义 8 大核心场景下的精确拓扑分段预期
+	createExpectations := []SegmentExpectation{
+		{
+			Name:        "Case 1: 基础对象创建",
+			LineNum:     13,
+			TargetText:  "User",
+			ExpHeadType: resolver.HeadNewExpr,
+			ExpHeadName: "User",
+			ExpSegments: []resolver.ExpressionSegment{},
+		},
+		{
+			Name:        "Case 2: 泛型对象创建",
+			LineNum:     16,
+			TargetText:  "ArrayList<String>",
+			ExpHeadType: resolver.HeadNewExpr,
+			ExpHeadName: "ArrayList",
+			ExpSegments: []resolver.ExpressionSegment{},
+		},
+		{
+			Name:        "Case 3: 内部类创建",
+			LineNum:     19,
+			TargetText:  "Outer.Inner",
+			ExpHeadType: resolver.HeadNewExpr,
+			ExpHeadName: "Outer.Inner",
+			ExpSegments: []resolver.ExpressionSegment{},
+		},
+		{
+			Name:        "Case 4: 多层深嵌套内部类",
+			LineNum:     22,
+			TargetText:  "A.B.C",
+			ExpHeadType: resolver.HeadNewExpr,
+			ExpHeadName: "A.B.C",
+			ExpSegments: []resolver.ExpressionSegment{},
+		},
+		{
+			Name:        "Case 5: 基础数据类型数组",
+			LineNum:     25,
+			TargetText:  "int",
+			ExpHeadType: resolver.HeadNewExpr,
+			ExpHeadName: "int",
+			ExpSegments: []resolver.ExpressionSegment{},
+		},
+		{
+			Name:        "Case 6: 创建后立即链式调用方法",
+			LineNum:     28,
+			TargetText:  "Outer.Inner",
+			ExpHeadType: resolver.HeadNewExpr,
+			ExpHeadName: "Outer.Inner",
+			ExpSegments: []resolver.ExpressionSegment{},
+		},
+		{
+			Name:        "Case 7: 创建后立即访问内部字段",
+			LineNum:     31,
+			TargetText:  "Dummy",
+			ExpHeadType: resolver.HeadNewExpr,
+			ExpHeadName: "Dummy",
+			ExpSegments: []resolver.ExpressionSegment{},
+		},
+		{
+			Name:        "Case 8: 创建后立即进行数组索引访问",
+			LineNum:     34,
+			TargetText:  "String",
+			ExpHeadType: resolver.HeadNewExpr,
+			ExpHeadName: "String",
+			// 对应两级数组：String[5][0]
+			ExpSegments: []resolver.ExpressionSegment{},
+		},
+	}
+	callExpectations := []SegmentExpectation{
+		{
+			Name:        "Case 6: 创建后立即链式调用方法",
+			LineNum:     28,
+			TargetText:  "new Outer.Inner().perform()",
+			ExpHeadType: resolver.HeadNewExpr,
+			ExpHeadName: "Outer.Inner",
+			ExpSegments: []resolver.ExpressionSegment{
+				{Kind: resolver.SegmentMethod, Name: "perform"},
+			},
+		},
+	}
+	useExpectations := []SegmentExpectation{
+		{
+			Name:        "Case 7: 创建后立即访问内部字段",
+			LineNum:     31,
+			TargetText:  "new Dummy().status",
+			ExpHeadType: resolver.HeadNewExpr,
+			ExpHeadName: "Dummy",
+			ExpSegments: []resolver.ExpressionSegment{
+				{Kind: resolver.SegmentField, Name: "status"},
+			},
+		},
+	}
+	fmt.Printf("%d", len(createExpectations))
+	fmt.Printf("%d", len(callExpectations))
+	fmt.Printf("%d", len(useExpectations))
+
+	// 4. 执行双轨验证
+	runSegmentTestMatchExprText(t, fCtx, captures, ctxResolver, segmenter, model.Create, createExpectations)
+	runSegmentTestMatchExprText(t, fCtx, captures, ctxResolver, segmenter, model.Call, callExpectations)
+	runSegmentTestMatchExprText(t, fCtx, captures, ctxResolver, segmenter, model.Use, useExpectations)
+}
+
+func TestExpressionSegmenter_ResolveCast(t *testing.T) {
+	// 1. 获取打样文件的 AST 树上下文 (非侵入式加载)
+	testFile := test.GetTestFilePath(filepath.Join("resolver", "expression_segment", "CastSegmentCase.java"))
+	gCtx := test.RunPhase1Collection(t, []string{testFile})
+	fCtx := gCtx.FileContexts[testFile]
+
+	// 2. 初始化核心规则与待测 Extractor
+	captures, err := java.NewJavaExtractor().GetCaptures(fCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctxResolver := resolver.NewNodeContextResolver(fCtx)
+	segmenter := resolver.NewExpressionSegmenter(fCtx)
+
+	// 3. 定义 8 大核心强转/检查场景下的精确拓扑分段预期
+	castExpectations := []SegmentExpectation{
+		{
+			Name:            "Case 1: 基础向下转型",
+			LineNum:         11,
+			TargetText:      "(String) obj",
+			ExpHeadType:     resolver.HeadCastExpr,
+			ExpHeadName:     "obj",
+			ExpHeadCastType: "String",
+			ExpSegments:     []resolver.ExpressionSegment{},
+		},
+		{
+			Name:            "Case 2: 带泛型的集合转型",
+			LineNum:         14,
+			TargetText:      "(List<String>) obj",
+			ExpHeadType:     resolver.HeadCastExpr,
+			ExpHeadName:     "obj",
+			ExpHeadCastType: "List",
+			ExpSegments:     []resolver.ExpressionSegment{},
+		},
+		{
+			Name:            "Case 3: 全限定类名转型",
+			LineNum:         17,
+			TargetText:      "(java.util.Map) obj",
+			ExpHeadType:     resolver.HeadCastExpr,
+			ExpHeadName:     "obj",
+			ExpHeadCastType: "java.util.Map",
+			ExpSegments:     []resolver.ExpressionSegment{},
+		},
+		{
+			Name:            "Case 4: 多重强转 (Double Cast)",
+			LineNum:         20,
+			TargetText:      "(Runnable)(Object) obj",
+			ExpHeadType:     resolver.HeadCastExpr,
+			ExpHeadName:     "obj",
+			ExpHeadCastType: "Runnable",
+			ExpSegments:     []resolver.ExpressionSegment{},
+		},
+		{
+			Name:            "Case 7: 传统 instanceof 检查",
+			LineNum:         29,
+			TargetText:      "obj instanceof String",
+			ExpHeadType:     resolver.HeadCastExpr,
+			ExpHeadName:     "obj",
+			ExpHeadCastType: "String",
+			ExpSegments:     []resolver.ExpressionSegment{},
+		},
+		{
+			Name:            "Case 8: 模式匹配 instanceof (Java 14+)",
+			LineNum:         32,
+			TargetText:      "obj instanceof String str",
+			ExpHeadType:     resolver.HeadCastExpr,
+			ExpHeadName:     "obj",
+			ExpHeadCastType: "String",
+			ExpSegments:     []resolver.ExpressionSegment{},
+		},
+	}
+	callExpectations := []SegmentExpectation{
+		{
+			Name:            "Case 5: 强转后立即进行方法调用",
+			LineNum:         23,
+			TargetText:      "((Sub) obj).perform()",
+			ExpHeadType:     resolver.HeadCastExpr,
+			ExpHeadName:     "obj",
+			ExpHeadCastType: "Sub",
+			ExpSegments: []resolver.ExpressionSegment{
+				{Kind: resolver.SegmentMethod, Name: "perform"},
+			},
+		},
+	}
+	useExpectations := []SegmentExpectation{
+		{
+			Name:            "Case 6: 强转后立即访问属性字段",
+			LineNum:         26,
+			TargetText:      "((Dummy) obj).status",
+			ExpHeadType:     resolver.HeadCastExpr,
+			ExpHeadName:     "obj",
+			ExpHeadCastType: "Dummy",
+			ExpSegments: []resolver.ExpressionSegment{
+				{Kind: resolver.SegmentField, Name: "status"},
+			},
+		},
+	}
+	//fmt.Printf("%d\n", len(castExpectations))
+	//fmt.Printf("%d\n", len(callExpectations))
+	//fmt.Printf("%d\n", len(useExpectations))
+
+	// 4. 执行双轨验证 (验证目标类型为 model.Cast)
+	runSegmentTestMatchExprText(t, fCtx, captures, ctxResolver, segmenter, model.Cast, castExpectations)
+	runSegmentTestMatchExprText(t, fCtx, captures, ctxResolver, segmenter, model.Call, callExpectations)
+	runSegmentTestMatchExprText(t, fCtx, captures, ctxResolver, segmenter, model.Use, useExpectations)
+}
+
+func runSegmentTestMatchExprText(t *testing.T, fCtx *core.FileContext, captures []*java.CaptureTarget, ctxResolver *resolver.NodeContextResolver, segmenter *resolver.ExpressionSegmenter, actType model.DependencyType, expectations []SegmentExpectation) {
 	// 建立快捷索引，只处理我们在 expectations 里声明的行
 	targetLines := make(map[int]bool)
 	for _, exp := range expectations {
@@ -1617,43 +1723,37 @@ func runSegmentTestMatchExprText(t *testing.T, fCtx *core.FileContext, q *sitter
 
 	// 捕获链
 	capturedChains := make(map[string]*resolver.ExpressionChain)
-	for {
-		match := matches.Next()
-		if match == nil {
-			break
+	for _, cap := range captures {
+		lineNum := int(cap.Node.StartPosition().Row) + 1
+
+		// 过滤 1: 如果当前行不是我们断言关心的行，直接跳过，过滤大量无关的 USE 捕获
+		if !targetLines[lineNum] {
+			continue
 		}
 
-		for _, cap := range match.Captures {
-			lineNum := int(cap.Node.StartPosition().Row) + 1
-
-			// 过滤 1: 如果当前行不是我们断言关心的行，直接跳过，过滤大量无关的 USE 捕获
-			if !targetLines[lineNum] {
-				continue
-			}
-
-			// 过滤 2: 验证捕获动作类型
-			capName := q.CaptureNames()[cap.Index]
-			if captureTypeMap[capName] != actType {
-				continue
-			}
-
-			// 借助 NodeContextResolver 定位出完整的 ExpressNode
-			res := ctxResolver.ResolveContext(actType, &cap.Node)
-			if res == nil || res.ExpressNode == nil {
-				continue
-			}
-
-			// 将 ExpressNode 转化为被平铺的解析链条
-			chain := segmenter.Segment(res.ExpressNode)
-			if chain == nil {
-				continue
-			}
-
-			// 过滤 3: 目标表达式
-			exprText := res.ExpressNode.Utf8Text(*fCtx.SourceBytes)
-			uniqueKey := fmt.Sprintf("%d:%s", lineNum, exprText)
-			capturedChains[uniqueKey] = chain
+		// 过滤 2: 验证捕获动作类型
+		if captureTypeMap[cap.CapName] != actType {
+			continue
 		}
+
+		// 借助 NodeContextResolver 定位出完整的 ExpressNode
+		res := ctxResolver.ResolveContext(actType, cap.Node)
+		if res == nil || res.ExpressNode == nil {
+			continue
+		}
+
+		fmt.Printf("%s -> %s\n", cap.Node.Utf8Text(*fCtx.SourceBytes), res.ExpressNode.Utf8Text(*fCtx.SourceBytes))
+
+		// 将 ExpressNode 转化为被平铺的解析链条
+		chain := segmenter.Segment(res.ExpressNode, actType)
+		if chain == nil {
+			continue
+		}
+
+		// 过滤 3: 目标表达式
+		exprText := res.ExpressNode.Utf8Text(*fCtx.SourceBytes)
+		uniqueKey := fmt.Sprintf("%d:%s", lineNum, exprText)
+		capturedChains[uniqueKey] = chain
 	}
 
 	// 验证所有目标点位的拉平求值拓扑结构
@@ -1667,24 +1767,27 @@ func runSegmentTestMatchExprText(t *testing.T, fCtx *core.FileContext, q *sitter
 
 		// 1. 验证链条起点 (Head) 的准确度
 		if actualChain.Head.Type != exp.ExpHeadType {
-			t.Errorf("Head 类型不匹配. 期望: %v, 实际: %v (文本: %s)", exp.ExpHeadType, actualChain.Head.Type, actualChain.Head.RawText)
+			t.Errorf("Case行号 %d, Head 类型不匹配. 期望: %v, 实际: %v (文本: %s)", exp.LineNum, exp.ExpHeadType, actualChain.Head.Type, actualChain.Head.RawText)
 		}
 		if actualChain.Head.Name != exp.ExpHeadName {
-			t.Errorf("Head 标识符不匹配. 期望: %s, 实际: %s", exp.ExpHeadName, actualChain.Head.Name)
+			t.Errorf("Case行号 %d, Head 标识符不匹配. 期望: %s, 实际: %s", exp.LineNum, exp.ExpHeadName, actualChain.Head.Name)
+		}
+		if exp.ExpHeadCastType != "" && actualChain.Head.CastType != exp.ExpHeadCastType {
+			t.Errorf("Case行号 %d, Head CastType不匹配. 期望: %s, 实际: %s", exp.LineNum, exp.ExpHeadCastType, actualChain.Head.CastType)
 		}
 
 		// 2. 验证递进分段 (Segments) 的求值拓扑顺序与广度是否一致
 		if len(actualChain.Segments) != len(exp.ExpSegments) {
-			t.Fatalf("Segments 拓扑长度不匹配.\n期望级数: %d\n实际级数: %d\n完整解析链: %s", len(exp.ExpSegments), len(actualChain.Segments), actualChain.RawText)
+			t.Fatalf("Case行号 %d, Segments 拓扑长度不匹配.\n期望级数: %d\n实际级数: %d\n完整解析链: %s", exp.LineNum, len(exp.ExpSegments), len(actualChain.Segments), actualChain.RawText)
 		}
 
 		for i, segExpect := range exp.ExpSegments {
 			actualSeg := actualChain.Segments[i]
 			if actualSeg.Kind != segExpect.Kind {
-				t.Errorf("第 [%d] 步分段依赖性质 Kind 错位. 期望: %v, 实际: %v", i, segExpect.Kind, actualSeg.Kind)
+				t.Errorf("Case行号 %d, 第 [%d] 步分段依赖性质 Kind 错位. 期望: %v, 实际: %v", exp.LineNum, i, segExpect.Kind, actualSeg.Kind)
 			}
 			if segExpect.Name != "" && actualSeg.Name != segExpect.Name {
-				t.Errorf("第 [%d] 步分段映射标识符 Name 错误. 期望: %s, 实际: %s", i, segExpect.Name, actualSeg.Name)
+				t.Errorf("Case行号 %d, 第 [%d] 步分段映射标识符 Name 错误. 期望: %s, 实际: %s", exp.LineNum, i, segExpect.Name, actualSeg.Name)
 			}
 		}
 	}

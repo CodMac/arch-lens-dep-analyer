@@ -17,14 +17,17 @@ const (
 	HeadImplicitMethod                      // 隐式方法调用起点（如 simpleMethod()）
 	HeadSuperConstructor                    // 显式父类构造调用起点（如 super()）
 	HeadThisConstructor                     // 显式本类构造调用起点（如 this()）
+	HeadCastExpr                            // 类型转换起点，如 ((User) obj)
 )
 
 // ExpressionHead 链式调用的入口节点
 type ExpressionHead struct {
 	Type    ExpressionHeadType
-	Name    string       // 标识符名称（如 "order"），若为 New/Literal 则同 RawText
+	Name    string       // 标识符名称（如 "order"），若为 New/Literal 则同 RawText，若为 Cast 则为被强转表达式的变量名/底层名
 	ASTNode *sitter.Node // 对应的 Tree-sitter 节点
 	RawText string       // 源码文本
+
+	CastType string // 如果是强转/模式匹配起点，存放强转的目标类型（如 "User"）
 }
 
 // SegmentKind 定义后续求值每一步的动作类型

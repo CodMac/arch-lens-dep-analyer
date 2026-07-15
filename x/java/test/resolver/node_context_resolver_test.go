@@ -6,12 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java" // 引入包含 JavaActionQuery 的 java 包
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/resolver"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/test"
-	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 // 辅助映射字典
@@ -42,15 +40,11 @@ func TestNodeContextResolver_Call(t *testing.T) {
 	gCtx := test.RunPhase1Collection(t, []string{testFile})
 	fCtx := gCtx.FileContexts[testFile]
 
-	// 2. 初始化核心规则与待测 Resolver
-	tsLang, _ := core.GetLanguage(core.LangJava)
-	q, err := sitter.NewQuery(tsLang, java.JavaActionQuery) // 🎯 直接引入并使用你的生产环境查询文件
+	// 2. 初始化核心规则与待测 Extractor
+	captures, err := java.NewJavaExtractor().GetCaptures(fCtx)
 	if err != nil {
-		t.Fatalf("Failed to compile JavaActionQuery: %v", err)
+		t.Fatal(err)
 	}
-	defer q.Close()
-
-	ctxResolver := resolver.NewNodeContextResolver(fCtx)
 
 	// 3. 构造集成测试期望集（完整覆盖 Call TestSuite 中的 12 个核心语法场景）
 	expectations := []TestCaseExpectation{
@@ -155,43 +149,33 @@ func TestNodeContextResolver_Call(t *testing.T) {
 		},
 	}
 
-	// 4. 模拟 Extractor 的发现流机制进行全局点位捕获
-	qc := sitter.NewQueryCursor()
-	matches := qc.Matches(q, fCtx.RootNode, *fCtx.SourceBytes)
+	ctxResolver := resolver.NewNodeContextResolver(fCtx)
 
-	// 将捕获出来的所有动作点收纳到一个便于断言的 Map 容器中
+	// 4. 将捕获出来的所有动作点收纳到一个便于断言的 Map 容器中
 	capturedResults := make(map[string]*resolver.Result)
+	for _, cap := range captures {
+		capName := cap.CapName
 
-	for {
-		match := matches.Next()
-		if match == nil {
-			break
+		// 根据你的 Extractor 映射约定，只关注 target 结尾或指定特征的点位
+		if !strings.HasSuffix(capName, "_target") && capName != "explicit_constructor_stmt" && capName != "id_atom" {
+			continue
 		}
 
-		for _, cap := range match.Captures {
-			capName := q.CaptureNames()[cap.Index]
-
-			// 根据你的 Extractor 映射约定，只关注 target 结尾或指定特征的点位
-			if !strings.HasSuffix(capName, "_target") && capName != "explicit_constructor_stmt" && capName != "id_atom" {
-				continue
-			}
-
-			actType, exists := captureTypeMap[capName]
-			if !exists {
-				continue
-			}
-
-			// 🎯 核心测试点：模拟生产消费，直接调用重构后的双轨一元化流水线
-			res := ctxResolver.ResolveContext(actType, &cap.Node)
-			if res == nil || res.ExpressNode == nil {
-				continue
-			}
-
-			// 使用 捕获的文本内容 作为 Key 来快速索引匹配（TestSuite 变量命名已带有唯一性保证）
-			rawText := cap.Node.Utf8Text(*fCtx.SourceBytes)
-			uniqueKey := fmt.Sprintf("%s:%s", actType, rawText)
-			capturedResults[uniqueKey] = res
+		actType, exists := captureTypeMap[capName]
+		if !exists {
+			continue
 		}
+
+		// 🎯 核心测试点：模拟生产消费，直接调用重构后的双轨一元化流水线
+		res := ctxResolver.ResolveContext(actType, cap.Node)
+		if res == nil || res.ExpressNode == nil {
+			continue
+		}
+
+		// 使用 捕获的文本内容 作为 Key 来快速索引匹配（TestSuite 变量命名已带有唯一性保证）
+		rawText := cap.Node.Utf8Text(*fCtx.SourceBytes)
+		uniqueKey := fmt.Sprintf("%s:%s", actType, rawText)
+		capturedResults[uniqueKey] = res
 	}
 
 	// 5. 按照断言集执行最终的校验闭环
@@ -234,13 +218,11 @@ func TestNodeContextResolver_Assign(t *testing.T) {
 	gCtx := test.RunPhase1Collection(t, []string{testFile})
 	fCtx := gCtx.FileContexts[testFile]
 
-	// 2. 初始化核心规则与待测 Resolver
-	tsLang, _ := core.GetLanguage(core.LangJava)
-	q, err := sitter.NewQuery(tsLang, java.JavaActionQuery)
+	// 2. 初始化核心规则与待测 Extractor
+	captures, err := java.NewJavaExtractor().GetCaptures(fCtx)
 	if err != nil {
-		t.Fatalf("Failed to compile JavaActionQuery: %v", err)
+		t.Fatal(err)
 	}
-	defer q.Close()
 
 	ctxResolver := resolver.NewNodeContextResolver(fCtx)
 
@@ -311,41 +293,29 @@ func TestNodeContextResolver_Assign(t *testing.T) {
 		},
 	}
 
-	// 4. 模拟 Extractor 的全面发现机制，建立捕获数据库 Map
-	qc := sitter.NewQueryCursor()
-	matches := qc.Matches(q, fCtx.RootNode, *fCtx.SourceBytes)
-
-	// 使用复合唯一键来锁定不同行的同名捕获： Action:Line:Text
+	// 4. 使用复合唯一键来锁定不同行的同名捕获： Action:Line:Text
 	capturedResults := make(map[string]*resolver.Result)
+	for _, cap := range captures {
+		capName := cap.CapName
 
-	for {
-		match := matches.Next()
-		if match == nil {
-			break
+		// 聚焦于赋值目标（assign_target）
+		if capName != "assign_target" {
+			continue
 		}
 
-		for _, cap := range match.Captures {
-			capName := q.CaptureNames()[cap.Index]
-
-			// 聚焦于赋值目标（assign_target）
-			if capName != "assign_target" {
-				continue
-			}
-
-			actType := model.Assign
-			res := ctxResolver.ResolveContext(actType, &cap.Node)
-			if res == nil || res.ExpressNode == nil {
-				continue
-			}
-
-			// 提取行号与原标识符文本
-			lineNum := int(cap.Node.StartPosition().Row) + 1
-			rawText := cap.Node.Utf8Text(*fCtx.SourceBytes)
-
-			// 生成强锁定唯一键，形如 "Assign:15:instanceField"
-			uniqueKey := fmt.Sprintf("%s:%d:%s", actType, lineNum, rawText)
-			capturedResults[uniqueKey] = res
+		actType := model.Assign
+		res := ctxResolver.ResolveContext(actType, cap.Node)
+		if res == nil || res.ExpressNode == nil {
+			continue
 		}
+
+		// 提取行号与原标识符文本
+		lineNum := int(cap.Node.StartPosition().Row) + 1
+		rawText := cap.Node.Utf8Text(*fCtx.SourceBytes)
+
+		// 生成强锁定唯一键，形如 "Assign:15:instanceField"
+		uniqueKey := fmt.Sprintf("%s:%d:%s", actType, lineNum, rawText)
+		capturedResults[uniqueKey] = res
 	}
 
 	// 5. 开启期望集遍历验证断言闭环
@@ -388,13 +358,11 @@ func TestNodeContextResolver_Use(t *testing.T) {
 	gCtx := test.RunPhase1Collection(t, []string{testFile})
 	fCtx := gCtx.FileContexts[testFile]
 
-	// 2. 初始化核心规则与待测 Resolver
-	tsLang, _ := core.GetLanguage(core.LangJava)
-	q, err := sitter.NewQuery(tsLang, java.JavaActionQuery)
+	// 2. 初始化核心规则与待测 Extractor
+	captures, err := java.NewJavaExtractor().GetCaptures(fCtx)
 	if err != nil {
-		t.Fatalf("Failed to compile JavaActionQuery: %v", err)
+		t.Fatal(err)
 	}
-	defer q.Close()
 
 	ctxResolver := resolver.NewNodeContextResolver(fCtx)
 
@@ -505,40 +473,29 @@ func TestNodeContextResolver_Use(t *testing.T) {
 		},
 	}
 
-	// 4. 模拟全面发现流，建立复合唯一键存储 Map 容器
-	qc := sitter.NewQueryCursor()
-	matches := qc.Matches(q, fCtx.RootNode, *fCtx.SourceBytes)
-
+	// 4. 将捕获出来的所有动作点收纳到一个便于断言的 Map 容器中
 	capturedResults := make(map[string]*resolver.Result)
+	for _, cap := range captures {
+		capName := cap.CapName
 
-	for {
-		match := matches.Next()
-		if match == nil {
-			break
+		// 在你的 JavaActionQuery 语义定义中，使用(Use)关系由 id_atom 进行统一的基础漏斗捕获
+		if capName != "id_atom" {
+			continue
 		}
 
-		for _, cap := range match.Captures {
-			capName := q.CaptureNames()[cap.Index]
-
-			// 在你的 JavaActionQuery 语义定义中，使用(Use)关系由 id_atom 进行统一的基础漏斗捕获
-			if capName != "id_atom" {
-				continue
-			}
-
-			actType := model.Use
-			res := ctxResolver.ResolveContext(actType, &cap.Node)
-			if res == nil || res.ExpressNode == nil {
-				continue
-			}
-
-			// 获取点位的精准行号及捕获文本
-			lineNum := int(cap.Node.StartPosition().Row) + 1
-			rawText := cap.Node.Utf8Text(*fCtx.SourceBytes)
-
-			// 复合复合健隔离冲突：如 "Use:26:staticConstant"
-			uniqueKey := fmt.Sprintf("%s:%d:%s", actType, lineNum, rawText)
-			capturedResults[uniqueKey] = res
+		actType := model.Use
+		res := ctxResolver.ResolveContext(actType, cap.Node)
+		if res == nil || res.ExpressNode == nil {
+			continue
 		}
+
+		// 获取点位的精准行号及捕获文本
+		lineNum := int(cap.Node.StartPosition().Row) + 1
+		rawText := cap.Node.Utf8Text(*fCtx.SourceBytes)
+
+		// 复合复合健隔离冲突：如 "Use:26:staticConstant"
+		uniqueKey := fmt.Sprintf("%s:%d:%s", actType, lineNum, rawText)
+		capturedResults[uniqueKey] = res
 	}
 
 	// 5. 遍历验证全部 Use 断言用例
@@ -580,13 +537,11 @@ func TestNodeContextResolver_Cast(t *testing.T) {
 	gCtx := test.RunPhase1Collection(t, []string{testFile})
 	fCtx := gCtx.FileContexts[testFile]
 
-	// 2. 初始化核心规则与待测 Resolver
-	tsLang, _ := core.GetLanguage(core.LangJava)
-	q, err := sitter.NewQuery(tsLang, java.JavaActionQuery)
+	// 2. 初始化核心规则与待测 Extractor
+	captures, err := java.NewJavaExtractor().GetCaptures(fCtx)
 	if err != nil {
-		t.Fatalf("Failed to compile JavaActionQuery: %v", err)
+		t.Fatal(err)
 	}
-	defer q.Close()
 
 	ctxResolver := resolver.NewNodeContextResolver(fCtx)
 
@@ -596,8 +551,8 @@ func TestNodeContextResolver_Cast(t *testing.T) {
 			Name:       "Case 1: 基本类型转换",
 			ActionType: model.Cast,
 			LineNum:    11,
-			TargetText: "String",
-			ExpExpress: "String",
+			TargetText: "(String) sourceObj",
+			ExpExpress: "(String) sourceObj",
 			ExpContext: "(String) sourceObj",
 			IsChain:    false,
 		},
@@ -605,8 +560,8 @@ func TestNodeContextResolver_Cast(t *testing.T) {
 			Name:       "Case 2: 父类转子类",
 			ActionType: model.Cast,
 			LineNum:    17,
-			TargetText: "ChildClass",
-			ExpExpress: "ChildClass",
+			TargetText: "(ChildClass) parentVar",
+			ExpExpress: "(ChildClass) parentVar",
 			ExpContext: "(ChildClass) parentVar",
 			IsChain:    false,
 		},
@@ -614,8 +569,8 @@ func TestNodeContextResolver_Cast(t *testing.T) {
 			Name:       "Case 3: 接口转实现类",
 			ActionType: model.Cast,
 			LineNum:    25,
-			TargetText: "ImplClass",
-			ExpExpress: "ImplClass",
+			TargetText: "(ImplClass) interfaceVar",
+			ExpExpress: "(ImplClass) interfaceVar",
 			ExpContext: "(ImplClass) interfaceVar",
 			IsChain:    false,
 		},
@@ -623,8 +578,8 @@ func TestNodeContextResolver_Cast(t *testing.T) {
 			Name:       "Case 4: 数组类型转换",
 			ActionType: model.Cast,
 			LineNum:    33,
-			TargetText: "String[]",
-			ExpExpress: "String[]",
+			TargetText: "(String[]) objArray",
+			ExpExpress: "(String[]) objArray",
 			ExpContext: "(String[]) objArray",
 			IsChain:    false,
 		},
@@ -632,8 +587,8 @@ func TestNodeContextResolver_Cast(t *testing.T) {
 			Name:       "Case 5: 多重/链式类型转换的末尾行",
 			ActionType: model.Cast,
 			LineNum:    40,
-			TargetText: "Integer",
-			ExpExpress: "Integer",
+			TargetText: "(Integer) object2",
+			ExpExpress: "(Integer) object2",
 			ExpContext: "(Integer) object2",
 			IsChain:    false,
 		},
@@ -641,8 +596,8 @@ func TestNodeContextResolver_Cast(t *testing.T) {
 			Name:       "Case 6: 带泛型的类型转换",
 			ActionType: model.Cast,
 			LineNum:    47,
-			TargetText: "List<String>",
-			ExpExpress: "List<String>",
+			TargetText: "(List<String>) genericObj",
+			ExpExpress: "(List<String>) genericObj",
 			ExpContext: "(List<String>) genericObj",
 			IsChain:    false,
 		},
@@ -650,8 +605,8 @@ func TestNodeContextResolver_Cast(t *testing.T) {
 			Name:       "Case 7: 原始/基本内置类型转换",
 			ActionType: model.Cast,
 			LineNum:    53,
-			TargetText: "int",
-			ExpExpress: "int",
+			TargetText: "(int) intObj",
+			ExpExpress: "(int) intObj",
 			ExpContext: "(int) intObj",
 			IsChain:    false,
 		},
@@ -659,9 +614,8 @@ func TestNodeContextResolver_Cast(t *testing.T) {
 			Name:       "Case 8: 方法调用参数中进行类型转换",
 			ActionType: model.Cast,
 			LineNum:    59,
-			TargetText: "String",
-			ExpExpress: "String",
-			// 🌲 宏观边界由于外溯穿透 argument_list，完美定位最外层方法调用语句
+			TargetText: "(String) methodArg",
+			ExpExpress: "(String) methodArg",
 			ExpContext: "(String) methodArg",
 			IsChain:    false,
 		},
@@ -669,9 +623,8 @@ func TestNodeContextResolver_Cast(t *testing.T) {
 			Name:       "Case 9: Lambda块内部的类型转换",
 			ActionType: model.Cast,
 			LineNum:    67,
-			TargetText: "String",
-			ExpExpress: "String",
-			// 🌲 穿透语句与代码块，成功浮现至外包裹的 lambda_expression 拓扑结构
+			TargetText: "(String) lambdaArg",
+			ExpExpress: "(String) lambdaArg",
 			ExpContext: "(String) lambdaArg",
 			IsChain:    false,
 		},
@@ -679,9 +632,8 @@ func TestNodeContextResolver_Cast(t *testing.T) {
 			Name:       "Case 10: 三元/条件表达式中的类型转换",
 			ActionType: model.Cast,
 			LineNum:    74,
-			TargetText: "String",
-			ExpExpress: "String",
-			// 🌲 穿透三元表达式分支，抓取完整的三元逻辑条件大容器
+			TargetText: "(String) conditionObj",
+			ExpExpress: "(String) conditionObj",
 			ExpContext: "(String) conditionObj",
 			IsChain:    false,
 		},
@@ -689,8 +641,8 @@ func TestNodeContextResolver_Cast(t *testing.T) {
 			Name:       "Case 11: instanceof检查块后的类型转换",
 			ActionType: model.Cast,
 			LineNum:    81,
-			TargetText: "ChildClass",
-			ExpExpress: "ChildClass",
+			TargetText: "(ChildClass) checkObj",
+			ExpExpress: "(ChildClass) checkObj",
 			ExpContext: "(ChildClass) checkObj",
 			IsChain:    false,
 		},
@@ -698,8 +650,8 @@ func TestNodeContextResolver_Cast(t *testing.T) {
 			Name:       "Case 12: 多层递进转换后的特定行",
 			ActionType: model.Cast,
 			LineNum:    88,
-			TargetText: "String",
-			ExpExpress: "String",
+			TargetText: "(String) multiObj",
+			ExpExpress: "(String) multiObj",
 			ExpContext: "(String) multiObj",
 			IsChain:    false,
 		},
@@ -707,8 +659,8 @@ func TestNodeContextResolver_Cast(t *testing.T) {
 			Name:       "Case 13: 异常体系类型转换",
 			ActionType: model.Cast,
 			LineNum:    95,
-			TargetText: "RuntimeException",
-			ExpExpress: "RuntimeException",
+			TargetText: "(RuntimeException) exceptionObj",
+			ExpExpress: "(RuntimeException) exceptionObj",
 			ExpContext: "(RuntimeException) exceptionObj",
 			IsChain:    false,
 		},
@@ -716,8 +668,8 @@ func TestNodeContextResolver_Cast(t *testing.T) {
 			Name:       "Case 14: 数组元素读取结果的类型转换",
 			ActionType: model.Cast,
 			LineNum:    102,
-			TargetText: "String",
-			ExpExpress: "String",
+			TargetText: "(String) elementArray[0]",
+			ExpExpress: "(String) elementArray[0]",
 			ExpContext: "(String) elementArray[0]",
 			IsChain:    false,
 		},
@@ -725,46 +677,35 @@ func TestNodeContextResolver_Cast(t *testing.T) {
 			Name:       "Case 15: 匿名函数/Lambda槽内的类型转换",
 			ActionType: model.Cast,
 			LineNum:    111,
-			TargetText: "String",
-			ExpExpress: "String",
+			TargetText: "(String) obj",
+			ExpExpress: "(String) obj",
 			ExpContext: "(String) obj",
 			IsChain:    false,
 		},
 	}
 
 	// 4. 模拟点位发现流，建立复合唯一键数据库 Map
-	qc := sitter.NewQueryCursor()
-	matches := qc.Matches(q, fCtx.RootNode, *fCtx.SourceBytes)
-
 	capturedResults := make(map[string]*resolver.Result)
+	for _, cap := range captures {
+		capName := cap.CapName
 
-	for {
-		match := matches.Next()
-		if match == nil {
-			break
+		// 仅捕获 JavaActionQuery 中定义的 cast_target 节点
+		if capName != "cast_target" {
+			continue
 		}
 
-		for _, cap := range match.Captures {
-			capName := q.CaptureNames()[cap.Index]
-
-			// 仅捕获 JavaActionQuery 中定义的 cast_target 节点
-			if capName != "cast_target" {
-				continue
-			}
-
-			actType := model.Cast
-			res := ctxResolver.ResolveContext(actType, &cap.Node)
-			if res == nil || res.ExpressNode == nil {
-				continue
-			}
-
-			lineNum := int(cap.Node.StartPosition().Row) + 1
-			rawText := cap.Node.Utf8Text(*fCtx.SourceBytes)
-
-			// 复合唯一键：Cast:Line:Text 锁定多行同名或重复的转换点
-			uniqueKey := fmt.Sprintf("%s:%d:%s", actType, lineNum, rawText)
-			capturedResults[uniqueKey] = res
+		actType := model.Cast
+		res := ctxResolver.ResolveContext(actType, cap.Node)
+		if res == nil || res.ExpressNode == nil {
+			continue
 		}
+
+		lineNum := int(cap.Node.StartPosition().Row) + 1
+		rawText := cap.Node.Utf8Text(*fCtx.SourceBytes)
+
+		// 复合唯一键：Cast:Line:Text 锁定多行同名或重复的转换点
+		uniqueKey := fmt.Sprintf("%s:%d:%s", actType, lineNum, rawText)
+		capturedResults[uniqueKey] = res
 	}
 
 	// 5. 遍历验证全量断言闭环
@@ -806,13 +747,11 @@ func TestNodeContextResolver_Create(t *testing.T) {
 	gCtx := test.RunPhase1Collection(t, []string{testFile})
 	fCtx := gCtx.FileContexts[testFile]
 
-	// 2. 初始化核心规则与待测 Resolver
-	tsLang, _ := core.GetLanguage(core.LangJava)
-	q, err := sitter.NewQuery(tsLang, java.JavaActionQuery)
+	// 2. 初始化核心规则与待测 Extractor
+	captures, err := java.NewJavaExtractor().GetCaptures(fCtx)
 	if err != nil {
-		t.Fatalf("Failed to compile JavaActionQuery: %v", err)
+		t.Fatal(err)
 	}
-	defer q.Close()
 
 	ctxResolver := resolver.NewNodeContextResolver(fCtx)
 
@@ -929,38 +868,27 @@ func TestNodeContextResolver_Create(t *testing.T) {
 	}
 
 	// 4. 全局匹配捕获，建立复合唯一键索引 Map
-	qc := sitter.NewQueryCursor()
-	matches := qc.Matches(q, fCtx.RootNode, *fCtx.SourceBytes)
-
 	capturedResults := make(map[string]*resolver.Result)
+	for _, cap := range captures {
+		capName := cap.CapName
 
-	for {
-		match := matches.Next()
-		if match == nil {
-			break
+		// Create 动作在规则中常通过 create_target 进行捕获映射
+		if capName != "create_target" {
+			continue
 		}
 
-		for _, cap := range match.Captures {
-			capName := q.CaptureNames()[cap.Index]
-
-			// Create 动作在规则中常通过 create_target 进行捕获映射
-			if capName != "create_target" {
-				continue
-			}
-
-			actType := model.Create
-			res := ctxResolver.ResolveContext(actType, &cap.Node)
-			if res == nil || res.ExpressNode == nil {
-				continue
-			}
-
-			lineNum := int(cap.Node.StartPosition().Row) + 1
-			rawText := cap.Node.Utf8Text(*fCtx.SourceBytes)
-
-			// 复合复合键强锁定：如 "Create:10:BasicClass"
-			uniqueKey := fmt.Sprintf("%s:%d:%s", actType, lineNum, rawText)
-			capturedResults[uniqueKey] = res
+		actType := model.Create
+		res := ctxResolver.ResolveContext(actType, cap.Node)
+		if res == nil || res.ExpressNode == nil {
+			continue
 		}
+
+		lineNum := int(cap.Node.StartPosition().Row) + 1
+		rawText := cap.Node.Utf8Text(*fCtx.SourceBytes)
+
+		// 复合复合键强锁定：如 "Create:10:BasicClass"
+		uniqueKey := fmt.Sprintf("%s:%d:%s", actType, lineNum, rawText)
+		capturedResults[uniqueKey] = res
 	}
 
 	// 5. 遍历大集合执行集成断言
@@ -1012,13 +940,11 @@ func TestNodeContextResolver_Throw(t *testing.T) {
 	gCtx := test.RunPhase1Collection(t, []string{testFile})
 	fCtx := gCtx.FileContexts[testFile]
 
-	// 2. 初始化核心规则与待测 Resolver
-	tsLang, _ := core.GetLanguage(core.LangJava)
-	q, err := sitter.NewQuery(tsLang, java.JavaActionQuery)
+	// 2. 初始化核心规则与待测 Extractor
+	captures, err := java.NewJavaExtractor().GetCaptures(fCtx)
 	if err != nil {
-		t.Fatalf("Failed to compile JavaActionQuery: %v", err)
+		t.Fatal(err)
 	}
-	defer q.Close()
 
 	ctxResolver := resolver.NewNodeContextResolver(fCtx)
 
@@ -1118,38 +1044,27 @@ func TestNodeContextResolver_Throw(t *testing.T) {
 	}
 
 	// 4. 全局匹配捕获，建立复合唯一键索引 Map
-	qc := sitter.NewQueryCursor()
-	matches := qc.Matches(q, fCtx.RootNode, *fCtx.SourceBytes)
-
 	capturedResults := make(map[string]*resolver.Result)
+	for _, cap := range captures {
+		capName := cap.CapName
 
-	for {
-		match := matches.Next()
-		if match == nil {
-			break
+		// Throw 动作在 JavaActionQuery 规则中通过 throw_target 进行捕获映射
+		if capName != "throw_target" {
+			continue
 		}
 
-		for _, cap := range match.Captures {
-			capName := q.CaptureNames()[cap.Index]
-
-			// Throw 动作在 JavaActionQuery 规则中通过 throw_target 进行捕获映射
-			if capName != "throw_target" {
-				continue
-			}
-
-			actType := model.Throw
-			res := ctxResolver.ResolveContext(actType, &cap.Node)
-			if res == nil || res.ExpressNode == nil {
-				continue
-			}
-
-			lineNum := int(cap.Node.StartPosition().Row) + 1
-			rawText := cap.Node.Utf8Text(*fCtx.SourceBytes)
-
-			// 强锁定唯一键，形如 "Throw:11:basicException"
-			uniqueKey := fmt.Sprintf("%s:%d:%s", actType, lineNum, rawText)
-			capturedResults[uniqueKey] = res
+		actType := model.Throw
+		res := ctxResolver.ResolveContext(actType, cap.Node)
+		if res == nil || res.ExpressNode == nil {
+			continue
 		}
+
+		lineNum := int(cap.Node.StartPosition().Row) + 1
+		rawText := cap.Node.Utf8Text(*fCtx.SourceBytes)
+
+		// 强锁定唯一键，形如 "Throw:11:basicException"
+		uniqueKey := fmt.Sprintf("%s:%d:%s", actType, lineNum, rawText)
+		capturedResults[uniqueKey] = res
 	}
 
 	// 5. 遍历大集合执行集成断言

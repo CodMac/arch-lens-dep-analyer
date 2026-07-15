@@ -64,7 +64,7 @@ func (r *NodeContextResolver) resolveTwoTrackPipeline(actionType model.Dependenc
 	}
 	res.ExpressKind = res.ExpressNode.Kind()
 
-	// ---- 第二步：特定动作类型的语义微调与锚定（提前，为外溯提供正确的起点） ----
+	// ---- 第二步：特定动作类型的语义微调与锚定 ----
 	r.specializeSemanticAction(actionType, node, res)
 
 	// ---- 第三步：宏观语法边界外溯（ContextNode） ----
@@ -162,6 +162,7 @@ func (r *NodeContextResolver) findCoreChain(node *sitter.Node) *sitter.Node {
 				return outerChainNode
 			}
 			objNode := parent.ChildByFieldName("object")
+			// 即使中间嵌套了括号或强转，只要当前 node 被包含在 method_invocation 的 object 中，就继续向上爬升
 			if objNode != nil && helper.IsNodeContained(objNode, node) {
 				outerChainNode = parent
 				node = parent
@@ -277,14 +278,13 @@ func (r *NodeContextResolver) resolveForCreate(node *sitter.Node) *Result {
 	for i := 0; i < namedCount; i++ {
 		child := createExpr.NamedChild(uint(i))
 		ck := child.Kind()
-		// 涵盖对象类型、嵌套/限定类型、泛型以及数组的基础/对象类型节点
 		if ck == "scoped_type_identifier" || ck == "type_identifier" || ck == "generic_type" || helper.IsPrimitiveType(ck) {
 			expressNode = child
 			break
 		}
 	}
 
-	// 2. 动态检测是否为链条组件（如：new int[10].clone() 或 new A.B().foo()）
+	// 2. 动态检测是否为链条组件
 	isChain := false
 	if parent := createExpr.Parent(); parent != nil {
 		parentKind := parent.Kind()
@@ -316,16 +316,35 @@ func (r *NodeContextResolver) resolveForThrow(node *sitter.Node) *Result {
 }
 
 func (r *NodeContextResolver) resolveForCast(node *sitter.Node) *Result {
-	if castExpr := helper.FindNearestKind(node, "cast_expression", "instanceof_expression"); castExpr != nil {
-		return &Result{
-			ContextNode: castExpr,
-			ContextKind: castExpr.Kind(),
-			ExpressNode: node,
-			ExpressKind: node.Kind(),
-			IsChain:     false,
-		}
+	// 🎯 调整：在全量捕获表达式的背景下，传入的 node 已经直接是
+	// cast_expression 或 instanceof_expression 了，无需再通过 helper.FindNearestKind 盲目找寻。
+	if node == nil {
+		return r.buildDefaultResult(node)
 	}
-	return r.buildDefaultResult(node)
+
+	// 动态检测该强转表达式在外层是否紧接链式调用（如：((SubClass) input).specificMethod()）
+	isChain := false
+	curr := node.Parent()
+	for curr != nil {
+		ck := curr.Kind()
+		if ck == "field_access" || ck == "method_invocation" || ck == "array_access" {
+			isChain = true
+			break
+		}
+		if ck == "parenthesized_expression" {
+			curr = curr.Parent()
+			continue
+		}
+		break
+	}
+
+	return &Result{
+		ContextNode: node,
+		ContextKind: node.Kind(),
+		ExpressNode: node,
+		ExpressKind: node.Kind(),
+		IsChain:     isChain,
+	}
 }
 
 // =============================================================================
@@ -354,9 +373,9 @@ func (r *NodeContextResolver) isIdentifier(kind string) bool {
 
 func (r *NodeContextResolver) isMacroExpressionKind(kind string) bool {
 	return kind == "binary_expression" || kind == "ternary_expression" ||
-		kind == "cast_expression" || kind == "enhanced_for_statement" ||
-		kind == "lambda_expression" || kind == "method_invocation" ||
-		kind == "array_access"
+		kind == "cast_expression" || kind == "instanceof_expression" || // 🎯 补充：instanceof_expression 为宏观表达式边界之一
+		kind == "enhanced_for_statement" || kind == "lambda_expression" ||
+		kind == "method_invocation" || kind == "array_access"
 }
 
 func (r *NodeContextResolver) canPenetrateUpward(kind string) bool {
@@ -369,6 +388,7 @@ func (r *NodeContextResolver) canPenetrateUpward(kind string) bool {
 
 func (r *NodeContextResolver) canChainInKind(kind string) bool {
 	return kind == "parenthesized_expression" || kind == "cast_expression" ||
+		kind == "instanceof_expression" || // 🎯 补充：链式穿透新增对于 instanceof 匹配的判定支持
 		kind == "binary_expression" || kind == "ternary_expression" ||
 		kind == "unary_expression" || kind == "update_expression"
 }

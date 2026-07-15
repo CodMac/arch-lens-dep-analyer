@@ -92,7 +92,7 @@ func (jsr *SymbolResolver) ResolveAction(gCtx *core.GlobalContext, fCtx *core.Fi
 
 	// 2. 三段式流程：第二段 表达式分段
 	segmenter := jsr.getExpressionSegmenter(fCtx)
-	chain := segmenter.Segment(contextResult.ExpressNode)
+	chain := segmenter.Segment(contextResult.ExpressNode, relType)
 	if chain == nil {
 		return jsr.createExternalFallback(fCtx, symbol, jsr.getFallbackKindByRelType(relType))
 	}

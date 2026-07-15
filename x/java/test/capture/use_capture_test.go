@@ -94,6 +94,11 @@ func TestCapture_UseCase(t *testing.T) {
 	// 4. 提取实际捕获到的所有原始点位标识
 	actualCapturedPoints := make(map[string]bool)
 	for _, ct := range captures {
+		// 只关注 Create 动作对应的目标节点
+		if ct.CapName != "id_atom" {
+			continue
+		}
+
 		lineNum := int(ct.Node.StartPosition().Row) + 1
 		rawText := ct.Node.Utf8Text(*fCtx.SourceBytes)
 

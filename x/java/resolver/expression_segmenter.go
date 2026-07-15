@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
+	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
@@ -19,7 +20,8 @@ func NewExpressionSegmenter(fCtx *core.FileContext) *ExpressionSegmenter {
 }
 
 // Segment 将通过 NodeContextResolver 获取到的 ExpressNode 解析为拉平的拓扑链
-func (es *ExpressionSegmenter) Segment(node *sitter.Node) *ExpressionChain {
+// 🎯 引入 relType 明确上下文语义，驱动确定性分流
+func (es *ExpressionSegmenter) Segment(node *sitter.Node, relType model.DependencyType) *ExpressionChain {
 	if node == nil {
 		return nil
 	}
@@ -34,14 +36,14 @@ func (es *ExpressionSegmenter) Segment(node *sitter.Node) *ExpressionChain {
 		Segments: make([]ExpressionSegment, 0),
 	}
 
-	// 剥离并填充
-	es.resolveNode(node, chain)
+	// 填充起点和后续分段
+	es.resolveNode(node, chain, relType)
 
 	return chain
 }
 
-// resolveNode 核心递归剥离逻辑
-func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionChain) {
+// resolveNode 核心递归剥离与分流逻辑
+func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionChain, relType model.DependencyType) {
 	if node == nil {
 		return
 	}
@@ -49,51 +51,35 @@ func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionC
 	node = es.skipParentheses(node)
 	kind := node.Kind()
 
+	// ==========================================
+	// 🎯 1. 确定性上下文分流：CREATE 关系
+	// ==========================================
+	if relType == model.Create || kind == "object_creation_expression" || kind == "array_creation_expression" {
+		rawTypeName := strings.TrimSpace(node.Utf8Text(*es.src))
+		chain.Head = ExpressionHead{
+			Type:    HeadNewExpr,
+			Name:    helper.Clean(rawTypeName),
+			ASTNode: node,
+			RawText: rawTypeName,
+		}
+		return // 直接返回，无需向下递归
+	}
+
+	// ==========================================
+	// 🎯 2. 确定性上下文分流：CAST 关系
+	// ==========================================
+	if relType == model.Cast || kind == "cast_expression" || kind == "instanceof_expression" {
+		es.resolveCastNode(node, chain)
+		return
+	}
+
+	// ==========================================
+	// 🎯 3. 其他关系（如 Call, Use 等）进行常规链式剥离
+	// ==========================================
 	switch kind {
-	// 1. 如果传入的直接就是 object_creation_expression 或 array_creation_expression
-	case "object_creation_expression", "array_creation_expression":
-		var typeNode *sitter.Node
-		namedCount := int(node.NamedChildCount())
-		for i := 0; i < namedCount; i++ {
-			child := node.NamedChild(uint(i))
-			childKind := child.Kind()
-			if childKind == "scoped_type_identifier" || childKind == "type_identifier" || childKind == "generic_type" || helper.IsPrimitiveType(childKind) {
-				typeNode = child
-				break
-			}
-		}
-
-		if typeNode != nil {
-			rawTypeName := strings.TrimSpace(typeNode.Utf8Text(*es.src))
-			chain.Head = ExpressionHead{
-				Type:    HeadNewExpr,
-				Name:    helper.Clean(rawTypeName),
-				ASTNode: typeNode,
-				RawText: rawTypeName,
-			}
-		} else {
-			chain.Head = es.buildHead(node)
-		}
-
-	// 2. 🎯 新增防滑漏拦截：如果 NodeContextResolver 已经帮我们把 ExpressNode 精简成了类型的子节点
-	// （例如：scoped_type_identifier 或 generic_type），且它的父级是 new 表达式，我们也必须直接将其作为 HeadNewExpr 处理！
-	case "scoped_type_identifier", "generic_type":
-		if parent := node.Parent(); parent != nil && (parent.Kind() == "object_creation_expression" || parent.Kind() == "array_creation_expression") {
-			rawTypeName := strings.TrimSpace(node.Utf8Text(*es.src))
-			chain.Head = ExpressionHead{
-				Type:    HeadNewExpr,
-				Name:    helper.Clean(rawTypeName),
-				ASTNode: node,
-				RawText: rawTypeName,
-			}
-			return
-		}
-		// 如果不是 new 出来的（只是普通的静态方法调用或外部类引用等），继续走 field_access 式的递归解构
-		es.resolveFieldLikeChain(node, chain)
-
 	case "field_access":
 		if obj := node.ChildByFieldName("object"); obj != nil {
-			es.resolveNode(obj, chain)
+			es.resolveNode(obj, chain, relType)
 		}
 
 		fieldNode := node.ChildByFieldName("field")
@@ -115,7 +101,7 @@ func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionC
 
 	case "method_invocation":
 		if obj := node.ChildByFieldName("object"); obj != nil {
-			es.resolveNode(obj, chain)
+			es.resolveNode(obj, chain, relType)
 
 			nameNode := node.ChildByFieldName("name")
 			if nameNode != nil {
@@ -127,12 +113,12 @@ func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionC
 				})
 			}
 		} else {
-			chain.Head = es.buildHead(node)
+			chain.Head = es.buildHead(node, relType)
 		}
 
 	case "method_reference":
 		if obj := node.ChildByFieldName("object"); obj != nil {
-			es.resolveNode(obj, chain)
+			es.resolveNode(obj, chain, relType)
 		}
 
 		nameNode := node.ChildByFieldName("name")
@@ -147,7 +133,7 @@ func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionC
 
 	case "array_access":
 		if arrayObj := node.ChildByFieldName("array"); arrayObj != nil {
-			es.resolveNode(arrayObj, chain)
+			es.resolveNode(arrayObj, chain, relType)
 		}
 		chain.Segments = append(chain.Segments, ExpressionSegment{
 			Kind:    SegmentArray,
@@ -156,15 +142,73 @@ func (es *ExpressionSegmenter) resolveNode(node *sitter.Node, chain *ExpressionC
 			RawText: node.Utf8Text(*es.src),
 		})
 
+	case "scoped_type_identifier", "generic_type":
+		es.resolveFieldLikeChain(node, chain)
+
 	default:
-		chain.Head = es.buildHead(node)
+		chain.Head = es.buildHead(node, relType)
 	}
 }
 
-// 辅助函数：处理非 new 场景下的 type 链条
+// resolveCastNode 专门负责提取强转与模式匹配信息
+func (es *ExpressionSegmenter) resolveCastNode(node *sitter.Node, chain *ExpressionChain) {
+	kind := node.Kind()
+
+	if kind == "cast_expression" {
+		typeNode := node.ChildByFieldName("type")
+		valueNode := node.ChildByFieldName("value")
+
+		var castType string
+		if typeNode != nil {
+			castType = helper.Clean(typeNode.Utf8Text(*es.src))
+		}
+
+		// 应对多重强转，向下钻取至底层实际的数据源节点
+		finalValueNode := valueNode
+		for finalValueNode != nil && finalValueNode.Kind() == "cast_expression" {
+			finalValueNode = finalValueNode.ChildByFieldName("value")
+		}
+
+		var castValue string
+		if finalValueNode != nil {
+			castValue = helper.Clean(finalValueNode.Utf8Text(*es.src))
+		}
+
+		chain.Head = ExpressionHead{
+			Type:     HeadCastExpr,
+			Name:     castValue,
+			CastType: castType,
+			ASTNode:  node,
+			RawText:  node.Utf8Text(*es.src),
+		}
+	} else if kind == "instanceof_expression" {
+		var leftNode, typeNode *sitter.Node
+		namedCount := node.NamedChildCount()
+		if namedCount >= 2 {
+			leftNode = node.NamedChild(0)
+			typeNode = node.NamedChild(1)
+		}
+
+		var castType, castValue string
+		if typeNode != nil {
+			castType = helper.Clean(typeNode.Utf8Text(*es.src))
+		}
+		if leftNode != nil {
+			castValue = helper.Clean(leftNode.Utf8Text(*es.src))
+		}
+
+		chain.Head = ExpressionHead{
+			Type:     HeadCastExpr,
+			Name:     castValue,
+			CastType: castType,
+			ASTNode:  node,
+			RawText:  node.Utf8Text(*es.src),
+		}
+	}
+}
+
+// resolveFieldLikeChain 处理 field 样式声明的 type 链条 (例如 A.B.C)
 func (es *ExpressionSegmenter) resolveFieldLikeChain(node *sitter.Node, chain *ExpressionChain) {
-	// 如果是普通的 scoped_type_identifier（如 A.B），按照 field_access 逻辑解开
-	// A 作为 HeadIdent，.B 作为 SegmentClass 塞入链条
 	raw := strings.TrimSpace(node.Utf8Text(*es.src))
 	parts := strings.Split(raw, ".")
 	if len(parts) > 1 {
@@ -183,11 +227,12 @@ func (es *ExpressionSegmenter) resolveFieldLikeChain(node *sitter.Node, chain *E
 			})
 		}
 	} else {
-		chain.Head = es.buildHead(node)
+		chain.Head = es.buildHead(node, model.Use)
 	}
 }
 
-func (es *ExpressionSegmenter) buildHead(node *sitter.Node) ExpressionHead {
+// buildHead 构造链条头部节点性质
+func (es *ExpressionSegmenter) buildHead(node *sitter.Node, relType model.DependencyType) ExpressionHead {
 	node = es.skipParentheses(node)
 	raw := strings.TrimSpace(node.Utf8Text(*es.src))
 	kind := node.Kind()
@@ -218,34 +263,16 @@ func (es *ExpressionSegmenter) buildHead(node *sitter.Node) ExpressionHead {
 		if nameNode := node.ChildByFieldName("name"); nameNode != nil {
 			head.Name = helper.Clean(nameNode.Utf8Text(*es.src))
 		}
-	case "identifier", "type_identifier":
-		// 🎯 增加判定：如果这个普通的 type_identifier 父级是 new 表达式，强制修正为 HeadNewExpr
-		if parent := node.Parent(); parent != nil && (parent.Kind() == "object_creation_expression" || parent.Kind() == "array_creation_expression") {
-			head.Type = HeadNewExpr
-		} else {
-			head.Type = HeadIdent
-		}
-	case "scoped_type_identifier", "generic_type":
-		if parent := node.Parent(); parent != nil && (parent.Kind() == "object_creation_expression" || parent.Kind() == "array_creation_expression") {
-			head.Type = HeadNewExpr
-		} else {
-			head.Type = HeadIdent
-		}
-	case "object_creation_expression", "array_creation_expression":
-		head.Type = HeadNewExpr
-		namedCount := int(node.NamedChildCount())
-		for i := 0; i < namedCount; i++ {
-			child := node.NamedChild(uint(i))
-			ck := child.Kind()
-			if ck == "scoped_type_identifier" || ck == "type_identifier" || ck == "generic_type" || helper.IsPrimitiveType(ck) {
-				head.Name = helper.Clean(child.Utf8Text(*es.src))
-				break
-			}
-		}
+	case "identifier", "type_identifier", "scoped_type_identifier", "generic_type":
+		head.Type = HeadIdent
 	case "string_literal", "decimal_integer_literal", "decimal_floating_point_literal", "boolean_literal":
 		head.Type = HeadLiteral
 	default:
-		head.Type = HeadUnknown
+		if helper.IsPrimitiveType(kind) {
+			head.Type = HeadIdent
+		} else {
+			head.Type = HeadUnknown
+		}
 	}
 
 	return head
