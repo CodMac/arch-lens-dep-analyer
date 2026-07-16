@@ -25,37 +25,31 @@ func NewChainResolver(gCtx *core.GlobalContext, fCtx *core.FileContext) *ChainRe
 	}
 }
 
-// ResolveChain 核心入口：专注于链式调用/单调用中 Target 符号的逐层流转与精准对齐
+// ResolveChain 核心入口：专注于链式调用中已知 Target 符号的逐层流转。查无此符号则返回 nil，不进行任何就地虚拟保底。
 func (cr *ChainResolver) ResolveChain(chain *ExpressionChain) *model.CodeElement {
 	if chain == nil {
 		return nil
 	}
 
-	// 1. 针对方案 A 设计的 HeadNewExpr 特殊预处理：合并可能存在的连续 SegmentClass 作为实例化类终点
 	var consumedSegmentsCount int
 	var headElem *model.CodeElement
 	var currType *model.CodeElement
 	var isStaticContext bool
 
+	// 1. 处理 Head 节点
 	if chain.Head.Type == HeadNewExpr {
 		headElem, currType, consumedSegmentsCount = cr.resolveNewExprHead(chain)
 		isStaticContext = false
 	} else {
-		// 普通 Head 节点流转
 		headElem, currType, isStaticContext = cr.resolveHeadWithUnwrap(chain.Head)
 	}
 
-	// 截取未被 Head 合并/消耗的后续段落
 	remainingSegments := chain.Segments[consumedSegmentsCount:]
 
 	if currType == nil {
-		if headElem != nil {
-			return headElem
-		}
-		return nil
+		return headElem // 可能是局部变量或直接识别出的方法/类型本身
 	}
 
-	// 如果没有后续剩余段落，直接返回识别出的目标
 	if len(remainingSegments) == 0 {
 		if headElem != nil {
 			return headElem
@@ -63,18 +57,16 @@ func (cr *ChainResolver) ResolveChain(chain *ExpressionChain) *model.CodeElement
 		return currType
 	}
 
-	// 获取调用发生的上下文环境（从哪个方法或类发起的调用）
 	fromCtx := helper.GetBestElement(cr.fCtx, chain.Head.ASTNode, []model.ElementKind{model.Method, model.Class, model.ScopeBlock})
-	var lastResolvedEntity *model.CodeElement
+	var lastResolvedEntity *model.CodeElement = headElem
 
-	// 2. 依次迭代后续的所有 Segments 段落，确保类型链条对齐不坍塌
+	// 2. 迭代链条后续段落
 	for _, seg := range remainingSegments {
 		switch seg.Kind {
 		case SegmentClass:
-			// 🎯 修复场景 7：显式处理中间的内部类节点流转
-			lastResolvedEntity = cr.resolveClassSegment(seg, currType, isStaticContext)
+			// 内部类或嵌套静态类
+			lastResolvedEntity = cr.resolveClassSegment(seg, currType)
 			currType = lastResolvedEntity
-			// 静态上下文遇到内部类，流转下去依然属于类的静态访问上下文（例如调用其内部静态方法）
 			isStaticContext = true
 
 		case SegmentMethod:
@@ -88,125 +80,87 @@ func (cr *ChainResolver) ResolveChain(chain *ExpressionChain) *model.CodeElement
 			isStaticContext = false
 
 		case SegmentArray:
-			if lastResolvedEntity == nil && headElem != nil {
-				lastResolvedEntity = headElem
-			}
+			// 数组访问：如果是 head 衍生出来的，保留其引用。类型信息在此处若降维则返回 nil，交由外层降维或保留原本类型。
 			isStaticContext = false
 		}
 
-		if currType == nil {
-			break
+		if lastResolvedEntity == nil {
+			return nil // 中途断链，无法再提供更精准的符号，立即返回 nil 触发外部保底
 		}
 	}
 
-	if lastResolvedEntity != nil {
-		return lastResolvedEntity
-	}
-	return currType
+	return lastResolvedEntity
 }
 
-// ==================== 针对各种 Segment 的定向解析函数 ====================
-
-// resolveClassSegment 解析链条中间的内部类 SegmentClass 节点
-func (cr *ChainResolver) resolveClassSegment(seg ExpressionSegment, currType *model.CodeElement, isStatic bool) *model.CodeElement {
-	// 在父类作用域/全路径中寻找其定义的内部类
+// resolveClassSegment 精准寻找内部类
+func (cr *ChainResolver) resolveClassSegment(seg ExpressionSegment, currType *model.CodeElement) *model.CodeElement {
+	if currType == nil {
+		return nil
+	}
+	// 嵌套类 A$B
 	innerClassQN := currType.QualifiedName + "$" + seg.Name
 	if entry, ok := cr.gCtx.FindByQualifiedName(innerClassQN); ok {
 		return entry.Element
 	}
-
-	// 兼容普通点号分隔命名：Outer.StaticInner
+	// 点号分隔 A.B
 	dotInnerClassQN := currType.QualifiedName + "." + seg.Name
 	if entry, ok := cr.gCtx.FindByQualifiedName(dotInnerClassQN); ok {
 		return entry.Element
 	}
-
-	// 外部依赖保底
-	return cr.createExternalClassFallback(currType.QualifiedName + "." + seg.Name)
+	return nil
 }
 
 func (cr *ChainResolver) resolveMethodSegment(seg ExpressionSegment, currType *model.CodeElement, isStatic bool, fromCtx *model.CodeElement) *model.CodeElement {
 	methodCallNode := helper.GetMethodInvocationNode(seg.ASTNode)
-	argTypes := helper.InferMethodArgs(methodCallNode, *cr.fCtx.SourceBytes)
-
-	methodElem := cr.memberResolver.ResolveMethod(currType, seg.Name, argTypes, isStatic, fromCtx)
-
-	// 保底机制：如果项目源码中查无此法（如外部依赖），就地构建合法的外部 METHOD 节点而非降级
-	if methodElem == nil {
-		fallbackQN := currType.QualifiedName + "." + seg.Name + "()"
-		methodElem = &model.CodeElement{
-			QualifiedName:  fallbackQN,
-			Name:           seg.Name + "()",
-			Kind:           model.Method,
-			IsFormExternal: true,
-		}
-	}
-	return methodElem
+	argTypes := helper.InferMethodArgs(methodCallNode, cr.src)
+	return cr.memberResolver.ResolveMethod(currType, seg.Name, argTypes, isStatic, fromCtx)
 }
 
 func (cr *ChainResolver) resolveFieldSegment(seg ExpressionSegment, currType *model.CodeElement, isStatic bool, fromCtx *model.CodeElement) *model.CodeElement {
-	fieldElem := cr.memberResolver.ResolveField(currType, seg.Name, isStatic, fromCtx)
-
-	if fieldElem == nil {
-		fallbackQN := currType.QualifiedName + "." + seg.Name
-		fieldElem = &model.CodeElement{
-			QualifiedName:  fallbackQN,
-			Name:           seg.Name,
-			Kind:           model.Field,
-			IsFormExternal: true,
-		}
-	}
-	return fieldElem
+	return cr.memberResolver.ResolveField(currType, seg.Name, isStatic, fromCtx)
 }
 
-// ==================== 基础符号与上下文解包 (Head) ====================
-
-// resolveNewExprHead 针对方案 A 下带有完整内部类路径的 NewExpr 进行就地合并与精确推导
+// resolveNewExprHead 合并可能存在的连续嵌套内部类（如 new A.B.C()）实例化路径并定位构造函数
 func (cr *ChainResolver) resolveNewExprHead(chain *ExpressionChain) (*model.CodeElement, *model.CodeElement, int) {
 	head := chain.Head
 	rawName := cr.cleanGenericType(helper.Clean(head.Name))
 
-	// 1. 尝试找到物理起点类（例如 Outer 外部类）
 	var currentClass *model.CodeElement
 	entries := helper.PreciseResolve(cr.gCtx, cr.fCtx, rawName)
 	if len(entries) > 0 {
 		currentClass = entries[0].Element
-	} else {
-		// 起点属于外部类保底
-		fullQN := cr.tryResolveExternalFullQN(rawName)
-		currentClass = cr.createExternalClassFallback(fullQN)
 	}
 
-	// 2. 🎯 核心吞并：顺着 Segments 向右，只要遇到 SegmentClass，就判定为嵌套类实例化的一部分
 	consumed := 0
-	for i := 0; i < len(chain.Segments); i++ {
-		seg := chain.Segments[i]
-		if seg.Kind == SegmentClass {
-			currentClass = cr.resolveClassSegment(seg, currentClass, true)
-			consumed++
-		} else {
-			// 一旦遇到非 Class 段（例如开始调用方法、访问字段了），立即截断
-			break
+	if currentClass != nil {
+		// 顺着 Segments 向右合并所有的内部类段落
+		for i := 0; i < len(chain.Segments); i++ {
+			seg := chain.Segments[i]
+			if seg.Kind == SegmentClass {
+				if nextClass := cr.resolveClassSegment(seg, currentClass); nextClass != nil {
+					currentClass = nextClass
+					consumed++
+				} else {
+					break
+				}
+			} else {
+				break
+			}
 		}
 	}
 
-	// 3. 此时 currentClass 已经锁定为了最内部的那个实例化目标类（例如 StaticInner）
-	// 获取构造方法应该具备的参数类型
-	argTypes := helper.InferMethodArgs(head.ASTNode, *cr.fCtx.SourceBytes)
+	if currentClass == nil {
+		return nil, nil, 0
+	}
 
-	// 4. 尝试在这个锁定的类中寻找到对应的构造方法
+	// 尝试寻找匹配的显式构造函数
+	argTypes := helper.InferMethodArgs(head.ASTNode, cr.src)
 	if constructorElem := cr.memberResolver.ResolveMethod(currentClass, currentClass.Name, argTypes, false, nil); constructorElem != nil {
 		return constructorElem, currentClass, consumed
 	}
 
-	// 无显式构造，虚构对应的隐式默认构造函数 Method 节点
-	fallbackConstructor := &model.CodeElement{
-		QualifiedName:  currentClass.QualifiedName + "." + currentClass.Name + "()",
-		Name:           currentClass.Name + "()",
-		Kind:           model.Method,
-		IsFormExternal: currentClass.IsFormExternal,
-	}
-	return fallbackConstructor, currentClass, consumed
+	// 若类存在但查无显式构造，为调用处返回当前类作为类型支撑
+	return nil, currentClass, consumed
 }
 
 func (cr *ChainResolver) resolveHeadWithUnwrap(head ExpressionHead) (*model.CodeElement, *model.CodeElement, bool) {
@@ -231,46 +185,29 @@ func (cr *ChainResolver) resolveHeadWithUnwrap(head ExpressionHead) (*model.Code
 		return nil, nil, false
 
 	case HeadImplicitMethod:
-		// 🎯 100% 确定是当前类或父类的隐式方法调用
 		currentClass := helper.GetBestElement(cr.fCtx, head.ASTNode, []model.ElementKind{model.Class, model.AnonymousClass})
 		container := helper.GetBestElement(cr.fCtx, head.ASTNode, []model.ElementKind{model.Method, model.Class, model.ScopeBlock})
 
 		if currentClass != nil {
-			// 推导参数类型
-			argTypes := helper.InferMethodArgs(head.ASTNode, *cr.fCtx.SourceBytes)
+			argTypes := helper.InferMethodArgs(head.ASTNode, cr.src)
 			if methodElem := cr.memberResolver.ResolveMethod(currentClass, head.Name, argTypes, false, container); methodElem != nil {
 				return methodElem, cr.extractElementByReturnType(methodElem), false
 			}
 		}
-
-		// 保底：如果是外部或未识别的隐式方法，不降级为类，直接构建方法虚拟节点
-		fallbackQN := ""
-		if currentClass != nil {
-			fallbackQN = currentClass.QualifiedName + "." + head.Name + "()"
-		} else {
-			fallbackQN = head.Name + "()"
-		}
-		return &model.CodeElement{
-			QualifiedName:  fallbackQN,
-			Name:           head.Name + "()",
-			Kind:           model.Method,
-			IsFormExternal: true,
-		}, nil, false
+		return nil, nil, false
 
 	case HeadIdent:
-		// 1. 类
+		// 1. 是否是类名
 		if helper.IsPotentialClassName(helper.Clean(head.Name)) {
 			entries := helper.PreciseResolve(cr.gCtx, cr.fCtx, head.Name)
 			if len(entries) > 0 {
 				k := entries[0].Element.Kind
-				if k == model.Class || k == model.Interface || k == model.Enum {
-					return entries[0].Element, entries[0].Element, true
-				}
-				return entries[0].Element, entries[0].Element, false
+				isStatic := k == model.Class || k == model.Interface || k == model.Enum
+				return entries[0].Element, entries[0].Element, isStatic
 			}
 		}
 
-		// 2. 变量/方法参数/lambda表达式查找
+		// 2. 是否是局部变量/参数/Lambda 参数
 		container := helper.GetBestElement(cr.fCtx, head.ASTNode, []model.ElementKind{model.Method, model.Class, model.ScopeBlock, model.Lambda})
 		if container != nil {
 			if container.Kind == model.Method || container.Kind == model.ScopeBlock {
@@ -294,18 +231,17 @@ func (cr *ChainResolver) resolveHeadWithUnwrap(head ExpressionHead) (*model.Code
 			}
 		}
 
-		// 3. 隐式字段查找
+		// 3. 是否是当前类的隐式字段
 		if currentClass := helper.GetBestElement(cr.fCtx, head.ASTNode, []model.ElementKind{model.Class, model.AnonymousClass}); currentClass != nil {
 			if fieldElem := cr.memberResolver.ResolveField(currentClass, head.Name, false, container); fieldElem != nil {
 				return fieldElem, cr.extractElementByFieldType(fieldElem), false
 			}
 		}
-
 	}
 	return nil, nil, false
 }
 
-// ==================== AST 辅助及参数推导工具 ====================
+// ==================== AST 辅助及类型还原工具 ====================
 
 func (cr *ChainResolver) cleanGenericType(typeName string) string {
 	if idx := strings.Index(typeName, "<"); idx != -1 {
@@ -326,7 +262,7 @@ func (cr *ChainResolver) tryResolveExternalFullQN(shortName string) string {
 
 func (cr *ChainResolver) extractElementByFieldType(element *model.CodeElement) *model.CodeElement {
 	if element == nil || element.Extra == nil {
-		return element
+		return nil
 	}
 
 	var typeQN string
@@ -337,7 +273,7 @@ func (cr *ChainResolver) extractElementByFieldType(element *model.CodeElement) *
 	}
 
 	if typeQN == "" || typeQN == "void" {
-		return element
+		return nil
 	}
 
 	typeQN = cr.cleanGenericType(typeQN)
@@ -346,7 +282,12 @@ func (cr *ChainResolver) extractElementByFieldType(element *model.CodeElement) *
 		return entries[0].Element
 	}
 
-	return cr.createExternalClassFallback(cr.tryResolveExternalFullQN(typeQN))
+	// 仅返回全限定名对应的临时占位（用于下一层链条寻找），不生成真正的 External 节点
+	return &model.CodeElement{
+		QualifiedName: cr.tryResolveExternalFullQN(typeQN),
+		Name:          typeQN,
+		Kind:          model.Class,
+	}
 }
 
 func (cr *ChainResolver) extractElementByReturnType(methodElement *model.CodeElement) *model.CodeElement {
@@ -371,26 +312,9 @@ func (cr *ChainResolver) extractElementByReturnType(methodElement *model.CodeEle
 		return entries[0].Element
 	}
 
-	return cr.createExternalClassFallback(cr.tryResolveExternalFullQN(returnQN))
-}
-
-func (cr *ChainResolver) createExternalClassFallback(qualifiedName string) *model.CodeElement {
-	qualifiedName = cr.cleanGenericType(qualifiedName)
-	shortName := qualifiedName
-	for i := len(qualifiedName) - 1; i >= 0; i-- {
-		if qualifiedName[i] == '.' {
-			shortName = qualifiedName[i+1:]
-			break
-		}
-	}
-
 	return &model.CodeElement{
-		QualifiedName:  qualifiedName,
-		Name:           shortName,
-		Kind:           model.Class,
-		IsFormExternal: true,
-		Extra: &model.Extra{
-			Mores: make(map[string]interface{}),
-		},
+		QualifiedName: cr.tryResolveExternalFullQN(returnQN),
+		Name:          returnQN,
+		Kind:          model.Class,
 	}
 }

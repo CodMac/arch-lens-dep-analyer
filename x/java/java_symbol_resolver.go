@@ -5,7 +5,6 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
-	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/resolver"
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -26,7 +25,7 @@ func NewSymbolResolver() *SymbolResolver {
 }
 
 // =============================================================================
-// 对象Map
+// 对象缓存池管理
 // =============================================================================
 
 func (jsr *SymbolResolver) getNcResolver(fCtx *core.FileContext) *resolver.NodeContextResolver {
@@ -51,7 +50,7 @@ func (jsr *SymbolResolver) getChainResolver(gCtx *core.GlobalContext, fCtx *core
 }
 
 // =============================================================================
-// 接口实现
+// 核心接口实现
 // =============================================================================
 
 func (jsr *SymbolResolver) RegisterPackage(gCtx *core.GlobalContext, packageName string) {
@@ -81,60 +80,120 @@ func (jsr *SymbolResolver) ResolveAction(gCtx *core.GlobalContext, fCtx *core.Fi
 	if node == nil {
 		return nil
 	}
-	symbol := node.Utf8Text(*fCtx.SourceBytes)
+	symbol := strings.TrimSpace(node.Utf8Text(*fCtx.SourceBytes))
 
-	// 1. 三段式流程：第一段 context 解析
+	// 1. 三段式第一步：一元化 Context 提取
 	ncResolver := jsr.getNcResolver(fCtx)
 	contextResult := ncResolver.ResolveContext(relType, node)
 	if contextResult == nil || contextResult.ExpressNode == nil {
 		return jsr.createExternalFallback(fCtx, symbol, jsr.getFallbackKindByRelType(relType))
 	}
 
-	// 2. 三段式流程：第二段 表达式分段
+	// 2. 三段式第二步：将物理表达树解析为符号分段
 	segmenter := jsr.getExpressionSegmenter(fCtx)
 	chain := segmenter.Segment(contextResult.ExpressNode, relType)
 	if chain == nil {
 		return jsr.createExternalFallback(fCtx, symbol, jsr.getFallbackKindByRelType(relType))
 	}
 
-	// 3. 三段式流程：第三段 链式推导
+	// 3. 三段式第三步：已知符号链路推导求值
 	chainResolver := jsr.getChainResolver(gCtx, fCtx)
 	targetEle := chainResolver.ResolveChain(chain)
-	if targetEle == nil {
-		return jsr.createExternalFallback(fCtx, symbol, jsr.getFallbackKindByRelType(relType))
-	}
 
-	// 基于依赖关系 relType 智能对齐返回的符号类型
-	switch relType {
-	case model.Call:
-		// CALL 期望返回方法
-		if targetEle.Kind == model.Method {
-			return targetEle
-		}
+	// 4. 统一全局兜底策略：判定推导符号与当前依赖动作是否合拍
+	if targetEle != nil {
+		switch relType {
+		case model.Call:
+			if targetEle.Kind == model.Method {
+				return targetEle
+			}
+			// 如果推导出的结果是类，但动作是 CALL，说明可能是未注册具体构造方法的实例化过程
+			if targetEle.Kind == model.Class || targetEle.Kind == model.Interface {
+				return jsr.createExternalFallbackWithParent(targetEle.QualifiedName, targetEle.Name, model.Method)
+			}
 
-	case model.Use, model.Assign:
-		// USE、ASSIGN 期望返回变量或字段
-		if targetEle.Kind == model.Field || targetEle.Kind == model.Variable {
-			return targetEle
-		}
+		case model.Use, model.Assign:
+			if targetEle.Kind == model.Field || targetEle.Kind == model.Variable {
+				return targetEle
+			}
 
-	default:
-		// 对于 RETURN、THROW、CAST、CREATE 等其他类型，期望返回 Class/Type 实体
-
-		if targetEle.Kind != model.Class && targetEle.Kind != model.Interface && targetEle.Kind != model.AnonymousClass {
-			class := helper.GetOwnerClass(gCtx, targetEle)
-			if class != nil {
-				return class
+		default:
+			// 对于 CREATE, CAST, THROW, RETURN 等动作，期望返回 Class 或 Interface 等宏观类型
+			if targetEle.Kind == model.Class || targetEle.Kind == model.Interface || targetEle.Kind == model.AnonymousClass {
+				return targetEle
+			}
+			// 若定位到了变量或方法，则回溯其声明的所属 Owner Class
+			if ownerClass := helper.GetOwnerClass(gCtx, targetEle); ownerClass != nil {
+				return ownerClass
 			}
 		}
 	}
 
-	return jsr.createExternalFallback(fCtx, symbol, jsr.getFallbackKindByRelType(relType))
+	// 5. 无法推导或推导失败：根据上下文链条生成最优雅的虚拟外部节点（保底）
+	return jsr.generateContextualFallback(fCtx, chain, relType)
 }
 
 // =============================================================================
-// 辅助函数
+// 高阶全局兜底逻辑
 // =============================================================================
+
+// generateContextualFallback 依据拉平后的分段链，拼装出最吻合的外部 QualifiedName
+func (jsr *SymbolResolver) generateContextualFallback(fCtx *core.FileContext, chain *resolver.ExpressionChain, relType model.DependencyType) *model.CodeElement {
+	if chain == nil {
+		return jsr.createExternalFallback(fCtx, "Unknown", jsr.getFallbackKindByRelType(relType))
+	}
+
+	// 1. 尝试从 Head 对应的物理位置还原导入路径起点
+	headName := chain.Head.Name
+	if idx := strings.Index(headName, "<"); idx != -1 {
+		headName = headName[:idx]
+	}
+
+	baseQN := headName
+	if imps, ok := fCtx.Imports[headName]; ok && len(imps) > 0 {
+		baseQN = imps[0].RawImportPath
+	}
+
+	// 2. 累加后续 Segment 的名字来合成完整的 QN 路径
+	var builder strings.Builder
+	builder.WriteString(baseQN)
+
+	for _, seg := range chain.Segments {
+		if seg.Name != "" {
+			if seg.Kind == resolver.SegmentClass {
+				builder.WriteString("$")
+			} else {
+				builder.WriteString(".")
+			}
+			builder.WriteString(seg.Name)
+		}
+	}
+
+	fallbackQN := builder.String()
+	fallbackKind := jsr.getFallbackKindByRelType(relType)
+
+	// 对特殊类型做微调：如果是 CALL 关系，尾部补充一对括号表达方法意图
+	shortName := fallbackQN
+	if idx := strings.LastIndexAny(fallbackQN, ".$"); idx != -1 {
+		shortName = fallbackQN[idx+1:]
+	}
+
+	if relType == model.Call {
+		if !strings.HasSuffix(shortName, "()") {
+			shortName += "()"
+		}
+		if !strings.HasSuffix(fallbackQN, "()") {
+			fallbackQN += "()"
+		}
+	}
+
+	return &model.CodeElement{
+		Name:           shortName,
+		QualifiedName:  fallbackQN,
+		Kind:           fallbackKind,
+		IsFormExternal: true,
+	}
+}
 
 func (jsr *SymbolResolver) getFallbackKindByRelType(relType model.DependencyType) model.ElementKind {
 	switch relType {
@@ -147,45 +206,13 @@ func (jsr *SymbolResolver) getFallbackKindByRelType(relType model.DependencyType
 	}
 }
 
-func (jsr *SymbolResolver) extractMethodReturnType(gCtx *core.GlobalContext, fCtx *core.FileContext, methodElement *model.CodeElement) *model.CodeElement {
-	if methodElement == nil || methodElement.Extra == nil {
-		return nil
-	}
-	var returnQN string
-	if qn, ok := methodElement.Extra.Mores[constants.MethodReturnTypeWithQN].(string); ok && qn != "" {
-		returnQN = qn
-	} else if raw, ok := methodElement.Extra.Mores[constants.MethodReturnType].(string); ok {
-		returnQN = raw
-	}
-
-	if idx := strings.Index(returnQN, "<"); idx != -1 {
-		returnQN = strings.TrimSpace(returnQN[:idx])
-	}
-
-	if returnQN != "" && returnQN != "void" {
-		if entries := helper.PreciseResolve(gCtx, fCtx, returnQN); len(entries) > 0 {
-			return entries[0].Element
-		}
-
-		// 外部 fallback
-		shortName := returnQN
-		if idx := strings.LastIndex(returnQN, "."); idx != -1 {
-			shortName = returnQN[idx+1:]
-		}
-		return &model.CodeElement{
-			Name:           shortName,
-			QualifiedName:  returnQN,
-			Kind:           model.Class,
-			IsFormExternal: true,
-		}
-	}
-	return nil
-}
-
 func (jsr *SymbolResolver) createExternalFallback(fCtx *core.FileContext, symbolName string, defaultKind model.ElementKind) *model.CodeElement {
 	qualifiedName := symbolName
+	if idx := strings.Index(symbolName, "<"); idx != -1 {
+		symbolName = symbolName[:idx]
+		qualifiedName = symbolName
+	}
 
-	// 如果当前 fallback 的短名存在于 Imports 映射中，自动升级为全限定名
 	if imps, ok := fCtx.Imports[symbolName]; ok && len(imps) > 0 {
 		qualifiedName = imps[0].RawImportPath
 	}
@@ -194,6 +221,21 @@ func (jsr *SymbolResolver) createExternalFallback(fCtx *core.FileContext, symbol
 		Name:           symbolName,
 		QualifiedName:  qualifiedName,
 		Kind:           defaultKind,
+		IsFormExternal: true,
+	}
+}
+
+func (jsr *SymbolResolver) createExternalFallbackWithParent(parentQN, shortName string, kind model.ElementKind) *model.CodeElement {
+	targetQN := parentQN + "." + shortName
+	showName := shortName
+	if kind == model.Method {
+		targetQN += "()"
+		showName += "()"
+	}
+	return &model.CodeElement{
+		Name:           showName,
+		QualifiedName:  targetQN,
+		Kind:           kind,
 		IsFormExternal: true,
 	}
 }
