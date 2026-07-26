@@ -31,37 +31,30 @@ func (cr *ChainResolver) ResolveChain(chain *ExpressionChain) *model.CodeElement
 		return nil
 	}
 
-	var consumedSegmentsCount int
 	var headElem *model.CodeElement
 	var currType *model.CodeElement
 	var isStaticContext bool
 
 	// 1. 处理 Head 节点
 	if chain.Head.Type == HeadNewExpr {
-		headElem, currType, consumedSegmentsCount = cr.resolveNewExprHead(chain)
+		headElem, currType = cr.resolveNewExprHead(chain)
+		isStaticContext = false
+	} else if chain.Head.Type == HeadCastExpr {
+		headElem, currType = cr.resolveCastExprHead(chain)
 		isStaticContext = false
 	} else {
 		headElem, currType, isStaticContext = cr.resolveHeadWithUnwrap(chain.Head)
 	}
 
-	remainingSegments := chain.Segments[consumedSegmentsCount:]
-
-	if currType == nil {
-		return headElem // 可能是局部变量或直接识别出的方法/类型本身
-	}
-
-	if len(remainingSegments) == 0 {
-		if headElem != nil {
-			return headElem
-		}
-		return currType
+	if len(chain.Segments) == 0 {
+		return headElem
 	}
 
 	fromCtx := helper.GetBestElement(cr.fCtx, chain.Head.ASTNode, []model.ElementKind{model.Method, model.Class, model.ScopeBlock})
-	var lastResolvedEntity *model.CodeElement = headElem
+	var lastResolvedEntity = headElem
 
 	// 2. 迭代链条后续段落
-	for _, seg := range remainingSegments {
+	for _, seg := range chain.Segments {
 		switch seg.Kind {
 		case SegmentClass:
 			// 内部类或嵌套静态类
@@ -121,7 +114,7 @@ func (cr *ChainResolver) resolveFieldSegment(seg ExpressionSegment, currType *mo
 }
 
 // resolveNewExprHead 合并可能存在的连续嵌套内部类（如 new A.B.C()）实例化路径并定位构造函数
-func (cr *ChainResolver) resolveNewExprHead(chain *ExpressionChain) (*model.CodeElement, *model.CodeElement, int) {
+func (cr *ChainResolver) resolveNewExprHead(chain *ExpressionChain) (*model.CodeElement, *model.CodeElement) {
 	head := chain.Head
 	rawName := cr.cleanGenericType(helper.Clean(head.Name))
 
@@ -131,36 +124,30 @@ func (cr *ChainResolver) resolveNewExprHead(chain *ExpressionChain) (*model.Code
 		currentClass = entries[0].Element
 	}
 
-	consumed := 0
-	if currentClass != nil {
-		// 顺着 Segments 向右合并所有的内部类段落
-		for i := 0; i < len(chain.Segments); i++ {
-			seg := chain.Segments[i]
-			if seg.Kind == SegmentClass {
-				if nextClass := cr.resolveClassSegment(seg, currentClass); nextClass != nil {
-					currentClass = nextClass
-					consumed++
-				} else {
-					break
-				}
-			} else {
-				break
-			}
-		}
-	}
-
 	if currentClass == nil {
-		return nil, nil, 0
+		return nil, nil
 	}
 
 	// 尝试寻找匹配的显式构造函数
 	argTypes := helper.InferMethodArgs(head.ASTNode, cr.src)
-	if constructorElem := cr.memberResolver.ResolveMethod(currentClass, currentClass.Name, argTypes, false, nil); constructorElem != nil {
-		return constructorElem, currentClass, consumed
+	if constructorElem := cr.memberResolver.ResolveMethod(currentClass, currentClass.Name, argTypes, false, currentClass); constructorElem != nil {
+		return constructorElem, currentClass
 	}
 
-	// 若类存在但查无显式构造，为调用处返回当前类作为类型支撑
-	return nil, currentClass, consumed
+	return nil, nil
+}
+
+// resolveCastExprHead 处理强制参数
+func (cr *ChainResolver) resolveCastExprHead(chain *ExpressionChain) (*model.CodeElement, *model.CodeElement) {
+	head := chain.Head
+	castType := cr.cleanGenericType(helper.Clean(head.CastType))
+
+	entries := helper.PreciseResolve(cr.gCtx, cr.fCtx, castType)
+	if len(entries) > 0 {
+		return entries[0].Element, entries[0].Element
+	}
+
+	return nil, nil
 }
 
 func (cr *ChainResolver) resolveHeadWithUnwrap(head ExpressionHead) (*model.CodeElement, *model.CodeElement, bool) {

@@ -2,9 +2,9 @@ package com.test;
 
 import java.util.List;
 import java.util.ArrayList;
-import com.test.dependency.User;
-import com.test.dependency.Sub;
-import com.test.dependency.Dummy;
+import com.test.case1.User;
+import com.test.case1.Sub;
+import com.test.case1.Dummy;
 
 public class CastCase1 {
     public void execute(Object obj) {
