@@ -1,4 +1,4 @@
-package com.test;
+package com.test.case1;
 
 class Builder {
     public Builder() {}

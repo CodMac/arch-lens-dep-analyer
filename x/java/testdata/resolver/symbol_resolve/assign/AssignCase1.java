@@ -1,7 +1,7 @@
 package com.test;
 
-import com.test.dependency.ParentClass;
-import com.test.dependency.User;
+import com.test.case1.ParentClass;
+import com.test.case1.User;
 
 public class AssignCase1 extends ParentClass {
     private int count = 0;

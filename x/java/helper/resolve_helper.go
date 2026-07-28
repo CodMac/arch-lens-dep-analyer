@@ -21,47 +21,72 @@ func IsScopeContainer(k model.ElementKind) bool {
 	return false
 }
 
-// PreciseResolve 根据symbol查找符号定义
+// PreciseResolve 根据 symbol 查找符号定义（支持 Outer.User 形式的内部类查找，统一使用 "." 分隔 QN）
 func PreciseResolve(gc *core.GlobalContext, fc *core.FileContext, symbol string) []*core.DefinitionEntry {
 	gc.RLock()
 	defer gc.RUnlock()
 
-	// 短符号, 文件内查找
-	if defs, ok := fc.FindByShortName(symbol); ok {
-		return defs
-	}
-
-	// 短符号, 升级为确切QN, 全局查找
-	if imps, ok := fc.Imports[symbol]; ok {
-		for _, imp := range imps {
-			if def, found := gc.FindByQualifiedName(imp.RawImportPath); found {
-				return []*core.DefinitionEntry{def}
-			}
+	// 内部闭包：处理单一顶级短符号或绝对 QN 的 4 级检索策略
+	resolveTopLevelSymbol := func(sym string) []*core.DefinitionEntry {
+		// 短符号, 文件内查找
+		if defs, ok := fc.FindByShortName(sym); ok {
+			return defs
 		}
-	}
 
-	// 短符号, 包内查找
-	pkgQN := gc.BuildQualifiedName(fc.PackageName, symbol)
-	if def, ok := gc.FindByQualifiedName(pkgQN); ok {
-		return []*core.DefinitionEntry{def}
-	}
-
-	// 短符号, 升级为匹配式QN, 全局查找
-	for _, imps := range fc.Imports {
-		for _, imp := range imps {
-			if imp.IsWildcard {
-				basePath := strings.TrimSuffix(imp.RawImportPath, "*")
-				if def, ok := gc.FindByQualifiedName(basePath + symbol); ok {
+		// 短符号, 升级为确切 QN, 全局查找 (精准 Import)
+		if imps, ok := fc.Imports[sym]; ok {
+			for _, imp := range imps {
+				if def, found := gc.FindByQualifiedName(imp.RawImportPath); found {
 					return []*core.DefinitionEntry{def}
 				}
 			}
 		}
-	}
-	if def, ok := gc.FindByQualifiedName(symbol); ok {
-		return []*core.DefinitionEntry{def}
+
+		// 短符号, 包内查找
+		pkgQN := gc.BuildQualifiedName(fc.PackageName, sym)
+		if def, ok := gc.FindByQualifiedName(pkgQN); ok {
+			return []*core.DefinitionEntry{def}
+		}
+
+		// 短符号, 升级为匹配式 QN, 全局查找 (通配符 Import)
+		for _, imps := range fc.Imports {
+			for _, imp := range imps {
+				if imp.IsWildcard {
+					basePath := strings.TrimSuffix(imp.RawImportPath, "*")
+					if def, ok := gc.FindByQualifiedName(basePath + sym); ok {
+						return []*core.DefinitionEntry{def}
+					}
+				}
+			}
+		}
+
+		// 直接按字符串 QN 全局查找 (覆盖了绝对 QN 如 "com.test.case1.Outer.User" 的直接匹配)
+		if def, ok := gc.FindByQualifiedName(sym); ok {
+			return []*core.DefinitionEntry{def}
+		}
+
+		return nil
 	}
 
-	return nil
+	// 1. 如果 symbol 包含点号（如 "Outer.User" 或 "Outer.User.Nested"）
+	if strings.Contains(symbol, ".") {
+		parts := strings.SplitN(symbol, ".", 2)
+		baseName := parts[0] // "Outer"
+		tailPath := parts[1] // "User" 或 "User.Nested"
+
+		// A. 尝试先将 baseName ("Outer") 当作顶层类按常规策略解析
+		if baseDefs := resolveTopLevelSymbol(baseName); len(baseDefs) > 0 {
+			baseQN := baseDefs[0].Element.QualifiedName
+			// 直接使用 "." 拼接内部类全路径 (如 "com.test.case1.Outer.User")
+			innerQN := baseQN + "." + tailPath
+			if innerDef, found := gc.FindByQualifiedName(innerQN); found {
+				return []*core.DefinitionEntry{innerDef}
+			}
+		}
+	}
+
+	// 2. 普通单段短符号（如 "User"）或标准的绝对 QN（如 "com.test.case1.Outer.User"）查找
+	return resolveTopLevelSymbol(symbol)
 }
 
 // GetBestElement 根据node和kinds，匹配合适的Element

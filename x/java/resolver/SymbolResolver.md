@@ -1,10 +1,3 @@
-基于你提供的 `java_collector.go` 源码，我为你整理、补充并重构了这份**官方技术架构与设计白皮书**。
-
-在本次更新中，我们重点对以下三大核心模块进行了极致的细节补充与对齐：
-
-1. **捕获点位与动作关系的完整映射**（将 Tree-sitter 节点、提取的 AST 关系及语义完全列出）。
-2. **分段拓扑化逻辑的深度拆解**（对 `ExpressionChain`、`Head` 类型、`Segments` 以及 `skipParentheses` 进行了工程级呈现）。
-3. **`FileContext` 与 `GlobalContext` 符号仓设计及 `CodeElement` 采集模型**（结合你给出的 `java_collector.go` 源码，详尽梳理了 13 种 `ElementKind` 的语法映射、重载签名、作用域修正及语法糖消解机制）。
 
 ---
 
@@ -124,7 +117,7 @@ type ExpressionChain struct {
 
 
 * **`SegmentClass`**：表示内部类或静态成员访问（如 `.InnerClass`）。
-* *求值公式*：通过 `currType.QualifiedName + "$" + innerClassName` 在全局符号空间检索。
+* *求值公式*：通过 `currType.QualifiedName + "." + innerClassName` 在全局符号空间检索。
 
 
 * **`SegmentArray`**：表示数组索引（如 `[0]`）。
@@ -273,7 +266,7 @@ type CodeElement struct {
 
 1. **处理 `Head**`：如果是 `HeadNewExpr`，则尝试将其与右侧的 `SegmentClass`（如内部类）进行合并收敛，并结合方法参数推断定位出最契合的**构造函数**。
 2. **流转 `Segments**`：
-* **遇 `SegmentClass**`：利用 `currType.QualifiedName + "$" + seg.Name` 拼接精准寻找内部类。
+* **遇 `SegmentClass**`：利用 `currType.QualifiedName + "." + seg.Name` 拼接精准寻找内部类。
 * **遇 `SegmentMethod**`：由 `MemberResolver` 解析出具体 Method 符号，并提取其返回值类型（`MethodReturnTypeWithQN`）作为下一步的 `currType`。
 * **遇 `SegmentField**`：由 `MemberResolver` 解析出具体 Field 符号，并提取其声明类型（`VariableTypeWithQN`）作为下一步的 `currType`。
 

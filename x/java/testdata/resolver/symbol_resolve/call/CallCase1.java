@@ -2,10 +2,10 @@ package com.test;
 
 import java.util.List;
 import java.util.function.Function;
-import com.test.dependency.ParentService;
-import com.test.dependency.UserService;
-import com.test.dependency.User;
-import com.test.dependency.Order;
+import com.test.case1.ParentService;
+import com.test.case1.UserService;
+import com.test.case1.User;
+import com.test.case1.Order;
 
 public class CallCase1 extends ParentService {
     private UserService userService;

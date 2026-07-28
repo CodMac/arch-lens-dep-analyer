@@ -1,4 +1,4 @@
-package com.test.dependency;
+package com.test.case1;
 
 public class User {
     private String name;

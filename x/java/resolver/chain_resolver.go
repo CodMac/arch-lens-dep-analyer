@@ -137,16 +137,21 @@ func (cr *ChainResolver) resolveNewExprHead(chain *ExpressionChain) (*model.Code
 	return nil, nil
 }
 
-// resolveCastExprHead 处理强制参数
+// resolveCastExprHead 处理强制类型转换起点
 func (cr *ChainResolver) resolveCastExprHead(chain *ExpressionChain) (*model.CodeElement, *model.CodeElement) {
 	head := chain.Head
 	castType := cr.cleanGenericType(helper.Clean(head.CastType))
+	if castType == "" {
+		castType = cr.cleanGenericType(helper.Clean(head.Name))
+	}
 
+	// 仅在项目已知的符号库中精准查找
 	entries := helper.PreciseResolve(cr.gCtx, cr.fCtx, castType)
 	if len(entries) > 0 {
 		return entries[0].Element, entries[0].Element
 	}
 
+	// 查不到说明是外部类（如 String / java.util.List），直接返回 nil！
 	return nil, nil
 }
 
@@ -247,6 +252,7 @@ func (cr *ChainResolver) tryResolveExternalFullQN(shortName string) string {
 	return shortName
 }
 
+// extractElementByFieldType 提取变量/字段的类型
 func (cr *ChainResolver) extractElementByFieldType(element *model.CodeElement) *model.CodeElement {
 	if element == nil || element.Extra == nil {
 		return nil
@@ -269,14 +275,11 @@ func (cr *ChainResolver) extractElementByFieldType(element *model.CodeElement) *
 		return entries[0].Element
 	}
 
-	// 仅返回全限定名对应的临时占位（用于下一层链条寻找），不生成真正的 External 节点
-	return &model.CodeElement{
-		QualifiedName: cr.tryResolveExternalFullQN(typeQN),
-		Name:          typeQN,
-		Kind:          model.Class,
-	}
+	// 找不到类型符号，直接返回 nil（断链，触发外层 SymbolResolver 兜底）
+	return nil
 }
 
+// extractElementByReturnType 同样处理
 func (cr *ChainResolver) extractElementByReturnType(methodElement *model.CodeElement) *model.CodeElement {
 	if methodElement == nil || methodElement.Extra == nil {
 		return nil
@@ -299,9 +302,5 @@ func (cr *ChainResolver) extractElementByReturnType(methodElement *model.CodeEle
 		return entries[0].Element
 	}
 
-	return &model.CodeElement{
-		QualifiedName: cr.tryResolveExternalFullQN(returnQN),
-		Name:          returnQN,
-		Kind:          model.Class,
-	}
+	return nil
 }

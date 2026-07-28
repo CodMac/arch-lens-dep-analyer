@@ -100,37 +100,52 @@ func (jsr *SymbolResolver) ResolveAction(gCtx *core.GlobalContext, fCtx *core.Fi
 	chainResolver := jsr.getChainResolver(gCtx, fCtx)
 	targetEle := chainResolver.ResolveChain(chain)
 
-	// 4. 统一全局兜底策略：判定推导符号与当前依赖动作是否合拍
-	if targetEle != nil {
-		switch relType {
-		case model.Call:
-			if targetEle.Kind == model.Method {
-				return targetEle
-			}
-			// 如果推导出的结果是类，但动作是 CALL，说明可能是未注册具体构造方法的实例化过程
-			if targetEle.Kind == model.Class || targetEle.Kind == model.Interface {
-				return jsr.createExternalFallbackWithParent(targetEle.QualifiedName, targetEle.Name, model.Method)
-			}
+	// 4. 判定推导符号与当前依赖动作的合拍性 (Alignment)
+	if alignedEle := jsr.alignElementWithRelType(gCtx, targetEle, relType); alignedEle != nil {
+		return alignedEle
+	}
 
-		case model.Use, model.Assign:
-			if targetEle.Kind == model.Field || targetEle.Kind == model.Variable {
-				return targetEle
-			}
+	// 5. 无法推导或推导失败：根据上下文链条生成最优雅的虚拟外部节点（全局保底）
+	return jsr.generateContextualFallback(fCtx, chain, relType)
+}
 
-		default:
-			// 对于 CREATE, CAST, THROW, RETURN 等动作，期望返回 Class 或 Interface 等宏观类型
-			if targetEle.Kind == model.Class || targetEle.Kind == model.Interface || targetEle.Kind == model.AnonymousClass {
-				return targetEle
-			}
-			// 若定位到了变量或方法，则回溯其声明的所属 Owner Class
-			if ownerClass := helper.GetOwnerClass(gCtx, targetEle); ownerClass != nil {
-				return ownerClass
-			}
+// =============================================================================
+// 依赖动作合拍性校正 (Action Alignment)
+// =============================================================================
+
+// alignElementWithRelType 校验推导出的 CodeElement 是否符合依赖动作的预期，必要时进行语义修正或二次回溯
+func (jsr *SymbolResolver) alignElementWithRelType(gCtx *core.GlobalContext, targetEle *model.CodeElement, relType model.DependencyType) *model.CodeElement {
+	if targetEle == nil {
+		return nil
+	}
+
+	switch relType {
+	case model.Call:
+		if targetEle.Kind == model.Method {
+			return targetEle
+		}
+		// 如果推导出的结果是类/接口，但动作是 CALL，说明可能是未注册具体构造方法的实例化过程
+		if targetEle.Kind == model.Class || targetEle.Kind == model.Interface {
+			return jsr.createExternalFallbackWithParent(targetEle.QualifiedName, targetEle.Name, model.Method)
+		}
+
+	case model.Use, model.Assign:
+		if targetEle.Kind == model.Field || targetEle.Kind == model.Variable {
+			return targetEle
+		}
+
+	default:
+		// 对于 CREATE, CAST, THROW, RETURN 等动作，期望返回 Class/Interface/AnonymousClass 等宏观类型
+		if targetEle.Kind == model.Class || targetEle.Kind == model.Interface || targetEle.Kind == model.AnonymousClass {
+			return targetEle
+		}
+		// 若意外定位到了变量或方法，则回溯其声明所属的 Owner Class
+		if ownerClass := helper.GetOwnerClass(gCtx, targetEle); ownerClass != nil {
+			return ownerClass
 		}
 	}
 
-	// 5. 无法推导或推导失败：根据上下文链条生成最优雅的虚拟外部节点（保底）
-	return jsr.generateContextualFallback(fCtx, chain, relType)
+	return nil
 }
 
 // =============================================================================
@@ -143,8 +158,8 @@ func (jsr *SymbolResolver) generateContextualFallback(fCtx *core.FileContext, ch
 		return jsr.createExternalFallback(fCtx, "Unknown", jsr.getFallbackKindByRelType(relType))
 	}
 
-	// 1. 尝试从 Head 对应的物理位置还原导入路径起点
-	headName := chain.Head.Name
+	// 1. 精准根据 Head 的语法类型提取起点 HeadName（对于 Cast 关系，此处拿到的就是 CastType，如 "String" 或 "List"）
+	headName := jsr.extractHeadName(chain.Head)
 	if idx := strings.Index(headName, "<"); idx != -1 {
 		headName = headName[:idx]
 	}
@@ -154,7 +169,7 @@ func (jsr *SymbolResolver) generateContextualFallback(fCtx *core.FileContext, ch
 		baseQN = imps[0].RawImportPath
 	}
 
-	// 2. 累加后续 Segment 的名字来合成完整的 QN 路径
+	// 2. 如果带有后续 Segments（例如 ((String) obj).getBytes()），累加后续 Segments 路径
 	var builder strings.Builder
 	builder.WriteString(baseQN)
 
@@ -172,12 +187,13 @@ func (jsr *SymbolResolver) generateContextualFallback(fCtx *core.FileContext, ch
 	fallbackQN := builder.String()
 	fallbackKind := jsr.getFallbackKindByRelType(relType)
 
-	// 对特殊类型做微调：如果是 CALL 关系，尾部补充一对括号表达方法意图
+	// 计算 Short Name
 	shortName := fallbackQN
 	if idx := strings.LastIndexAny(fallbackQN, ".$"); idx != -1 {
 		shortName = fallbackQN[idx+1:]
 	}
 
+	// 特殊动作类型微调
 	if relType == model.Call {
 		if !strings.HasSuffix(shortName, "()") {
 			shortName += "()"
@@ -192,6 +208,21 @@ func (jsr *SymbolResolver) generateContextualFallback(fCtx *core.FileContext, ch
 		QualifiedName:  fallbackQN,
 		Kind:           fallbackKind,
 		IsFormExternal: true,
+	}
+}
+
+// extractHeadName 根据 Head 类型解析出准确的 Base 符号名
+func (jsr *SymbolResolver) extractHeadName(head resolver.ExpressionHead) string {
+	switch head.Type {
+	case resolver.HeadCastExpr:
+		if head.CastType != "" {
+			return head.CastType
+		}
+		return head.Name
+	case resolver.HeadNewExpr:
+		return head.Name
+	default:
+		return head.Name
 	}
 }
 

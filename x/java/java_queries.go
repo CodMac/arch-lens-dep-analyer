@@ -59,7 +59,7 @@ const JavaActionQuery = `
   ; ==========================================
   (throw_statement
     [
-      (object_creation_expression) @throw_stmt
+      (object_creation_expression) @throw_target
       (identifier) @throw_target
     ]
   ) @throw_stmt

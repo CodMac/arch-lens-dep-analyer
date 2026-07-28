@@ -2,8 +2,8 @@ package com.test;
 
 import java.io.IOException;
 import java.util.Optional;
-import com.test.dependency.CustomException;
-import com.test.dependency.ExceptionFactory;
+import com.test.case1.CustomException;
+import com.test.case1.ExceptionFactory;
 
 public class ThrowCase1 {
 
