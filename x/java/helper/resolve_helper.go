@@ -205,3 +205,56 @@ func IsSubClassOf(gc *core.GlobalContext, fc *core.FileContext, subQN, superQN s
 	}
 	return false
 }
+
+// ExtractElementByFieldType 提取变量/字段的类型，返回 (typeQN, ele)
+func ExtractElementByFieldType(gc *core.GlobalContext, fc *core.FileContext, element *model.CodeElement) (string, *model.CodeElement) {
+	if element == nil || element.Extra == nil {
+		return "", nil
+	}
+
+	var typeQN string
+	if qn, ok := element.Extra.Mores[constants.VariableTypeWithQN].(string); ok && qn != "" {
+		typeQN = qn
+	} else if raw, ok := element.Extra.Mores[constants.VariableRawType].(string); ok {
+		typeQN = raw
+	}
+
+	if typeQN == "" || typeQN == "void" {
+		return "", nil
+	}
+
+	typeQN = Clean(typeQN)
+	entries := PreciseResolve(gc, fc, typeQN)
+	if len(entries) > 0 {
+		return typeQN, entries[0].Element
+	}
+
+	// 找不到类型符号，仅返回 typeQN，ele 为 nil（不作假设，交由外层处理）
+	return typeQN, nil
+}
+
+// ExtractElementByReturnType 提取函数的返回类型，返回 (returnQN, element)
+func ExtractElementByReturnType(gc *core.GlobalContext, fc *core.FileContext, methodElement *model.CodeElement) (string, *model.CodeElement) {
+	if methodElement == nil || methodElement.Extra == nil {
+		return "", nil
+	}
+
+	var returnQN string
+	if qn, ok := methodElement.Extra.Mores[constants.MethodReturnTypeWithQN].(string); ok && qn != "" {
+		returnQN = qn
+	} else if raw, ok := methodElement.Extra.Mores[constants.MethodReturnType].(string); ok {
+		returnQN = raw
+	}
+
+	if returnQN == "" || returnQN == "void" {
+		return "", nil
+	}
+
+	returnQN = Clean(returnQN)
+	entries := PreciseResolve(gc, fc, returnQN)
+	if len(entries) > 0 {
+		return returnQN, entries[0].Element
+	}
+
+	return returnQN, nil
+}

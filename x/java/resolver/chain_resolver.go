@@ -64,21 +64,22 @@ func (cr *ChainResolver) ResolveChain(chain *ExpressionChain) *model.CodeElement
 
 		case SegmentMethod:
 			lastResolvedEntity = cr.resolveMethodSegment(seg, currType, isStaticContext, fromCtx)
-			currType = cr.extractElementByReturnType(lastResolvedEntity)
+			// 适配 helper 的双返回值，ChainResolver 只流转已知符号 currType
+			_, currType = helper.ExtractElementByReturnType(cr.gCtx, cr.fCtx, lastResolvedEntity)
 			isStaticContext = false
 
 		case SegmentField:
 			lastResolvedEntity = cr.resolveFieldSegment(seg, currType, isStaticContext, fromCtx)
-			currType = cr.extractElementByFieldType(lastResolvedEntity)
+			// 适配 helper 的双返回值，ChainResolver 只流转已知符号 currType
+			_, currType = helper.ExtractElementByFieldType(cr.gCtx, cr.fCtx, lastResolvedEntity)
 			isStaticContext = false
 
 		case SegmentArray:
-			// 数组访问：如果是 head 衍生出来的，保留其引用。类型信息在此处若降维则返回 nil，交由外层降维或保留原本类型。
 			isStaticContext = false
 		}
 
 		if lastResolvedEntity == nil {
-			return nil // 中途断链，无法再提供更精准的符号，立即返回 nil 触发外部保底
+			return nil
 		}
 	}
 
@@ -183,7 +184,8 @@ func (cr *ChainResolver) resolveHeadWithUnwrap(head ExpressionHead) (*model.Code
 		if currentClass != nil {
 			argTypes := helper.InferMethodArgs(head.ASTNode, cr.src)
 			if methodElem := cr.memberResolver.ResolveMethod(currentClass, head.Name, argTypes, false, container); methodElem != nil {
-				return methodElem, cr.extractElementByReturnType(methodElem), false
+				_, retType := helper.ExtractElementByReturnType(cr.gCtx, cr.fCtx, methodElem)
+				return methodElem, retType, false
 			}
 		}
 		return nil, nil, false
@@ -205,7 +207,8 @@ func (cr *ChainResolver) resolveHeadWithUnwrap(head ExpressionHead) (*model.Code
 			if container.Kind == model.Method || container.Kind == model.ScopeBlock {
 				localVariableQN := container.QualifiedName + "." + head.Name
 				if entry, ok := cr.gCtx.FindByQualifiedName(localVariableQN); ok {
-					return entry.Element, cr.extractElementByFieldType(entry.Element), false
+					_, fieldType := helper.ExtractElementByFieldType(cr.gCtx, cr.fCtx, entry.Element)
+					return entry.Element, fieldType, false
 				}
 			}
 			// 作用域链向上爬升
@@ -213,7 +216,8 @@ func (cr *ChainResolver) resolveHeadWithUnwrap(head ExpressionHead) (*model.Code
 			for curr != "" {
 				targetQN := curr + "." + head.Name
 				if entry, ok := cr.gCtx.FindByQualifiedName(targetQN); ok {
-					return entry.Element, cr.extractElementByFieldType(entry.Element), false
+					_, fieldType := helper.ExtractElementByFieldType(cr.gCtx, cr.fCtx, entry.Element)
+					return entry.Element, fieldType, false
 				}
 				if pEntry, ok := cr.gCtx.FindByQualifiedName(curr); ok {
 					curr = pEntry.ParentQN
@@ -226,7 +230,8 @@ func (cr *ChainResolver) resolveHeadWithUnwrap(head ExpressionHead) (*model.Code
 		// 3. 是否是当前类的隐式字段
 		if currentClass := helper.GetBestElement(cr.fCtx, head.ASTNode, []model.ElementKind{model.Class, model.AnonymousClass}); currentClass != nil {
 			if fieldElem := cr.memberResolver.ResolveField(currentClass, head.Name, false, container); fieldElem != nil {
-				return fieldElem, cr.extractElementByFieldType(fieldElem), false
+				_, fieldType := helper.ExtractElementByFieldType(cr.gCtx, cr.fCtx, fieldElem)
+				return fieldElem, fieldType, false
 			}
 		}
 	}
@@ -250,57 +255,4 @@ func (cr *ChainResolver) tryResolveExternalFullQN(shortName string) string {
 		}
 	}
 	return shortName
-}
-
-// extractElementByFieldType 提取变量/字段的类型
-func (cr *ChainResolver) extractElementByFieldType(element *model.CodeElement) *model.CodeElement {
-	if element == nil || element.Extra == nil {
-		return nil
-	}
-
-	var typeQN string
-	if qn, ok := element.Extra.Mores[constants.VariableTypeWithQN].(string); ok && qn != "" {
-		typeQN = qn
-	} else if raw, ok := element.Extra.Mores[constants.VariableRawType].(string); ok {
-		typeQN = raw
-	}
-
-	if typeQN == "" || typeQN == "void" {
-		return nil
-	}
-
-	typeQN = cr.cleanGenericType(typeQN)
-	entries := helper.PreciseResolve(cr.gCtx, cr.fCtx, typeQN)
-	if len(entries) > 0 {
-		return entries[0].Element
-	}
-
-	// 找不到类型符号，直接返回 nil（断链，触发外层 SymbolResolver 兜底）
-	return nil
-}
-
-// extractElementByReturnType 同样处理
-func (cr *ChainResolver) extractElementByReturnType(methodElement *model.CodeElement) *model.CodeElement {
-	if methodElement == nil || methodElement.Extra == nil {
-		return nil
-	}
-
-	var returnQN string
-	if qn, ok := methodElement.Extra.Mores[constants.MethodReturnTypeWithQN].(string); ok && qn != "" {
-		returnQN = qn
-	} else if raw, ok := methodElement.Extra.Mores[constants.MethodReturnType].(string); ok {
-		returnQN = raw
-	}
-
-	if returnQN == "" || returnQN == "void" {
-		return nil
-	}
-
-	returnQN = cr.cleanGenericType(returnQN)
-	entries := helper.PreciseResolve(cr.gCtx, cr.fCtx, returnQN)
-	if len(entries) > 0 {
-		return entries[0].Element
-	}
-
-	return nil
 }

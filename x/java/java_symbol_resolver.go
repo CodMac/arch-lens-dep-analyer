@@ -100,8 +100,8 @@ func (jsr *SymbolResolver) ResolveAction(gCtx *core.GlobalContext, fCtx *core.Fi
 	chainResolver := jsr.getChainResolver(gCtx, fCtx)
 	targetEle := chainResolver.ResolveChain(chain)
 
-	// 4. 判定推导符号与当前依赖动作的合拍性 (Alignment)
-	if alignedEle := jsr.alignElementWithRelType(gCtx, targetEle, relType); alignedEle != nil {
+	// 4. 判定推导符号与当前依赖动作的合拍性 (Alignment) -> 传入 fCtx 以便做类型解析
+	if alignedEle := jsr.alignElementWithRelType(gCtx, fCtx, targetEle, relType); alignedEle != nil {
 		return alignedEle
 	}
 
@@ -114,7 +114,7 @@ func (jsr *SymbolResolver) ResolveAction(gCtx *core.GlobalContext, fCtx *core.Fi
 // =============================================================================
 
 // alignElementWithRelType 校验推导出的 CodeElement 是否符合依赖动作的预期，必要时进行语义修正或二次回溯
-func (jsr *SymbolResolver) alignElementWithRelType(gCtx *core.GlobalContext, targetEle *model.CodeElement, relType model.DependencyType) *model.CodeElement {
+func (jsr *SymbolResolver) alignElementWithRelType(gCtx *core.GlobalContext, fCtx *core.FileContext, targetEle *model.CodeElement, relType model.DependencyType) *model.CodeElement {
 	if targetEle == nil {
 		return nil
 	}
@@ -134,12 +134,45 @@ func (jsr *SymbolResolver) alignElementWithRelType(gCtx *core.GlobalContext, tar
 			return targetEle
 		}
 
-	default:
-		// 对于 CREATE, CAST, THROW, RETURN 等动作，期望返回 Class/Interface/AnonymousClass 等宏观类型
+	case model.Cast, model.Create, model.Throw, model.Return:
+		// 1. 如果目标本身就是 Class / Interface / AnonymousClass，直接返回
 		if targetEle.Kind == model.Class || targetEle.Kind == model.Interface || targetEle.Kind == model.AnonymousClass {
 			return targetEle
 		}
-		// 若意外定位到了变量或方法，则回溯其声明所属的 Owner Class
+
+		// 2. 如果目标是 Field / Variable，提取其声明类型
+		if targetEle.Kind == model.Field || targetEle.Kind == model.Variable {
+			typeQN, typeEle := helper.ExtractElementByFieldType(gCtx, fCtx, targetEle)
+			if typeEle != nil {
+				return typeEle // 命中源码库已知类
+			}
+			if typeQN != "" {
+				// 有明确声明类型，但属于非源码/外部类（如 java.io.IOException），在此处由 SymbolResolver 兜底构建外部 Class
+				return jsr.createExternalFallback(fCtx, typeQN, model.Class)
+			}
+		}
+
+		// 3. 如果目标是 Method，提取其返回值类型
+		if targetEle.Kind == model.Method {
+			typeQN, typeEle := helper.ExtractElementByReturnType(gCtx, fCtx, targetEle)
+			if typeEle != nil {
+				return typeEle // 命中源码库已知类
+			}
+			if typeQN != "" {
+				// 有明确返回值类型，但属于非源码/外部类，在此处构建外部 Class
+				return jsr.createExternalFallback(fCtx, typeQN, model.Class)
+			}
+		}
+
+		// 4. 只有当完全没有类型信息（typeQN == ""）时，才回溯所属 Owner Class
+		if ownerClass := helper.GetOwnerClass(gCtx, targetEle); ownerClass != nil {
+			return ownerClass
+		}
+
+	default:
+		if targetEle.Kind == model.Class || targetEle.Kind == model.Interface || targetEle.Kind == model.AnonymousClass {
+			return targetEle
+		}
 		if ownerClass := helper.GetOwnerClass(gCtx, targetEle); ownerClass != nil {
 			return ownerClass
 		}
