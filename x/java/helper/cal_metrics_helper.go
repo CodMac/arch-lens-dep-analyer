@@ -4,13 +4,14 @@ import (
 	"regexp"
 	"strings"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	coreast "github.com/CodMac/arch-lens-dep-analyer/core/ast"
 )
 
 // =============================================================================
 // 【metrics指标计算】 通用方法
 // =============================================================================
 
+// CalculateLOC 计算有效代码行数（移除块注释、空行与单行注释）。
 func CalculateLOC(source []byte) int {
 	// 1. 移除块注释
 	reBlock := regexp.MustCompile(`(?s)/\*.*?\*/`)
@@ -29,37 +30,39 @@ func CalculateLOC(source []byte) int {
 	return loc
 }
 
+// CalculateRawLOC 计算原始行数。
 func CalculateRawLOC(source []byte) int {
-	// 按行切分并统计
 	lines := strings.Split(string(source), "\n")
-
 	return len(lines)
 }
 
-func CalculateComplexity(node *sitter.Node) int {
+// CalculateComplexity 计算圈复杂度（接受语言无关的 coreast.Node）。
+func CalculateComplexity(node coreast.Node) int {
+	if node == nil {
+		return 0
+	}
 	complexity := 1
-	var traverse func(*sitter.Node)
-	traverse = func(n *sitter.Node) {
+	var traverse func(coreast.Node)
+	traverse = func(n coreast.Node) {
 		if n == nil {
 			return
 		}
 		kind := n.Kind()
 		switch kind {
-		case "if_statement", "for_statement", "while_statement", "do_statement",
+		case "if_statement", "for_statement", "while_statement", "do_statement", "enhanced_for_statement",
 			"catch_clause", "conditional_expression", "ternary_expression", "switch_label":
 			complexity++
 		case "binary_expression":
-			// 对于 binary_expression，我们需要检查运算符是否为 && 或 ||
-			// 注意：tree-sitter-java 可能将 && 和 || 视为不同的子节点
-			for i := 0; i < int(n.ChildCount()); i++ {
-				child := n.Child(uint(i))
-				if child.Kind() == "&&" || child.Kind() == "||" {
+			// 检查运算符是否为 && 或 ||（tree-sitter-java 以匿名子节点呈现运算符）。
+			for i := 0; i < n.ChildCount(); i++ {
+				child := n.Child(i)
+				if child != nil && (child.Kind() == "&&" || child.Kind() == "||") {
 					complexity++
 				}
 			}
 		}
-		for i := 0; i < int(n.ChildCount()); i++ {
-			traverse(n.Child(uint(i)))
+		for i := 0; i < n.ChildCount(); i++ {
+			traverse(n.Child(i))
 		}
 	}
 	traverse(node)

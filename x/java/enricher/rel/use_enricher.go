@@ -9,12 +9,14 @@ import (
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
 )
 
+// UseEnricher 为使用关系（Use）提取接收者/上下文/跨作用域捕获等元数据。
 type UseEnricher struct {
 	resolver core.SymbolResolver
 	fCtx     *core.FileContext
 	gCtx     *core.GlobalContext
 }
 
+// EnrichMetadata 填充 Use 关系的目标名、上下文、receiver 与捕获判定。
 func (e *UseEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 	node, _, ctx := GetRelTmpValue(rel)
 	src := *e.fCtx.SourceBytes
@@ -52,12 +54,12 @@ func (e *UseEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 	}
 
 	// --- 提取接收者类型 QN ---
-	// 这里利用你之前从 Target.Extra 中收集到的 RawType
+	// 这里利用 Target.Extra 中收集到的 RawType
 	if rel.Target != nil && rel.Target.Extra != nil {
 		keys := []string{constants.FieldRawType, constants.VariableRawType}
 		for _, k := range keys {
 			if rt, ok := rel.Target.Extra.Mores[k].(string); ok {
-				// e.clean 会去掉泛型和修饰符，保留纯粹的类型名
+				// helper.Clean 会去掉泛型和修饰符，保留纯粹的类型名
 				rel.Mores[constants.RelUseReceiverType] = helper.Clean(rt)
 				break
 			}

@@ -1,31 +1,31 @@
+// Package java 提供 Java 语言的完整 SPI 实现聚合注册：
+// 通过 core.Register 一次性注册 Parser/Collector/Binder/Extractor/Linker/
+// NoiseFilter/SymbolResolver/SymbolBuilder 全套实现。
 package java
 
 import (
 	"github.com/CodMac/arch-lens-dep-analyer/core"
-	sitter "github.com/tree-sitter/go-tree-sitter"
-
-	tree_sitter_java "github.com/tree-sitter/tree-sitter-java/bindings/go"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/binder"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/collector"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/extractor"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/linker"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/noise_filter"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/symbol_builder"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/symbol_resolver"
 )
 
 func init() {
-	// 注册 Tree-sitter Java 语言对象
-	core.RegisterLanguage(core.LangJava, sitter.NewLanguage(tree_sitter_java.Language()))
+	resolver := symbol_resolver.New()
 
-	// 注册 NoiseFilter(噪音过滤)
-	core.RegisterNoiseFilter(core.LangJava, NewJavaNoiseFilter(core.LevelBalanced))
-
-	// 注册 SymbolResolver(符号解析)
-	core.RegisterSymbolResolver(core.LangJava, NewJavaSymbolResolver())
-
-	// 注册 Collector
-	core.RegisterCollector(core.LangJava, NewJavaCollector())
-
-	// 注册 Extractor
-	core.RegisterExtractor(core.LangJava, NewJavaExtractor())
-
-	// 注册 Binder
-	core.RegisterBinder(core.LangJava, NewJavaBinder())
-
-	// 注册 Linker
-	core.RegisterLinker(core.LangJava, NewJavaLinker())
+	core.Register(&core.LanguageImpl{
+		Language:       core.LangJava,
+		Parser:         &JavaParserFactory{},
+		Collector:      collector.New(resolver),
+		Binder:         binder.New(),
+		Extractor:      extractor.New(),
+		Linker:         linker.New(),
+		NoiseFilter:    noise_filter.New(core.LevelBalanced),
+		SymbolResolver: resolver,
+		SymbolBuilder:  symbol_builder.New(),
+	})
 }

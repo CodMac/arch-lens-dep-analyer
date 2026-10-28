@@ -34,4 +34,21 @@ public class TypeArgRelationSuite {
     // Source: com.example.rel.TypeArgRelationSuite.addNumbers.list, Target: Integer
     // Mores: { "java.rel.type_arg.index": 0, "java.rel.raw_text": "? super Integer" }
     public void addNumbers(List<? super Integer> list) {}
+
+    // 6. 类级泛型边界（type_parameters）
+    // Source: com.example.rel.TypeArgRelationSuite.TypeArgBoundSuite, Target: java.io.Serializable
+    // Mores: { "java.rel.ast_kind": "type_parameters" }
+    // Source: com.example.rel.TypeArgRelationSuite.TypeArgBoundSuite, Target: Cloneable
+    // Mores: { "java.rel.ast_kind": "type_parameters" }
+    static class TypeArgBoundSuite<T extends Serializable & Cloneable> {}
+
+    // 7. 父类/接口泛型实参（type_arguments）
+    // Source: com.example.rel.TypeArgRelationSuite.TypeArgHeritageSuite, Target: Map
+    // Mores: { "java.rel.type_arg.index": 0, "java.rel.ast_kind": "type_arguments" }
+    // Source: com.example.rel.TypeArgRelationSuite.TypeArgHeritageSuite, Target: String
+    // Mores: { "java.rel.type_arg.index": 1, "java.rel.ast_kind": "type_arguments" }
+    static class TypeArgHeritageSuite extends AbstractTypeArgBase<Map<String, String>> {}
 }
+
+// 8. 父类泛型实参的父类定义
+class AbstractTypeArgBase<T> {}

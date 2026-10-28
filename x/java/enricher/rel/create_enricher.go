@@ -1,18 +1,21 @@
 package rel
 
 import (
+	"strings"
+
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
-	"strings"
 )
 
+// CreateEnricher 为实例化关系（Create）提取变量名/数组/构造链等元数据。
 type CreateEnricher struct {
 	resolver core.SymbolResolver
 	fCtx     *core.FileContext
 	gCtx     *core.GlobalContext
 }
 
+// EnrichMetadata 填充 Create 关系的专用属性，并特殊处理 super() 构造链。
 func (e *CreateEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 	_, _, stmt := GetRelTmpValue(rel)
 	src := *e.fCtx.SourceBytes

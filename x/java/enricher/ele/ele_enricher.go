@@ -1,24 +1,28 @@
+// Package ele 提供 Java 代码元素的元数据增强能力：
+// 在 Collector 的 enrichMetadata 阶段，为每个定义填充签名、修饰符、注解、注释与语言特化指标。
 package ele
 
 import (
 	"strings"
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
+	coreast "github.com/CodMac/arch-lens-dep-analyer/core/ast"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
-	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
+// IEnricher 是单个元素类型的元数据增强契约。
 type IEnricher interface {
-	EnrichMetadata(elem *model.CodeElement, node *sitter.Node)
+	EnrichMetadata(elem *model.CodeElement, node coreast.Node)
 }
 
+// Enricher 按 ElementKind 分派到具体的元素增强器。
 type Enricher struct {
-	fCtx *core.FileContext
-
+	fCtx        *core.FileContext
 	enricherMap map[model.ElementKind]IEnricher
 }
 
+// NewEnricher 创建元素元数据增强器（注册全部 Java 元素类型）。
 func NewEnricher(fCtx *core.FileContext) *Enricher {
 	enricherMap := make(map[model.ElementKind]IEnricher)
 	enricherMap[model.File] = &FileEnricher{fCtx: fCtx}
@@ -39,6 +43,7 @@ func NewEnricher(fCtx *core.FileContext) *Enricher {
 	}
 }
 
+// EnrichMetadata 为一个定义填充通用元数据并按类型分派。
 func (e *Enricher) EnrichMetadata(entry *core.DefinitionEntry) {
 	srcs := e.fCtx.SourceBytes
 	elem := entry.Element
@@ -85,13 +90,14 @@ func (e *Enricher) EnrichMetadata(entry *core.DefinitionEntry) {
 	}
 }
 
-func (e *Enricher) extractModifiersAndAnnotations(n *sitter.Node, src *[]byte) ([]string, []string) {
+// extractModifiersAndAnnotations 从 modifiers 节点中拆分修饰符与注解。
+func (e *Enricher) extractModifiersAndAnnotations(n coreast.Node, src *[]byte) ([]string, []string) {
 	var mods = make([]string, 0)
 	var annos = make([]string, 0)
 
 	if mNode := helper.FindNamedChildOfType(n, "modifiers"); mNode != nil {
-		for i := 0; i < int(mNode.ChildCount()); i++ {
-			child := mNode.Child(uint(i))
+		for i := 0; i < mNode.ChildCount(); i++ {
+			child := mNode.Child(i)
 			txt := helper.GetNodeContent(child, *src)
 			if strings.Contains(child.Kind(), "annotation") {
 				annos = append(annos, txt)
@@ -104,7 +110,8 @@ func (e *Enricher) extractModifiersAndAnnotations(n *sitter.Node, src *[]byte) (
 	return mods, annos
 }
 
-func (e *Enricher) extractComments(node *sitter.Node, src *[]byte) (doc, comment string) {
+// extractComments 提取前导注释：Javadoc 记入 Doc，普通注释记入 Comment。
+func (e *Enricher) extractComments(node coreast.Node, src *[]byte) (doc, comment string) {
 	curr := node
 	if node.Kind() == "variable_declarator" && node.Parent() != nil {
 		curr = node.Parent()

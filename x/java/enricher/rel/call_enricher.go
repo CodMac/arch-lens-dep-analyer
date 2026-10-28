@@ -1,19 +1,22 @@
 package rel
 
 import (
+	"strings"
+
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
-	"strings"
 )
 
+// CallEnricher 为调用关系（Call）提取 receiver/静态性/链式等元数据。
 type CallEnricher struct {
 	resolver core.SymbolResolver
 	fCtx     *core.FileContext
 	gCtx     *core.GlobalContext
 }
 
+// EnrichMetadata 从触发节点定位真实的调用容器，分场景提取调用属性。
 func (e *CallEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 	node, _, stmt := GetRelTmpValue(rel)
 	src := *e.fCtx.SourceBytes

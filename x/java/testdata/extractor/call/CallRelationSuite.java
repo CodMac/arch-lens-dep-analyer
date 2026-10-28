@@ -128,18 +128,21 @@ public class CallRelationSuite extends BaseClass {
 
         // 13. 强制类型转换后的调用
         Object obj = new CallRelationSuite();
+        // Source: com.example.rel.CallRelationSuite.executeAll() (METHOD)
         // Target: com.example.rel.CallRelationSuite.simpleMethod() (METHOD)
         // Mores: { "java.rel.call.receiver": "obj" }
         ((CallRelationSuite)obj).simpleMethod();
 
         // 14. 异常抛出 (非源码，未 import)
+        // Source: com.example.rel.CallRelationSuite.executeAll() (METHOD)
         // Target: RuntimeException (SYMBOL)
-        // Mores: { "java.rel.call.is_constructor": true, "java.rel.ast_kind": "object_creation_expression" }
+        // Mores: { "java.rel.ast_kind": "throw_statement", "java.rel.throw.is_runtime": true }
         if (staticField == null) {
             throw new RuntimeException("Error");
         }
 
         // 15. 枚举静态方法调用
+        // Source: com.example.rel.CallRelationSuite.executeAll() (METHOD)
         // Target: com.example.rel.CallRelationSuite.MyEnum.values() (METHOD)
         // Mores: { "java.rel.call.is_static": true }
         MyEnum[] tags = MyEnum.values();

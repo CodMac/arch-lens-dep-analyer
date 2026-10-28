@@ -1,18 +1,21 @@
 package rel
 
 import (
+	"strings"
+
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
-	"strings"
 )
 
+// AssignEnricher 为赋值关系（Assign）提取接收者/运算符/右值等元数据。
 type AssignEnricher struct {
 	resolver core.SymbolResolver
 	fCtx     *core.FileContext
 	gCtx     *core.GlobalContext
 }
 
+// EnrichMetadata 填充 Assign 关系的目标名、receiver、operator 与捕获判定。
 func (e *AssignEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 	node, _, ctx := GetRelTmpValue(rel)
 	src := *e.fCtx.SourceBytes

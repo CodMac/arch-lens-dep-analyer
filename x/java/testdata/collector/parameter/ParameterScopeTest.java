@@ -2,7 +2,7 @@ package com.example.base.test;
 
 public class ParameterScopeTest {
     // 构造函数
-    public ParameterScopeTester(String initialConfig) {
+    public ParameterScopeTest(String initialConfig) {
     }
 
     // 普通方法与变长参数

@@ -5,11 +5,11 @@ import (
 	"strings"
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
+	coreast "github.com/CodMac/arch-lens-dep-analyer/core/ast"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
-	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-// IsScopeContainer 是否容器kind
+// IsScopeContainer 是否容器 kind。
 func IsScopeContainer(k model.ElementKind) bool {
 	switch k {
 	case model.Class, model.Interface, model.Enum, model.KAnnotation,
@@ -19,17 +19,15 @@ func IsScopeContainer(k model.ElementKind) bool {
 	return false
 }
 
-// PreciseResolve 根据symbol查找符号定义
+// PreciseResolve 根据 symbol 查找符号定义（4 级检索）。
+// v2 中 GlobalContext 内部自加锁，此处不再持锁（避免嵌套锁死锁）。
 func PreciseResolve(gc *core.GlobalContext, fc *core.FileContext, symbol string) []*core.DefinitionEntry {
-	gc.RLock()
-	defer gc.RUnlock()
-
-	// 短符号, 文件内查找
+	// 短符号，文件内查找
 	if defs, ok := fc.FindByShortName(symbol); ok {
 		return defs
 	}
 
-	// 短符号, 升级为确切QN, 全局查找
+	// 短符号，升级为确切 QN，全局查找
 	if imps, ok := fc.Imports[symbol]; ok {
 		for _, imp := range imps {
 			if def, found := gc.FindByQualifiedName(imp.RawImportPath); found {
@@ -38,13 +36,13 @@ func PreciseResolve(gc *core.GlobalContext, fc *core.FileContext, symbol string)
 		}
 	}
 
-	// 短符号, 包内查找
+	// 短符号，包内查找
 	pkgQN := gc.BuildQualifiedName(fc.PackageName, symbol)
 	if def, ok := gc.FindByQualifiedName(pkgQN); ok {
 		return []*core.DefinitionEntry{def}
 	}
 
-	// 短符号, 升级为匹配式QN, 全局查找
+	// 短符号，升级为匹配式 QN，全局查找（通配符导入）
 	for _, imps := range fc.Imports {
 		for _, imp := range imps {
 			if imp.IsWildcard {
@@ -62,18 +60,19 @@ func PreciseResolve(gc *core.GlobalContext, fc *core.FileContext, symbol string)
 	return nil
 }
 
-// GetBestElement 根据node和kinds，匹配合适的Element
-func GetBestElement(fc *core.FileContext, node *sitter.Node, kinds []model.ElementKind) *model.CodeElement {
+// GetBestElement 根据 node 所在行与 kinds，匹配合适的 Element。
+func GetBestElement(fc *core.FileContext, node coreast.Node, kinds []model.ElementKind) *model.CodeElement {
 	if node == nil {
 		return nil
 	}
 	var best *model.CodeElement
-	var minSize uint32 = 0xFFFFFFFF
-	row := int(node.StartPosition().Row + 1)
+	var minSize = 1 << 30
+	row := int(node.StartPoint().Row + 1)
 	for _, entry := range fc.Definitions {
 		if slices.Contains(kinds, entry.Element.Kind) {
-			if row >= entry.Element.Location.StartLine && row <= entry.Element.Location.EndLine {
-				size := uint32(entry.Element.Location.EndLine - entry.Element.Location.StartLine)
+			loc := entry.Element.Location
+			if loc != nil && row >= loc.StartLine && row <= loc.EndLine {
+				size := loc.EndLine - loc.StartLine
 				if size < minSize {
 					minSize, best = size, entry.Element
 				}
@@ -83,7 +82,7 @@ func GetBestElement(fc *core.FileContext, node *sitter.Node, kinds []model.Eleme
 	return best
 }
 
-// GetRealPackage 获得Element的包
+// GetRealPackage 获得 Element 的包名。
 func GetRealPackage(gc *core.GlobalContext, elem *model.CodeElement) string {
 	curr := elem.QualifiedName
 	for {
@@ -98,13 +97,12 @@ func GetRealPackage(gc *core.GlobalContext, elem *model.CodeElement) string {
 				return curr
 			}
 		} else {
-			// 如果全局上下文没找到，继续向上找，直到匹配已知的 Package 模式
 			continue
 		}
 	}
 }
 
-// GetOwnerClassQN 获得Element的持有类QN
+// GetOwnerClassQN 获得 Element 的持有类 QN。
 func GetOwnerClassQN(gc *core.GlobalContext, elem *model.CodeElement) string {
 	curr := elem
 	for curr != nil {
@@ -122,15 +120,95 @@ func GetOwnerClassQN(gc *core.GlobalContext, elem *model.CodeElement) string {
 	return ""
 }
 
-// GetOutermostClassQN 获取最外层的类名 (例如把 A.B.C$1 还原为 A)
+// GetOwnerClass 获得 Element 的持有类 CodeElement。
+func GetOwnerClass(gc *core.GlobalContext, elem *model.CodeElement) *model.CodeElement {
+	qn := GetOwnerClassQN(gc, elem)
+	if qn == "" {
+		return nil
+	}
+	if entry, ok := gc.FindByQualifiedName(qn); ok {
+		return entry.Element
+	}
+	return nil
+}
+
+// GetOutermostClassQN 获取最外层的类名（例如把 A.B.C$1 还原为 A）。
 func GetOutermostClassQN(qn string) string {
-	// 逻辑：在 Java 中，类名通常是大写开头
 	parts := strings.Split(qn, ".")
 	for i, part := range parts {
-		// 简单判定：首字母大写通常是类名 (Java 规范)
 		if len(part) > 0 && part[0] >= 'A' && part[0] <= 'Z' {
 			return strings.Join(parts[:i+1], ".")
 		}
 	}
 	return ""
+}
+
+// ExtractLocation 从 AST 节点提取位置信息。
+func ExtractLocation(node coreast.Node, path string) *model.Location {
+	if node == nil {
+		return nil
+	}
+	sp := node.StartPoint()
+	ep := node.EndPoint()
+	return &model.Location{
+		FilePath:    path,
+		StartLine:   sp.Row + 1,
+		EndLine:     ep.Row + 1,
+		StartColumn: sp.Column,
+		EndColumn:   ep.Column,
+	}
+}
+
+// FindNamedChildOfType 在具名子节点中查找指定类型。
+func FindNamedChildOfType(node coreast.Node, nodeType string) coreast.Node {
+	if node == nil {
+		return nil
+	}
+	for i := 0; i < node.NamedChildCount(); i++ {
+		child := node.NamedChild(i)
+		if child.Kind() == nodeType {
+			return child
+		}
+	}
+	return nil
+}
+
+// IsSubClassOf 判断 srcQN 类是否为 superQN 的子类（含自身）。
+func IsSubClassOf(gc *core.GlobalContext, fc *core.FileContext, srcQN, superQN string) bool {
+	return isSubClassOfRecursive(gc, fc, srcQN, superQN, make(map[string]bool))
+}
+
+func isSubClassOfRecursive(gc *core.GlobalContext, fc *core.FileContext, srcQN, superQN string, visited map[string]bool) bool {
+	if srcQN == "" || superQN == "" || visited[srcQN] {
+		return false
+	}
+	visited[srcQN] = true
+
+	if srcQN == superQN || strings.HasSuffix(srcQN, "."+superQN) {
+		return true
+	}
+
+	entry, ok := gc.FindByQualifiedName(srcQN)
+	if !ok || entry.Element.Extra == nil {
+		return false
+	}
+
+	mores := entry.Element.Extra.Mores
+	var supers []string
+	if sc, ok := mores["java.class.superclass"].(string); ok && sc != "" {
+		supers = append(supers, sc)
+	}
+	if itfs, ok := mores["java.class.interfaces"].([]string); ok {
+		supers = append(supers, itfs...)
+	}
+
+	for _, parentName := range supers {
+		parents := PreciseResolve(gc, fc, Clean(parentName))
+		for _, p := range parents {
+			if isSubClassOfRecursive(gc, fc, p.Element.QualifiedName, superQN, visited) {
+				return true
+			}
+		}
+	}
+	return false
 }

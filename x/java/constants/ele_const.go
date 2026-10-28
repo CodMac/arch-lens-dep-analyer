@@ -1,3 +1,4 @@
+// Package constants 集中定义 Java 语言的 Mores key 常量，避免业务代码散落魔法字符串。
 package constants
 
 // =============================================================================
@@ -9,10 +10,12 @@ const (
 	ClassIsStatic                  = "java.class.is_static"            // 类是否为静态内部类 -> bool
 	ClassIsAbstract                = "java.class.is_abstract"          // 类是否为抽象类 (abstract) -> bool
 	ClassIsFinal                   = "java.class.is_final"             // 类是否为终态类 (final) -> bool
+	ClassTypeParameters            = "java.class.type_parameters"      // 类的泛型参数声明 (如 <ID>) -> string
 	ClassSuperClass                = "java.class.superclass"           // 类的父类名称 (含泛型) -> string
 	ClassImplementedInterfaces     = "java.class.interfaces"           // 类实现的接口列表 -> []string
 	InterfaceImplementedInterfaces = "java.interface.interfaces"       // 接口继承的其他接口列表 -> []string
 	MethodIsConstructor            = "java.method.is_constructor"      // 是否为构造方法 -> bool
+	MethodTypeParameters           = "java.method.type_parameters"     // 方法的泛型参数声明 (如 <E extends Number>) -> string
 	MethodIsDefault                = "java.method.is_default"          // 是否为接口中的默认方法 (default) -> bool
 	MethodIsImplicit               = "java.method.is_implicit"         // 是否为隐式方法 (如编译器自动生成的构造函数) -> bool
 	MethodIsAnnotation             = "java.method.is_annotation"       // 是否为注解类型中的元素方法 -> bool

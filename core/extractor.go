@@ -1,30 +1,12 @@
 package core
 
 import (
-	"fmt"
-
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 )
 
-// Extractor 用于提取文件中的关系，需要全局上下文。
+// Extractor 负责从单个文件提取全部依赖关系，是引擎的核心与最复杂阶段。
+// 该阶段在文件级并行执行。
 type Extractor interface {
-	// Extract 基于全局上下文，返回文件中的依赖关系。
-	Extract(filePath string, gCtx *GlobalContext) ([]*model.DependencyRelation, error)
-}
-
-var extractorMap = make(map[Language]Extractor)
-
-// RegisterExtractor 注册一个语言与其对应的 Extractor
-func RegisterExtractor(lang Language, extractor Extractor) {
-	extractorMap[lang] = extractor
-}
-
-// GetExtractor 根据语言类型获取对应的 Extractor 实例。
-func GetExtractor(lang Language) (Extractor, error) {
-	extractor, ok := extractorMap[lang]
-	if !ok {
-		return nil, fmt.Errorf("no extractor registered for language: %s", lang)
-	}
-
-	return extractor, nil
+	// Extract 提取指定文件（相对路径）的全部依赖关系。
+	Extract(relPath string, ctx *GlobalContext) ([]*model.DependencyRelation, error)
 }

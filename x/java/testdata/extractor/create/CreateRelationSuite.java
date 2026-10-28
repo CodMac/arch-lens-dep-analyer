@@ -27,7 +27,7 @@ public class CreateRelationSuite {
         StringBuilder sb = new StringBuilder("init");
 
         // 4. 匿名内部类创建
-        // Source: Method(com.example.rel.CreateRelationSuitetestCreateCases())
+        // Source: Method(com.example.rel.CreateRelationSuite.testCreateCases())
         // Target: Class(Runnable)
         // Mores: { "java.rel.create.variable_name": "r", "java.rel.ast_kind": "object_creation_expression" }
         Runnable r = new Runnable() {
@@ -38,13 +38,13 @@ public class CreateRelationSuite {
         };
 
         // 5. 数组实例化
-        // Source: Method(com.example.rel.CreateRelationSuitetestCreateCases())
+        // Source: Method(com.example.rel.CreateRelationSuite.testCreateCases())
         // Target: Class(String)
         // Mores: { "java.rel.create.is_array": true, "java.rel.ast_kind": "array_creation_expression" }
         String[] strings = new String[5];
 
         // 6. 链式调用中的实例化
-        // Source: Method(com.example.rel.CreateRelationSuitetestCreateCases())
+        // Source: Method(com.example.rel.CreateRelationSuite.testCreateCases())
         // Target: Class(com.example.rel.CreateRelationSuite)
         // Mores: { "java.rel.ast_kind": "object_creation_expression" }
         new CreateRelationSuite().doNothing();
@@ -53,7 +53,7 @@ public class CreateRelationSuite {
     public CreateRelationSuite() {
         // 7. 构造函数内部实例化 (super)
         // Source: Constructor(com.example.rel.CreateRelationSuite.CreateRelationSuite())
-        // Target: Class(Object)
+        // Target: Class(super)
         // Mores: { "java.rel.ast_kind": "explicit_constructor_invocation" }
         super();
     }

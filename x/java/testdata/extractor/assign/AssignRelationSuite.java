@@ -99,6 +99,7 @@ public class AssignRelationSuite {
         // Mores: { "java.rel.assign.target_name": "b", "java.rel.assign.operator": "=", "java.rel.assign.value_expression": "c = 50" }
 
         // 关系 A -> c
+        // Source: com.example.rel.AssignRelationSuite.testAssignments(int) (METHOD)
         // Target: com.example.rel.AssignRelationSuite.testAssignments(int).c (VARIABLE)
         // Mores: { "java.rel.assign.target_name": "c", "java.rel.assign.operator": "=", "java.rel.assign.value_expression": "50" }
         a = b = c = 50;

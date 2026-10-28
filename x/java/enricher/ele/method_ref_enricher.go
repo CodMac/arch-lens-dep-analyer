@@ -2,23 +2,25 @@ package ele
 
 import (
 	"github.com/CodMac/arch-lens-dep-analyer/core"
+	coreast "github.com/CodMac/arch-lens-dep-analyer/core/ast"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
+// MethodRefEnricher 为方法引用 (如 System.out::println) 生成接收者/目标元数据。
 type MethodRefEnricher struct {
 	fCtx *core.FileContext
 }
 
-func (c *MethodRefEnricher) EnrichMetadata(elem *model.CodeElement, node *tree_sitter.Node) {
+// EnrichMetadata 填充方法引用级 Mores（receiver/target/type_args）与 Signature。
+func (c *MethodRefEnricher) EnrichMetadata(elem *model.CodeElement, node coreast.Node) {
 	srcs := c.fCtx.SourceBytes
 	extra := elem.Extra
 
 	var receiver, target string
-	for i := 0; i < int(node.ChildCount()); i++ {
-		child := node.Child(uint(i))
+	for i := 0; i < node.ChildCount(); i++ {
+		child := node.Child(i)
 		kind := child.Kind()
 
 		// 1. 忽略不需要的符号和中间件

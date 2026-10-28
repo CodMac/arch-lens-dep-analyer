@@ -4,17 +4,19 @@ import (
 	"fmt"
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
+	coreast "github.com/CodMac/arch-lens-dep-analyer/core/ast"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
+// LambdaEnricher 为 Lambda 表达式生成参数/主体形态与签名。
 type LambdaEnricher struct {
 	fCtx *core.FileContext
 }
 
-func (c *LambdaEnricher) EnrichMetadata(elem *model.CodeElement, node *tree_sitter.Node) {
+// EnrichMetadata 填充 Lambda 级 Mores（参数文本、主体是否块、复杂度）与 Signature。
+func (c *LambdaEnricher) EnrichMetadata(elem *model.CodeElement, node coreast.Node) {
 	srcs := c.fCtx.SourceBytes
 	extra := elem.Extra
 

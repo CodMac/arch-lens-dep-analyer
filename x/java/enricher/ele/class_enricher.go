@@ -5,17 +5,19 @@ import (
 	"strings"
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
+	coreast "github.com/CodMac/arch-lens-dep-analyer/core/ast"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
-	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
+// ClassEnricher 为类/接口/枚举/注解类型生成签名与继承关系元数据。
 type ClassEnricher struct {
 	fCtx *core.FileContext
 }
 
-func (c *ClassEnricher) EnrichMetadata(elem *model.CodeElement, node *sitter.Node) {
+// EnrichMetadata 填充类级 Mores（abstract/final/static、父类、实现接口）与 Signature。
+func (c *ClassEnricher) EnrichMetadata(elem *model.CodeElement, node coreast.Node) {
 	extra := elem.Extra
 	mods := elem.Extra.Modifiers
 
@@ -26,6 +28,7 @@ func (c *ClassEnricher) EnrichMetadata(elem *model.CodeElement, node *sitter.Nod
 	typeParams := ""
 	if tpNode := node.ChildByFieldName("type_parameters"); tpNode != nil {
 		typeParams = helper.GetNodeContent(tpNode, *c.fCtx.SourceBytes)
+		extra.Mores[constants.ClassTypeParameters] = typeParams
 	}
 
 	heritage := ""
@@ -51,7 +54,8 @@ func (c *ClassEnricher) EnrichMetadata(elem *model.CodeElement, node *sitter.Nod
 	elem.Signature = strings.TrimSpace(fmt.Sprintf("%s %s %s%s%s", strings.Join(mods, " "), displayKind, elem.Name, typeParams, heritage))
 }
 
-func (c *ClassEnricher) findInterfacesNode(node *sitter.Node) *sitter.Node {
+// findInterfacesNode 定位接口/父接口列表节点（兼容 class 与 interface 的不同字段名）。
+func (c *ClassEnricher) findInterfacesNode(node coreast.Node) coreast.Node {
 	if n := node.ChildByFieldName("interfaces"); n != nil {
 		return n
 	}
@@ -61,7 +65,8 @@ func (c *ClassEnricher) findInterfacesNode(node *sitter.Node) *sitter.Node {
 	return helper.FindNamedChildOfType(node, "extends_interfaces")
 }
 
-func (c *ClassEnricher) extractInterfaceList(node *sitter.Node, srcs *[]byte) []string {
+// extractInterfaceList 从类型列表节点中提取全部类型名。
+func (c *ClassEnricher) extractInterfaceList(node coreast.Node, srcs *[]byte) []string {
 	var results []string
 	target := node
 	if node.Kind() != "type_list" {
@@ -69,8 +74,8 @@ func (c *ClassEnricher) extractInterfaceList(node *sitter.Node, srcs *[]byte) []
 			target = listNode
 		}
 	}
-	for i := 0; i < int(target.NamedChildCount()); i++ {
-		child := target.NamedChild(uint(i))
+	for i := 0; i < target.NamedChildCount(); i++ {
+		child := target.NamedChild(i)
 		if strings.Contains(child.Kind(), "type") || child.Kind() == "type_identifier" {
 			results = append(results, helper.GetNodeContent(child, *srcs))
 		}

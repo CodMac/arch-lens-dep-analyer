@@ -7,8 +7,12 @@ public class ScopeTest {
     public void test(String name) { // 参数遮蔽字段
         if (true) {
             String name = "Local"; // 局部变量遮蔽参数
+            // Source: com.example.rel.use.case1.ScopeTest.test(String) (METHOD)
+            // Target: com.example.rel.use.case1.ScopeTest.test(String).block$1.name (VARIABLE)
             System.out.println(name); // [Case 1] 应解析为 Line 7 的 LocalVariable
         }
+        // Source: com.example.rel.use.case1.ScopeTest.test(String) (METHOD)
+        // Target: com.example.rel.use.case1.ScopeTest.test(String).name (VARIABLE)
         System.out.println(name); // [Case 2] 应解析为 Line 5 的 Parameter
     }
 }

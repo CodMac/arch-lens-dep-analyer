@@ -5,6 +5,8 @@ public class StaticTest {
     private static int staticVar = 2;
 
     public static void staticMethod() {
+        // Source: com.example.rel.use.case4.StaticTest.staticMethod() (METHOD)
+        // Target: com.example.rel.use.case4.StaticTest.staticVar (FIELD)
         System.out.println(staticVar);   // [Case 7] 应解析成功
         System.out.println(instanceVar); // [Case 8] 应解析失败 (静态方法不能引用非静态变量)
     }

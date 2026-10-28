@@ -4,7 +4,7 @@ package constants
 // java_extractor 采集的 Relation.Mores
 // =============================================================================
 
-// --- Core属性 (java_extractor 默认提取的属性) ---
+// --- Core 属性 (java_extractor 默认提取的属性) ---
 const (
 	RelRawText               = "java.rel.raw_text"                // 完整的赋值语句源码 (eg,: data.name = "Hi")
 	RelAstKind               = "java.rel.ast_kind"                // 触发该关系的那个 AST 节点的类型 (eg,: assignment_expression)
@@ -32,21 +32,21 @@ const (
 	RelUseTargetName         = "java.rel.use.target_name"         // 实例字段访问的语句目标(如 "user.name -> name")
 	RelUseIsCapture          = "java.rel.use.is_capture"          // 是否为跨作用域的变量捕获引用
 	RelUseEnclosingMethod    = "java.rel.use.enclosing_method"    // 引用发生的外部方法 QN (常用于 Lambda/内部类溯源)
-	RelAnnotationTarget      = "java.rel.annotation.target"       //
-	RelThrowIndex            = "java.rel.throw.index"             // 在 throws 声明列表中的位置索引 (从 0 开始)
-	RelThrowIsSignature      = "java.rel.throw.is_signature"      // 是否为方法签名中 throws 关键字后的声明
-	RelThrowIsRuntime        = "java.rel.throw.is_runtime"        // 是否为主动抛出的运行时异常 (RuntimeException 及其子类)
-	RelThrowIsRethrow        = "java.rel.throw.is_rethrow"        // 是否为重新抛出已存在的异常对象 (如 throw e)
-	RelParameterIndex        = "java.rel.parameter.index"         // 参数在方法签名中的从 0 开始的索引位置
-	RelParameterName         = "java.rel.parameter.name"          // 参数定义的名称 (如 "id", "name")
-	RelParameterIsVarargs    = "java.rel.parameter.is_varargs"    // 是否为可变参数 (Object... args)
-	RelReturnIsPrimitive     = "java.rel.return.is_primitive"     // 返回类型是否为 Java 基础类型 (int, byte, etc.)
-	RelReturnIsArray         = "java.rel.return.is_array"         // 返回类型是否为数组
-	RelTypeArgIndex          = "java.rel.type_arg.index"          // 泛型参数的位置索引 (0 表示第一个参数)
-	RelCastIsInstanceof      = "java.rel.cast.is_instanceof"      // 是否instanceof类型的强转
+	RelAnnotationTarget      = "java.rel.annotation.target"
+	RelThrowIndex            = "java.rel.throw.index"          // 在 throws 声明列表中的位置索引 (从 0 开始)
+	RelThrowIsSignature      = "java.rel.throw.is_signature"   // 是否为方法签名中 throws 关键字后的声明
+	RelThrowIsRuntime        = "java.rel.throw.is_runtime"     // 是否为主动抛出的运行时异常 (RuntimeException 及其子类)
+	RelThrowIsRethrow        = "java.rel.throw.is_rethrow"     // 是否为重新抛出已存在的异常对象 (如 throw e)
+	RelParameterIndex        = "java.rel.parameter.index"      // 参数在方法签名中的从 0 开始的索引位置
+	RelParameterName         = "java.rel.parameter.name"       // 参数定义的名称 (如 "id", "name")
+	RelParameterIsVarargs    = "java.rel.parameter.is_varargs" // 是否为可变参数 (Object... args)
+	RelReturnIsPrimitive     = "java.rel.return.is_primitive"  // 返回类型是否为 Java 基础类型 (int, byte, etc.)
+	RelReturnIsArray         = "java.rel.return.is_array"      // 返回类型是否为数组
+	RelTypeArgIndex          = "java.rel.type_arg.index"       // 泛型参数的位置索引 (0 表示第一个参数)
+	RelCastIsInstanceof      = "java.rel.cast.is_instanceof"   // 是否instanceof类型的强转
 )
 
-// --- Extended属性 (这里是定义的一些属性增强，建议按业务需求定制提取)  ---
+// --- Extended 属性 (按业务需求定制提取的属性增强) ---
 const (
 	RelCallIsInherited           = "java.rel.call.is_inherited"            // 调用的是否为继承自父类的方法
 	RelCallTypeArguments         = "java.rel.call.type_arguments"          // 调用的泛型实参文本 (如 "String")
@@ -92,14 +92,14 @@ const (
 	RelCaptureIsEffectivelyFinal = "java.rel.capture.is_effectively_final" // 捕获的局部变量是否为事实上的 final
 	RelCaptureIsImplicitThis     = "java.rel.capture.is_implicit_this"     // 是否通过隐式的 this 引用捕获成员变量
 	RelCaptureEnclosingLambda    = "java.rel.capture.enclosing_lambda"     // 在嵌套 Lambda 场景下，记录直接包含当前 Lambda 的父 Lambda
-	RelAnnotationParams          = "java.rel.annotation.params"            //
-	RelAnnotationValue           = "java.rel.annotation.value"             //
-	RelParameterIsFinal          = "java.rel.parameter.is_final"           // 参数是否带有 final 修饰符
-	RelParameterHasAnnotation    = "java.rel.parameter.has_annotation"     // 参数是否带有注解
-	RelReturnDimensions          = "java.rel.return.dimensions"            // 返回数组的维度 (如 byte[][] 为 2)
-	RelReturnHasTypeArguments    = "java.rel.return.has_type_arguments"    // 返回类型是否携带泛型参数 (如 List<String>)
-	RelTypeArgParentType         = "java.rel.type_arg.parent_type"         // 包含该泛型参数的主类型名 (如 List, Map)
-	RelTypeArgDepth              = "java.rel.type_arg.depth"               // 嵌套深度 (0 为直接参数，1 为参数的参数，以此类推)
-	RelTypeArgIsWildcard         = "java.rel.type_arg.is_wildcard"         // 是否为通配符 (如 ?, ? extends T)
-	RelTypeArgWildcardKind       = "java.rel.type_arg.wildcard_kind"       // 通配符种类 (如 "extends", "super", "unbounded")
+	RelAnnotationParams          = "java.rel.annotation.params"
+	RelAnnotationValue           = "java.rel.annotation.value"
+	RelParameterIsFinal          = "java.rel.parameter.is_final"        // 参数是否带有 final 修饰符
+	RelParameterHasAnnotation    = "java.rel.parameter.has_annotation"  // 参数是否带有注解
+	RelReturnDimensions          = "java.rel.return.dimensions"         // 返回数组的维度 (如 byte[][] 为 2)
+	RelReturnHasTypeArguments    = "java.rel.return.has_type_arguments" // 返回类型是否携带泛型参数 (如 List<String>)
+	RelTypeArgParentType         = "java.rel.type_arg.parent_type"      // 包含该泛型参数的主类型名 (如 List, Map)
+	RelTypeArgDepth              = "java.rel.type_arg.depth"            // 嵌套深度 (0 为直接参数，1 为参数的参数，以此类推)
+	RelTypeArgIsWildcard         = "java.rel.type_arg.is_wildcard"      // 是否为通配符 (如 ?, ? extends T)
+	RelTypeArgWildcardKind       = "java.rel.type_arg.wildcard_kind"    // 通配符种类 (如 "extends", "super", "unbounded")
 )

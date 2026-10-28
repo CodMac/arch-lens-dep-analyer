@@ -7,12 +7,14 @@ import (
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
 )
 
+// ThrowEnricher 为异常抛出关系（Throw）识别运行时异常/重抛/签名声明。
 type ThrowEnricher struct {
 	resolver core.SymbolResolver
 	fCtx     *core.FileContext
 	gCtx     *core.GlobalContext
 }
 
+// EnrichMetadata 依据触发节点形态区分 throw 语句与 throws 签名声明。
 func (e *ThrowEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 	node, rawText, _ := GetRelTmpValue(rel)
 
@@ -28,6 +30,8 @@ func (e *ThrowEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 		return
 	}
 
+	// 结构关系（throws 签名）不设 TmpExpr，raw_text 存于 Mores[RelRawText]。
+	rawText, _ = rel.Mores[constants.RelRawText].(string)
 	if rawText != "" && rel.Source != nil && rel.Source.Extra != nil {
 		if ths, ok := rel.Source.Extra.Mores[constants.MethodThrowsTypes].([]string); ok {
 			for i, ex := range ths {

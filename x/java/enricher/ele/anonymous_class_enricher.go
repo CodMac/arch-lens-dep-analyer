@@ -2,17 +2,19 @@ package ele
 
 import (
 	"github.com/CodMac/arch-lens-dep-analyer/core"
+	coreast "github.com/CodMac/arch-lens-dep-analyer/core/ast"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
+// AnonymousClassEnricher 为匿名内部类生成父类型元数据。
 type AnonymousClassEnricher struct {
 	fCtx *core.FileContext
 }
 
-func (c *AnonymousClassEnricher) EnrichMetadata(elem *model.CodeElement, node *tree_sitter.Node) {
+// EnrichMetadata 提取 new 关键字后的父类型并构造 Signature。
+func (c *AnonymousClassEnricher) EnrichMetadata(elem *model.CodeElement, node coreast.Node) {
 	extra := elem.Extra
 
 	// 在 identifyElement 中, AnonymousClass 锚定的 node 是 "object_creation_expression"

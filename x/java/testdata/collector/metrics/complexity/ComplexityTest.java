@@ -16,13 +16,13 @@ public class ComplexityTest {
     // Complexity = 1 (base) + 3 (case/default) = 4
     public void complexSwitch(int x) {
         switch(x) {
-            case 1: 
+            case 1:
                 System.out.println("1");
                 break;
-            case 2: 
+            case 2:
                 System.out.println("2");
                 break;
-            default: 
+            default:
                 System.out.println("def");
                 break;
         }

@@ -5,17 +5,19 @@ import (
 	"strings"
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
+	coreast "github.com/CodMac/arch-lens-dep-analyer/core/ast"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
-	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
+// FieldEnricher 为成员字段生成签名与类型/修饰符元数据。
 type FieldEnricher struct {
 	fCtx *core.FileContext
 }
 
-func (c *FieldEnricher) EnrichMetadata(elem *model.CodeElement, node *sitter.Node) {
+// EnrichMetadata 填充字段级 Mores（类型、static/final/常量）与 Signature。
+func (c *FieldEnricher) EnrichMetadata(elem *model.CodeElement, node coreast.Node) {
 	srcs := c.fCtx.SourceBytes
 	extra := elem.Extra
 	mods := elem.Extra.Modifiers
@@ -32,7 +34,8 @@ func (c *FieldEnricher) EnrichMetadata(elem *model.CodeElement, node *sitter.Nod
 	elem.Signature = strings.TrimSpace(fmt.Sprintf("%s %s %s", strings.Join(mods, " "), vType, elem.Name))
 }
 
-func (c *FieldEnricher) extractTypeString(node *sitter.Node, src *[]byte) string {
+// extractTypeString 提取字段类型文本（含泛型/可变参数等形态）。
+func (c *FieldEnricher) extractTypeString(node coreast.Node, src *[]byte) string {
 	if node.Kind() == "identifier" {
 		return "inferred"
 	}
@@ -42,8 +45,8 @@ func (c *FieldEnricher) extractTypeString(node *sitter.Node, src *[]byte) string
 	}
 
 	if node.Kind() == "spread_parameter" {
-		for i := 0; i < int(node.NamedChildCount()); i++ {
-			child := node.NamedChild(uint(i))
+		for i := 0; i < node.NamedChildCount(); i++ {
+			child := node.NamedChild(i)
 			if strings.Contains(child.Kind(), "type") {
 				return helper.GetNodeContent(child, *src) + "..."
 			}

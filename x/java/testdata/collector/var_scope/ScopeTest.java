@@ -5,10 +5,10 @@ public class ScopeTest {
     public void test() {
         int x = 1;
         {
-            int x = 2; // 验证 QN: ...test().block$1.x$1
+            int x = 2; // 不同容器（block$1），不触发重名消歧
         }
         if (true) {
-            int x = 3; // 验证 QN: ...test().block$2.x$1
+            int x = 3; // 不同容器（block$2），不触发重名消歧
         }
 
         Runnable r = () -> {
