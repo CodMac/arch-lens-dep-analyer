@@ -543,8 +543,10 @@ func TestResolverR8CreateCastThrow(t *testing.T) {
 	ts.resolveLineKind(t, 22, "throw_statement", model.Throw, "RuntimeException", model.Class, true)
 	// L22 new RuntimeException(...) 的 object_creation_expression 按 Create 解析 -> RuntimeException（外部）
 	ts.resolveLineKind(t, 22, "object_creation_expression", model.Create, "RuntimeException", model.Class, true)
-	// L38 重抛捕获异常 e（catch 变量，无法解析类型）-> 外部兜底
-	ts.resolveLineKind(t, 38, "throw_statement", model.Throw, "unknown", model.Class, true)
+	// L38 重抛捕获异常 e -> 声明类型 Exception（catch_formal_parameter 类型提取）
+	ts.resolveLineKind(t, 38, "throw_statement", model.Throw, "Exception", model.Class, true)
+	// L50 重抛多异常联合类型捕获的 e -> 取第一个类型 IOException
+	ts.resolveLineKind(t, 50, "throw_statement", model.Throw, "IOException", model.Class, true)
 	// L16 throws IOException / SQLException 签名（type_identifier 按 Throw 解析）
 	ioNode := findTypeIdentAtLine(t, ts.src, 16, "IOException")
 	assertResolve(t, ts.gc, ts.fc, ioNode, model.Throw, "IOException", model.Class, true)

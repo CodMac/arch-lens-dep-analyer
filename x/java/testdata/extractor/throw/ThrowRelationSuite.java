@@ -38,4 +38,16 @@ public class ThrowRelationSuite {
             throw e;
         }
     }
+
+    // 5. 重新抛出多异常联合类型捕获的异常（catch_type 含 |，取第一个类型 IOException）
+    // Source: com.example.rel.ThrowRelationSuite.rethrowMulti
+    // Target: java.io.IOException
+    // Mores: { "java.rel.throw.is_rethrow": true }
+    public void rethrowMulti() throws Exception {
+        try {
+            // ...
+        } catch (IOException | SQLException e) {
+            throw e;
+        }
+    }
 }

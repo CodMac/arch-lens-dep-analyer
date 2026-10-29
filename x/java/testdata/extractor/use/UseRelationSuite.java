@@ -51,7 +51,7 @@ public class UseRelationSuite {
         // 7. 表达式/条件读取
         // Source: com.example.rel.UseRelationSuite.testUseCases(int)
         // Target: com.example.rel.UseRelationSuite.testUseCases(int).x
-        // Mores: { "java.rel.context": "parenthesized_expression", "java.rel.ast_kind": "identifier", "java.rel.raw_text": "x" }
+        // Mores: { "java.rel.context": "binary_expression", "java.rel.ast_kind": "identifier", "java.rel.raw_text": "x" }
         boolean flag = (x > 0);
 
         // 8. 增强 for 循环中的集合读取

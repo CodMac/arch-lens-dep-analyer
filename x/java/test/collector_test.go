@@ -390,7 +390,7 @@ func TestCollectorS3Member(t *testing.T) {
 // =============================================================================
 
 func TestCollectorS5ScopeContainer(t *testing.T) {
-	gc := RunCollection(t, "x/java/testdata", ResolvePaths(t, "collector/var_scope"))
+	gc := RunCollection(t, "x/java/testdata", ResolvePaths(t, "collector/var_scope", "extractor/throw"))
 
 	// --- 基础方法作用域变量 ---
 	AssertDef(t, gc, "com.example.base.test.ScopeVariableTest.test().list", model.Variable)
@@ -401,10 +401,15 @@ func TestCollectorS5ScopeContainer(t *testing.T) {
 	AssertMores(t, gc, "com.example.base.test.ScopeVariableTest.test().block$1.bis", constants.VariableRawType, "BufferedInputStream")
 	AssertMores(t, gc, "com.example.base.test.ScopeVariableTest.test().block$1.bis", constants.VariableIsParam, false)
 
-	// --- catch 参数（块重定位到 block$2，类型 unknown）---
+	// --- catch 参数（块重定位到 block$2，类型取自 catch_type）---
 	AssertDef(t, gc, "com.example.base.test.ScopeVariableTest.test().block$2.e", model.Variable)
-	AssertMores(t, gc, "com.example.base.test.ScopeVariableTest.test().block$2.e", constants.VariableRawType, "unknown")
+	AssertMores(t, gc, "com.example.base.test.ScopeVariableTest.test().block$2.e", constants.VariableRawType, "Exception")
 	AssertMores(t, gc, "com.example.base.test.ScopeVariableTest.test().block$2.e", constants.VariableIsParam, false)
+
+	// --- 多异常联合类型 catch 参数（catch (IOException | SQLException e)，取第一个类型）---
+	AssertDef(t, gc, "com.example.rel.ThrowRelationSuite.rethrowMulti().block$2.e", model.Variable)
+	AssertMores(t, gc, "com.example.rel.ThrowRelationSuite.rethrowMulti().block$2.e", constants.VariableRawType, "IOException")
+	AssertMores(t, gc, "com.example.rel.ThrowRelationSuite.rethrowMulti().block$2.e", constants.VariableIsParam, false)
 
 	// --- for 循环变量（block$3）---
 	AssertDef(t, gc, "com.example.base.test.ScopeVariableTest.test().block$3.i", model.Variable)

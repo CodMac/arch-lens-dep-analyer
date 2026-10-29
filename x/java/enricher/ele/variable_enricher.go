@@ -50,5 +50,19 @@ func (c *VariableEnricher) extractTypeString(node coreast.Node, src *[]byte) str
 		}
 	}
 
+	// catch_formal_parameter 无 type 字段，类型在 catch_type 位置子节点
+	// （tree-sitter-java grammar: seq(modifiers?, catch_type, variable_declarator_id)）。
+	// 多异常联合类型（catch (IOException | SQLException e)）取第一个类型作为代表：
+	// 联合类型无法作为单一符号解析，取首项保证下游（throw 解析/receiverContainer）得到有效类型。
+	if node.Kind() == "catch_formal_parameter" {
+		if ct := helper.FindNamedChildOfType(node, "catch_type"); ct != nil {
+			raw := helper.GetNodeContent(ct, *src)
+			if i := strings.Index(raw, "|"); i >= 0 {
+				return strings.TrimSpace(raw[:i])
+			}
+			return raw
+		}
+	}
+
 	return "unknown"
 }
