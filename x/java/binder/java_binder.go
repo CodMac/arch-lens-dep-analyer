@@ -119,5 +119,8 @@ func (b *Binder) resolveToQNScoped(gc *core.GlobalContext, fCtx *core.FileContex
 	}
 
 	ele := b.resolver.ResolveType(gc, fCtx, rawType, model.Class)
+	if ele == nil {
+		return rawType // 泛型变量/通配符等非类型：保留原始文本，QN 绑定失败不致命
+	}
 	return ele.QualifiedName
 }

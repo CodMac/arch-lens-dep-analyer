@@ -82,6 +82,21 @@ func assertResolve(t *testing.T, gc *core.GlobalContext, fc *core.FileContext, n
 	}
 }
 
+// assertResolvePkg 在 assertResolve 基础上追加 PackageName 断言。
+// 用于验证本次缺陷修复：外部裸名符号 PackageName=<external>，import 补全符号带包前缀。
+func assertResolvePkg(t *testing.T, gc *core.GlobalContext, fc *core.FileContext, node coreast.Node, relTyp model.DependencyType, wantQN string, wantKind model.ElementKind, wantExternal bool, wantPkg string) {
+	t.Helper()
+	elem := resolveAction(t, gc, fc, node, relTyp)
+	if elem == nil {
+		t.Errorf("ResolveAction(%s) returned nil (wantPkg=%q)", relTyp, wantPkg)
+		return
+	}
+	assertResolve(t, gc, fc, node, relTyp, wantQN, wantKind, wantExternal)
+	if elem.PackageName != wantPkg {
+		t.Errorf("ResolveAction(%s) PackageName = %q, want %q (QN=%q)", relTyp, elem.PackageName, wantPkg, elem.QualifiedName)
+	}
+}
+
 // resolveAtLine 按行号返回该行上的指定 kind 动作节点（该行首个匹配）。
 // 用于精确定位存在重复文本的动作点（如多行相同调用）。
 func resolveAtLine(t *testing.T, src coreast.SourceFile, kind string, line int) coreast.Node {
@@ -601,8 +616,8 @@ func TestResolverR8CreateCastThrow(t *testing.T) {
 	xs := resolverSuite(t, "extractor/cast")
 	// L13 向下转型 -> String（外部）
 	xs.resolveLineKind(t, 13, "cast_expression", model.Cast, "String", model.Class, true)
-	// L20 基本类型转型 -> int
-	xs.resolveLineKind(t, 20, "cast_expression", model.Cast, "int", model.Class, true)
+	// L20 基本类型转型 -> int（PRIMITIVE 专用元素）
+	xs.resolveLineKind(t, 20, "cast_expression", model.Cast, "int", model.Primitive, true)
 	// L26 泛型集合转型 -> java.util.List（外部，import 补全）
 	xs.resolveLineKind(t, 26, "cast_expression", model.Cast, "java.util.List", model.Class, true)
 	// L32 嵌套类转型 -> 内部定义
@@ -636,6 +651,49 @@ func TestResolverR8CreateCastThrow(t *testing.T) {
 	// L29 构造签名 throws Exception
 	excNode := findTypeIdentAtLine(t, ts.src, 29, "Exception")
 	assertResolve(t, ts.gc, ts.fc, excNode, model.Throw, "Exception", model.Class, true)
+}
+
+// TestResolverPackageName 本次缺陷修复断言：外部符号 PackageName 归属 + 基本类型 PRIMITIVE + 泛型变量不产外部。
+// 覆盖：
+//  1. 未 import 裸名（String/RuntimeException）-> PackageName=<external>（不猜 java.lang）
+//  2. import 补全符号（List/SQLException）-> PackageName=包前缀
+//  3. 基本类型（int）-> Kind=PRIMITIVE，PackageName 为空（非外部类，无包归属）
+//  4. 泛型类型变量（T/E）与通配符（?）-> ResolveType 返回 nil，不产外部 Class
+func TestResolverPackageName(t *testing.T) {
+	// 1. Cast 套件：裸名外部 / import 补全 / 基本类型。
+	xs := resolverSuite(t, "extractor/cast")
+	// L13 (String) -> 未 import 裸名，PackageName=<external>
+	assertResolvePkg(t, xs.gc, xs.fc, resolveAtLine(t, xs.src, "cast_expression", 13), model.Cast, "String", model.Class, true, "<external>")
+	// L26 (List<String>) -> import 补全 java.util.List，PackageName=java.util
+	assertResolvePkg(t, xs.gc, xs.fc, resolveAtLine(t, xs.src, "cast_expression", 26), model.Cast, "java.util.List", model.Class, true, "java.util")
+	// L20 (int) -> PRIMITIVE 专用元素，PackageName 空（非外部类，无包归属）
+	assertResolvePkg(t, xs.gc, xs.fc, resolveAtLine(t, xs.src, "cast_expression", 20), model.Cast, "int", model.Primitive, true, "")
+
+	// 2. Throw 套件：未 import 裸名 / import 补全。
+	ts := resolverSuite(t, "extractor/throw")
+	// L22 throw new RuntimeException -> 未 import，PackageName=<external>
+	assertResolvePkg(t, ts.gc, ts.fc, resolveAtLine(t, ts.src, "throw_statement", 22), model.Throw, "RuntimeException", model.Class, true, "<external>")
+	// L16 SQLException -> import java.sql.*，PackageName=java.sql
+	sqlNode := findTypeIdentAtLine(t, ts.src, 16, "SQLException")
+	assertResolvePkg(t, ts.gc, ts.fc, sqlNode, model.Throw, "java.sql.SQLException", model.Class, true, "java.sql")
+
+	// 3. 泛型类型变量与通配符：ResolveType 返回 nil，不产外部 Class。
+	paths := ResolvePaths(t, "collector/generic")
+	gc, _ := RunExtraction(t, "x/java/testdata", paths)
+	genericPath := findPathByBase(t, paths, "GenericTest.java")
+	fc := mustFileContext(t, gc, genericPath)
+	for _, v := range []string{"E", "T", "?"} {
+		if got := gc.Resolver.ResolveType(gc, fc, v, model.Class); got != nil {
+			t.Errorf("ResolveType(%q) = %v (QN=%q), want nil (generic var/wildcard not a real dependency)", v, got, got.QualifiedName)
+		}
+	}
+	// 对照：真实外部类型 Serializable（import java.io.Serializable）仍产外部 Class 并补全 QN。
+	ser := gc.Resolver.ResolveType(gc, fc, "Serializable", model.Class)
+	if ser == nil {
+		t.Error("ResolveType(Serializable) = nil, want external Class (real dependency)")
+	} else if ser.QualifiedName != "java.io.Serializable" || ser.PackageName != "java.io" {
+		t.Errorf("ResolveType(Serializable) QN=%q PackageName=%q, want java.io.Serializable / java.io", ser.QualifiedName, ser.PackageName)
+	}
 }
 
 // TestResolverR9Alignment 合拍性校正：同一节点按不同关系类型解析得到不同目标。

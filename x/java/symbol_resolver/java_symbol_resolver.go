@@ -61,9 +61,21 @@ func (r *SymbolResolver) IsPrimitive(typeName string) bool {
 }
 
 // ResolveType 解析结构体符号，上下文未找到则返回指定 kind 的外部实体。
+// 分类处理：基本类型产 PRIMITIVE 元素；泛型类型变量/通配符不产外部（非类型依赖）；
+// 其余外部符号按 import 表分配 PackageName（无 import 则归 <external>）。
 func (r *SymbolResolver) ResolveType(gc *core.GlobalContext, fc *core.FileContext, symbol string, kind model.ElementKind) *model.CodeElement {
 	symbol = helper.Clean(symbol)
-	if symbol == "" {
+	if symbol == "" || symbol == "?" {
+		return nil
+	}
+
+	// ① 基本类型：产 PRIMITIVE 专用元素（保留类型语义，非外部类）。
+	if r.IsPrimitive(symbol) {
+		return &model.CodeElement{Name: symbol, QualifiedName: symbol, Kind: model.Primitive, IsFormExternal: true}
+	}
+
+	// ② 泛型类型变量（单大写字母 T/E/S/K/V）：不是真实类型依赖，不产外部。
+	if helper.IsTypeVariable(symbol) {
 		return nil
 	}
 
@@ -71,12 +83,14 @@ func (r *SymbolResolver) ResolveType(gc *core.GlobalContext, fc *core.FileContex
 		return entries[0].Element
 	}
 
-	// 找不到明确实体：按 import 表升级为外部 QN。
+	// ③ 外部兜底：分配包归属。有 import 用 import 包前缀，否则归 <external>。
 	qualifiedName := symbol
+	pkg := "<external>"
 	if imps, ok := fc.Imports[symbol]; ok && len(imps) > 0 {
 		qualifiedName = imps[0].RawImportPath
+		pkg = helper.PkgOf(qualifiedName)
 	}
-	return &model.CodeElement{Name: symbol, QualifiedName: qualifiedName, Kind: kind, IsFormExternal: true}
+	return &model.CodeElement{Name: symbol, QualifiedName: qualifiedName, PackageName: pkg, Kind: kind, IsFormExternal: true}
 }
 
 // ResolveVar 处理变量查找（本地作用域回溯 + 类成员继承查找）。
@@ -183,7 +197,8 @@ func (r *SymbolResolver) ResolveFunc(gc *core.GlobalContext, fc *core.FileContex
 		container = helper.GetBestElement(fc, node, []model.ElementKind{model.Class, model.AnonymousClass})
 	}
 	if container == nil {
-		return &model.CodeElement{Name: symbol, Kind: model.Method, IsFormExternal: true}
+		// 无容器兜底：方法名裸符号，归 <external>（与 ResolveType 外部兜底一致）。
+		return &model.CodeElement{Name: symbol, QualifiedName: symbol, PackageName: "<external>", Kind: model.Method, IsFormExternal: true}
 	}
 
 	// 2. 实参信息（重载匹配）。
@@ -434,9 +449,11 @@ func (r *SymbolResolver) alignElementWithRelType(gc *core.GlobalContext, fc *cor
 		case model.Method, model.MethodRef, model.Lambda:
 			return elem
 		case model.Class, model.Interface, model.AnonymousClass, model.Enum:
+			// 未注册构造的实例化：类型元素校正为 Method 时保留包归属（外部符号 PackageName 不可丢）。
 			return &model.CodeElement{
 				Name:           elem.Name,
 				QualifiedName:  elem.QualifiedName,
+				PackageName:    elem.PackageName,
 				Kind:           model.Method,
 				IsFormExternal: elem.IsFormExternal,
 			}
@@ -494,10 +511,12 @@ func (r *SymbolResolver) generateContextualFallback(gc *core.GlobalContext, fc *
 	}
 	base = helper.Clean(base)
 
-	// 查 import 表升级为完整 QN。
+	// 查 import 表升级为完整 QN 并分配包归属。
 	qualified := base
+	pkg := "<external>"
 	if imps, ok := fc.Imports[base]; ok && len(imps) > 0 {
 		qualified = imps[0].RawImportPath
+		pkg = helper.PkgOf(qualified)
 	}
 
 	// 累加 Segments。按关系类型决定期望的元素种类。
@@ -522,6 +541,7 @@ func (r *SymbolResolver) generateContextualFallback(gc *core.GlobalContext, fc *
 	return &model.CodeElement{
 		Name:           base,
 		QualifiedName:  qualified,
+		PackageName:    pkg,
 		Kind:           kind,
 		IsFormExternal: true,
 	}

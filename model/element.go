@@ -1,6 +1,8 @@
 // Package model 定义引擎的领域数据模型（纯数据结构，零依赖）。
 package model
 
+import "strings"
+
 // ElementKind 表示代码实体的类型。
 type ElementKind string
 
@@ -36,6 +38,9 @@ const (
 	Field    ElementKind = "FIELD"    // 类/结构体/枚举的成员或字段
 	Type     ElementKind = "TYPE"     // 自定义类型别名或基本类型引用
 
+	// --- 基本类型 ---
+	Primitive ElementKind = "PRIMITIVE" // Java 基本类型 (int/long/boolean/...)
+
 	// --- 其他 ---
 	Unknown ElementKind = "UNKNOWN" // 未知类型
 )
@@ -63,6 +68,8 @@ type CodeElement struct {
 	IsFormSource   bool        `json:"IsFormSource"`        // 源码产生的实体
 	IsFormSugar    bool        `json:"IsFormSugar"`         // 语法糖产生的实体
 	IsFormExternal bool        `json:"IsFormExternal"`      // 外部导入产生的实体
+	// PackageName 元素所属包：内部元素=包 QN；外部元素=import 包前缀或 <external>。
+	PackageName string `json:"PackageName,omitempty"`
 }
 
 // Extra 是 CodeElement 的额外信息，包含跨语言通用的关键元数据。
@@ -73,11 +80,17 @@ type Extra struct {
 }
 
 // NewExternalElement 构造一个外部/虚拟符号（IsFormExternal=true），用于兜底节点。
+// PackageName 依据 qualifiedName 提取：有点号取包前缀，否则归 <external>。
 func NewExternalElement(kind ElementKind, name, qualifiedName string) *CodeElement {
+	pkg := "<external>"
+	if i := strings.LastIndex(qualifiedName, "."); i > 0 {
+		pkg = qualifiedName[:i]
+	}
 	return &CodeElement{
 		Kind:           kind,
 		Name:           name,
 		QualifiedName:  qualifiedName,
+		PackageName:    pkg,
 		IsFormExternal: true,
 	}
 }

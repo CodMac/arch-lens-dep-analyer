@@ -111,23 +111,30 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gc *core.GlobalCon
 		if elem.Kind == model.Class {
 			if sc, ok := elem.Extra.Mores[constants.ClassSuperClass].(string); ok && sc != "" {
 				target := e.resolver.ResolveType(gc, fCtx, helper.Clean(sc), model.Class)
-				rels = append(rels, &model.DependencyRelation{Type: model.Extend, Source: elem, Target: target})
+				if target != nil {
+					rels = append(rels, &model.DependencyRelation{Type: model.Extend, Source: elem, Target: target})
+				}
 			}
 			if impls, ok := elem.Extra.Mores[constants.ClassImplementedInterfaces].([]string); ok {
 				for _, implName := range impls {
 					target := e.resolver.ResolveType(gc, fCtx, helper.Clean(implName), model.Interface)
-					rels = append(rels, &model.DependencyRelation{Type: model.Implement, Source: elem, Target: target})
+					if target != nil {
+						rels = append(rels, &model.DependencyRelation{Type: model.Implement, Source: elem, Target: target})
+					}
 				}
 			}
 		}
 		if elem.Kind == model.AnonymousClass {
 			if ac, ok := elem.Extra.Mores[constants.AnonymousClassType].(string); ok && ac != "" {
 				target := e.resolver.ResolveType(gc, fCtx, helper.Clean(ac), model.Class)
+				if target == nil {
+					continue
+				}
 				// 匿名类目标类型：内部 Class -> 继承（EXTEND）；接口或外部类型 -> 实现（IMPLEMENT）。
 				// 外部类型（未 import，如 Runnable/Comparable）PreciseResolve 未命中，
 				// ResolveType 兜底返回外部 Class（IsFormExternal=true），语义上属实现接口。
 				retype := model.Extend
-				if target == nil || target.IsFormExternal || target.Kind != model.Class {
+				if target.IsFormExternal || target.Kind != model.Class {
 					retype = model.Implement
 				}
 				rels = append(rels, &model.DependencyRelation{Type: retype, Source: elem, Target: target})
@@ -139,7 +146,9 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gc *core.GlobalCon
 			if impls, ok := elem.Extra.Mores[constants.InterfaceImplementedInterfaces].([]string); ok {
 				for _, implName := range impls {
 					target := e.resolver.ResolveType(gc, fCtx, helper.Clean(implName), model.Interface)
-					rels = append(rels, &model.DependencyRelation{Type: model.Extend, Source: elem, Target: target})
+					if target != nil {
+						rels = append(rels, &model.DependencyRelation{Type: model.Extend, Source: elem, Target: target})
+					}
 				}
 			}
 		}
@@ -147,10 +156,12 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gc *core.GlobalCon
 		// --- 3. 处理注解 (Annotation) ---
 		for _, anno := range elem.Extra.Annotations {
 			target := e.resolver.ResolveType(gc, fCtx, helper.Clean(anno), model.KAnnotation)
-			rels = append(rels, &model.DependencyRelation{
-				Type: model.Annotation, Source: elem, Target: target,
-				Mores: map[string]interface{}{constants.RelRawText: anno},
-			})
+			if target != nil {
+				rels = append(rels, &model.DependencyRelation{
+					Type: model.Annotation, Source: elem, Target: target,
+					Mores: map[string]interface{}{constants.RelRawText: anno},
+				})
+			}
 		}
 
 		// --- 4. 处理方法签名 (Parameter/Return/Throw) ---
@@ -159,6 +170,10 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gc *core.GlobalCon
 				for _, p := range pts {
 					typePart := e.extractTypeFromParam(p)
 					target := e.resolver.ResolveType(gc, fCtx, helper.Clean(typePart), model.Class)
+					// 泛型变量参数（T data）解析为 nil，不产关系。
+					if target == nil {
+						continue
+					}
 					rels = append(rels, &model.DependencyRelation{
 						Type: model.Parameter, Source: elem, Target: target,
 						Mores: map[string]interface{}{constants.RelRawText: p},
@@ -167,11 +182,15 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gc *core.GlobalCon
 			}
 			if rt, ok := elem.Extra.Mores[constants.MethodReturnType].(string); ok && rt != "void" && rt != "" {
 				target := e.resolveTypeForElement(gc, fCtx, elem, helper.Clean(rt))
+				if target == nil {
+					goto afterReturn
+				}
 				rels = append(rels, &model.DependencyRelation{
 					Type: model.Return, Source: elem, Target: target,
 					Mores: map[string]interface{}{constants.RelRawText: rt},
 				})
 			}
+		afterReturn:
 			// 构造器隐式返回自身类型：为构造器补一条指向宿主类的 RETURN。
 			// 构造器无返回类型字段（MethodReturnType 缺失），但 Java 语义上构造调用即产出该类实例。
 			if isCtor, ok := elem.Extra.Mores[constants.MethodIsConstructor].(bool); ok && isCtor {
@@ -185,6 +204,9 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gc *core.GlobalCon
 			if ths, ok := elem.Extra.Mores[constants.MethodThrowsTypes].([]string); ok {
 				for _, ex := range ths {
 					target := e.resolver.ResolveType(gc, fCtx, helper.Clean(ex), model.Class)
+					if target == nil {
+						continue
+					}
 					rels = append(rels, &model.DependencyRelation{
 						Type: model.Throw, Source: elem, Target: target,
 						Mores: map[string]interface{}{constants.RelRawText: ex},

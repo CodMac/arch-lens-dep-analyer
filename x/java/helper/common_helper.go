@@ -99,6 +99,24 @@ func IsBoxedPrimitive(t string) bool {
 	return Contains(bt, t)
 }
 
+// IsTypeVariable 判断字符串是否为泛型类型变量（单大写字母，如 T/E/S/K/V）。
+// 泛型类型变量不是真实类型依赖，不应产外部 Class。
+func IsTypeVariable(s string) bool {
+	if len(s) != 1 {
+		return false
+	}
+	return s[0] >= 'A' && s[0] <= 'Z'
+}
+
+// PkgOf 从全限定 QN 提取包前缀（最后一段点号之前部分）。
+// 无点号或异常时返回 <external>，确保外部符号总能归入一个包。
+func PkgOf(qn string) string {
+	if i := strings.LastIndex(qn, "."); i > 0 {
+		return qn[:i]
+	}
+	return "<external>"
+}
+
 // HasMethodParameterInfo 从方法元素的 Mores 中读取参数类型 QN 列表。
 func MethodParamsQN(elem interface{ GetMores() map[string]interface{} }) []string {
 	return nil // 占位，实际使用处直接访问 Mores

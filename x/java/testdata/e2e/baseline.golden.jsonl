@@ -1608,7 +1608,6 @@
 {"QN":"com.example.base.test.GenericTest","Type":"CONTAIN","Source":"com.example.base.test.GenericTest","Target":"com.example.base.test.GenericTest.executeOrThrow(E)","Mores":"null","IsSource":false}
 {"QN":"com.example.base.test.GenericTest","Type":"CONTAIN","Source":"com.example.base.test.GenericTest","Target":"com.example.base.test.GenericTest.findAllByCriteria(List)","Mores":"null","IsSource":false}
 {"QN":"com.example.base.test.GenericTest.executeOrThrow(E)","Type":"CONTAIN","Source":"com.example.base.test.GenericTest.executeOrThrow(E)","Target":"com.example.base.test.GenericTest.executeOrThrow(E).exception","Mores":"null","IsSource":false}
-{"QN":"com.example.base.test.GenericTest.executeOrThrow(E)","Type":"THROW","Source":"com.example.base.test.GenericTest.executeOrThrow(E)","Target":"E","Mores":"{\"java.rel.raw_text\":\"E\",\"java.rel.throw.index\":0,\"java.rel.throw.is_signature\":true}","IsSource":false}
 {"QN":"com.example.base.test.GenericTest.findAllByCriteria(List)","Type":"CONTAIN","Source":"com.example.base.test.GenericTest.findAllByCriteria(List)","Target":"com.example.base.test.GenericTest.findAllByCriteria(List).criteria","Mores":"null","IsSource":false}
 {"QN":"com.example.base.test.ImportTest","Type":"CONTAIN","Source":"com.example.base.test.ImportTest","Target":"com.example.base.test.ImportTest.ImportTest()","Mores":"null","IsSource":false}
 {"QN":"com.example.base.test.ImportTest","Type":"CONTAIN","Source":"com.example.base.test.ImportTest","Target":"com.example.base.test.ImportTest.list","Mores":"null","IsSource":false}

@@ -126,6 +126,10 @@ func (e *TypeArgExtractor) collectAllTypeArgs(rt string, source *model.CodeEleme
 	args := e.parseTypeArgs(rt)
 	for i, arg := range args {
 		target := ctx.Resolver.ResolveType(ctx.GC, ctx.FC, helper.Clean(arg), model.Class)
+		// 泛型变量（T/E/S）、通配符（?）解析为 nil，不产关系（非真实类型依赖）。
+		if target == nil {
+			continue
+		}
 		rels = append(rels, &model.DependencyRelation{
 			Type: model.TypeArg, Source: source, Target: target,
 			Mores: map[string]interface{}{constants.RelTypeArgIndex: i, constants.RelRawText: arg, constants.RelAstKind: "type_arguments"},
@@ -153,6 +157,9 @@ func (e *TypeArgExtractor) collectTypeParameterBounds(typeParams string, source 
 				continue
 			}
 			target := ctx.Resolver.ResolveType(ctx.GC, ctx.FC, helper.Clean(bound), model.Class)
+			if target == nil {
+				continue
+			}
 			rels = append(rels, &model.DependencyRelation{
 				Type: model.TypeArg, Source: source, Target: target,
 				Mores: map[string]interface{}{
