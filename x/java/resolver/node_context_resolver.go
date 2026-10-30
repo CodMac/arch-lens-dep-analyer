@@ -60,10 +60,17 @@ func (r *NodeContextResolver) findCoreChain(node coreast.Node) coreast.Node {
 		case "identifier":
 			// identifier 只有在不是 method_invocation/field_access 的 name 时才作为终点；
 			// 若作为接收者链的 name（如 getName 之于 user.getName()），继续向上爬到调用节点。
+			// 注意：field_access 的字段名是 field 字段而非 name（见 expression_segmenter.go），
+			// 必须一并检查，否则 this.field 的 field 标识符会退化为裸标识符，
+			// 被作用域链误解析为同名参数/局部变量（字段遮蔽 bug）。
 			// 用字节区间比较（Equal 依赖 tree-sitter 指针，不同 Wrap 实例可能不相等）。
 			p := curr.Parent()
 			if p != nil && (p.Kind() == "method_invocation" || p.Kind() == "field_access" || p.Kind() == "method_reference") {
-				if nameNode := p.ChildByFieldName("name"); nameNode != nil &&
+				nameNode := p.ChildByFieldName("name")
+				if nameNode == nil && p.Kind() == "field_access" {
+					nameNode = p.ChildByFieldName("field")
+				}
+				if nameNode != nil &&
 					nameNode.StartByte() == curr.StartByte() && nameNode.EndByte() == curr.EndByte() {
 					curr = p
 					continue

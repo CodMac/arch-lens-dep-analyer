@@ -412,6 +412,48 @@ func findIdentAtLine(t *testing.T, src coreast.SourceFile, line int, want string
 	return found
 }
 
+// findAssignRhsIdent 在指定行查找父节点为 assignment_expression 的裸标识符（RHS 操作数）。
+// LHS this.name 的 name 标识符父节点是 field_access，不会被命中；RHS 裸 name 父节点才是 assignment_expression。
+func findAssignRhsIdent(t *testing.T, src coreast.SourceFile, line int, want string) coreast.Node {
+	t.Helper()
+	content := src.Content()
+	var found coreast.Node
+	walkNodes(src.Root(), func(n coreast.Node) {
+		if found != nil || n.Kind() != "identifier" {
+			return
+		}
+		if n.StartPoint().Row+1 != line || n.Utf8Text(content) != want {
+			return
+		}
+		if p := n.Parent(); p != nil && p.Kind() == "assignment_expression" {
+			found = n
+		}
+	})
+	if found == nil {
+		t.Fatalf("no bare identifier %q at line %d with assignment_expression parent", want, line)
+	}
+	return found
+}
+
+// findFieldAccessText 在 AST 中查找首个完整文本等于 want 的 field_access 节点（不含空白）。
+func findFieldAccessText(t *testing.T, src coreast.SourceFile, want string) coreast.Node {
+	t.Helper()
+	content := src.Content()
+	var found coreast.Node
+	walkNodes(src.Root(), func(n coreast.Node) {
+		if found != nil || n.Kind() != "field_access" {
+			return
+		}
+		if strings.TrimSpace(n.Utf8Text(content)) == want {
+			found = n
+		}
+	})
+	if found == nil {
+		t.Fatalf("no field_access with text %q found", want)
+	}
+	return found
+}
+
 // findPathByBase 在路径列表中查找 basename 匹配的文件。
 func findPathByBase(t *testing.T, paths []string, base string) string {
 	t.Helper()
@@ -499,6 +541,45 @@ func TestResolverR7Use(t *testing.T) {
 	// 11. 强转操作数读取（L82 obj，cast_expression 上下文）
 	node = findIdentAtLine(t, s.src, 82, "obj")
 	assertResolve(t, s.gc, s.fc, node, model.Use, "com.example.rel.UseRelationSuite.testUseCases(int).obj", model.Variable, false)
+}
+
+// TestResolverR7UseThisShadow 字段遮蔽回归：this.field 的 field_access 必须解析到字段，
+// 而非被同名参数遮蔽；RHS 裸标识符才解析到参数。
+func TestResolverR7UseThisShadow(t *testing.T) {
+	s := resolverSuite(t, "extractor/use/thisshadow")
+
+	// 构造器 L21 this.name = name
+	// 1. LHS this.name（field_access）-> 字段 name
+	node := resolveAtLine(t, s.src, "field_access", 21)
+	assertResolve(t, s.gc, s.fc, node, model.Use, "com.example.rel.ThisShadowSuite.name", model.Field, false)
+	// 2. RHS 裸 name（identifier，父节点 assignment_expression）-> 参数 name
+	node = findAssignRhsIdent(t, s.src, 21, "name")
+	assertResolve(t, s.gc, s.fc, node, model.Use, "com.example.rel.ThisShadowSuite.ThisShadowSuite(String).name", model.Variable, false)
+
+	// setName L26 this.name = name
+	// 3. LHS this.name（field_access）-> 字段 name
+	node = resolveAtLine(t, s.src, "field_access", 26)
+	assertResolve(t, s.gc, s.fc, node, model.Use, "com.example.rel.ThisShadowSuite.name", model.Field, false)
+	// 4. RHS 裸 name -> 参数 name
+	node = findAssignRhsIdent(t, s.src, 26, "name")
+	assertResolve(t, s.gc, s.fc, node, model.Use, "com.example.rel.ThisShadowSuite.setName(String).name", model.Variable, false)
+
+	// setBean L31 this.bean = bean
+	// 5. LHS this.bean（field_access）-> 字段 bean
+	node = resolveAtLine(t, s.src, "field_access", 31)
+	assertResolve(t, s.gc, s.fc, node, model.Use, "com.example.rel.ThisShadowSuite.bean", model.Field, false)
+	// 6. RHS 裸 bean -> 参数 bean
+	node = findAssignRhsIdent(t, s.src, 31, "bean")
+	assertResolve(t, s.gc, s.fc, node, model.Use, "com.example.rel.ThisShadowSuite.setBean(int).bean", model.Variable, false)
+
+	// 7. 无同名参数：getShadow L38 return this.name（field_access）-> 字段 name
+	node = resolveAtLine(t, s.src, "field_access", 38)
+	assertResolve(t, s.gc, s.fc, node, model.Use, "com.example.rel.ThisShadowSuite.name", model.Field, false)
+
+	// 8. 无同名参数：useField L45 println(this.name)（field_access，按文本匹配 this.name）-> 字段 name
+	// 注意：该行首个 field_access 是 System.out，须按 Utf8Text == "this.name" 精确定位。
+	node = findFieldAccessText(t, s.src, "this.name")
+	assertResolve(t, s.gc, s.fc, node, model.Use, "com.example.rel.ThisShadowSuite.name", model.Field, false)
 }
 
 // TestResolverR8CreateCastThrow Create/Cast/Throw 类型解析。
