@@ -5,7 +5,4 @@
 /.cac
 /.codegraph
 /.run
-/.temptool/packfiles.exe
-/.temptool/packpatchs.exe
-/.temptool/packfiles
-/.temptool/packpatchs
+/.temptool/

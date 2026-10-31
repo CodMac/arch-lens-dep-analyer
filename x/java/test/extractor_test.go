@@ -119,6 +119,51 @@ func TestExtractorSuite(t *testing.T) {
 	}
 }
 
+// TestExtractorFieldAccessSuite 验证字段访问类 USE 的三类修复目标（缺陷 2/3）：
+//  1. 内部枚举常量访问（Color.RED）-> 解析为内部 ENUM_CONSTANT；
+//  2. 外部静态字段/枚举常量访问（HttpStatus.NOT_FOUND）-> 解析为外部 Field（import 补全 QN）；
+//  3. class literal（File.class / Color.class）-> 解析为类型（外部 Class / 内部 Enum）。
+//
+// RunExtraction 使用 LevelRaw，外部符号不被 NoiseFilter 过滤，可精确断言。
+func TestExtractorFieldAccessSuite(t *testing.T) {
+	paths := resolveSuitePaths(t, "use/case7")
+	_, rels := RunExtraction(t, "x/java/testdata", paths)
+
+	src := "com.example.audit.FieldAccessSuite.testAll(File,Color)"
+	cases := []struct {
+		wantTarget string
+		wantKind   model.ElementKind
+		wantLine   int
+	}{
+		// L14 Color c = Color.RED;  -> 内部枚举常量
+		{wantTarget: "com.example.audit.FieldAccessSuite.Color.RED", wantKind: model.EnumConstant, wantLine: 14},
+		// L15 HttpStatus s = HttpStatus.NOT_FOUND; -> 外部枚举常量（import 补全 org.springframework.http）
+		{wantTarget: "org.springframework.http.HttpStatus.NOT_FOUND", wantKind: model.Field, wantLine: 15},
+		// L16 Class<?> clz1 = File.class; -> 外部类型 java.io.File
+		{wantTarget: "java.io.File", wantKind: model.Class, wantLine: 16},
+		// L17 Class<?> clz2 = Color.class; -> 内部枚举类型
+		{wantTarget: "com.example.audit.FieldAccessSuite.Color", wantKind: model.Enum, wantLine: 17},
+	}
+
+	for _, c := range cases {
+		found := findRel(rels, func(r *model.DependencyRelation) bool {
+			if r.Type != model.Use || r.Source == nil || r.Target == nil {
+				return false
+			}
+			if r.Source.QualifiedName != src {
+				return false
+			}
+			if r.Target.QualifiedName != c.wantTarget || r.Target.Kind != c.wantKind {
+				return false
+			}
+			return r.Location != nil && r.Location.StartLine == c.wantLine
+		})
+		if found == nil {
+			t.Errorf("USE %s -> %s (kind=%s, line %d) not found", src, c.wantTarget, c.wantKind, c.wantLine)
+		}
+	}
+}
+
 // =============================================================================
 // IMPORT / CONTAIN 层级关系 suite（extractHierarchy 产出）
 // 两种关系不使用注释断言块（Source 形态特殊：IMPORT 的文件元素 / CONTAIN 的父 QN），

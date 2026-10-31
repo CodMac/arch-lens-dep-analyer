@@ -184,6 +184,10 @@ func (cr *ChainResolver) resolveSegment(curr *model.CodeElement, seg ExpressionS
 					cr.propagateGenericElement(resolved)
 					return resolved
 				}
+				// 外部类型接收者：ResolveMethod 无成员定义，改用接收者类型 QN 构造外部方法符号。
+				// 例：exchange.getRequest() -> org.springframework.web.server.ServerWebExchange.getRequest()，
+				// 而非 ...lambda$1.exchange.getRequest()（变量 QN 污染）。
+				return model.NewExternalElement(model.Method, seg.Name, cr.gc.BuildQualifiedName(container.QualifiedName, seg.Name))
 			case SegmentField:
 				if resolved := mr.ResolveField(container, seg.Name, false); resolved != nil {
 					return resolved
@@ -196,7 +200,15 @@ func (cr *ChainResolver) resolveSegment(curr *model.CodeElement, seg ExpressionS
 	case SegmentField:
 		// 静态字段访问（curr 是类型且非实例上下文）或实例字段访问。
 		isStatic := !cr.instanceCtx && (curr.Kind == model.Class || curr.Kind == model.Interface || curr.Kind == model.Enum)
-		return mr.ResolveField(curr, seg.Name, isStatic)
+		if resolved := mr.ResolveField(curr, seg.Name, isStatic); resolved != nil {
+			return resolved
+		}
+		// 外部类型接收者：无成员定义，改用接收者类型 QN 构造外部字段/枚举常量符号。
+		// 例：HttpStatus.NOT_FOUND -> org.springframework.http.HttpStatus.NOT_FOUND。
+		if curr != nil && curr.IsFormExternal && isTypeKind(curr.Kind) {
+			return model.NewExternalElement(model.Field, seg.Name, cr.gc.BuildQualifiedName(curr.QualifiedName, seg.Name))
+		}
+		return nil
 
 	case SegmentMethod:
 		// 方法调用：curr 为类型且处于静态上下文（类型名/静态链）时按静态解析，

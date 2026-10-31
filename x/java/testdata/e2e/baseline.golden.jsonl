@@ -79,6 +79,23 @@
 {"QN":"com.example.app.Status.INACTIVE","Kind":"ENUM_CONSTANT","IsSource":true}
 {"QN":"com.example.app.Status.valueOf(String)","Kind":"METHOD","IsSource":true}
 {"QN":"com.example.app.Status.values()","Kind":"METHOD","IsSource":true}
+{"QN":"com.example.audit","Kind":"PACKAGE","IsSource":true}
+{"QN":"com.example.audit.FieldAccessSuite","Kind":"CLASS","IsSource":true}
+{"QN":"com.example.audit.FieldAccessSuite.Color","Kind":"ENUM","IsSource":true}
+{"QN":"com.example.audit.FieldAccessSuite.Color.GREEN","Kind":"ENUM_CONSTANT","IsSource":true}
+{"QN":"com.example.audit.FieldAccessSuite.Color.RED","Kind":"ENUM_CONSTANT","IsSource":true}
+{"QN":"com.example.audit.FieldAccessSuite.Color.valueOf(String)","Kind":"METHOD","IsSource":true}
+{"QN":"com.example.audit.FieldAccessSuite.Color.values()","Kind":"METHOD","IsSource":true}
+{"QN":"com.example.audit.FieldAccessSuite.FieldAccessSuite()","Kind":"METHOD","IsSource":true}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Kind":"METHOD","IsSource":true}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color).c","Kind":"VARIABLE","IsSource":true}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color).clz1","Kind":"VARIABLE","IsSource":true}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color).clz2","Kind":"VARIABLE","IsSource":true}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color).color","Kind":"VARIABLE","IsSource":true}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color).file","Kind":"VARIABLE","IsSource":true}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color).list","Kind":"VARIABLE","IsSource":true}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color).p","Kind":"VARIABLE","IsSource":true}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color).s","Kind":"VARIABLE","IsSource":true}
 {"QN":"com.example.base","Kind":"PACKAGE","IsSource":true}
 {"QN":"com.example.base.AbstractBaseEntity","Kind":"CLASS","IsSource":true}
 {"QN":"com.example.base.AbstractBaseEntity.AbstractBaseEntity()","Kind":"METHOD","IsSource":true}
@@ -1028,6 +1045,7 @@
 {"QN":"extractor/use/case5/ClosureTest.java","Kind":"FILE","IsSource":true}
 {"QN":"extractor/use/case6/ReceiverTest.java","Kind":"FILE","IsSource":true}
 {"QN":"extractor/use/case6/User.java","Kind":"FILE","IsSource":true}
+{"QN":"extractor/use/case7/FieldAccessSuite.java","Kind":"FILE","IsSource":true}
 {"QN":"extractor/use/thisshadow/ThisShadowSuite.java","Kind":"FILE","IsSource":true}
 {"QN":"resolver/generic/GenericPropagationSuite.java","Kind":"FILE","IsSource":true}
 {"QN":"resolver/overload/OverloadSuite.java","Kind":"FILE","IsSource":true}
@@ -1197,6 +1215,7 @@
 {"QN":"com.example","Type":"CONTAIN","Source":"com.example","Target":"com.example.Main","Mores":"null","IsSource":false}
 {"QN":"com.example","Type":"CONTAIN","Source":"com.example","Target":"com.example.Main","Mores":"null","IsSource":false}
 {"QN":"com.example","Type":"CONTAIN","Source":"com.example","Target":"com.example.app","Mores":"null","IsSource":false}
+{"QN":"com.example","Type":"CONTAIN","Source":"com.example","Target":"com.example.audit","Mores":"null","IsSource":false}
 {"QN":"com.example","Type":"CONTAIN","Source":"com.example","Target":"com.example.base","Mores":"null","IsSource":false}
 {"QN":"com.example","Type":"CONTAIN","Source":"com.example","Target":"com.example.chained","Mores":"null","IsSource":false}
 {"QN":"com.example","Type":"CONTAIN","Source":"com.example","Target":"com.example.lombok","Mores":"null","IsSource":false}
@@ -1268,6 +1287,36 @@
 {"QN":"com.example.app.Status","Type":"CONTAIN","Source":"com.example.app.Status","Target":"com.example.app.Status.values()","Mores":"null","IsSource":false}
 {"QN":"com.example.app.Status.valueOf(String)","Type":"RETURN","Source":"com.example.app.Status.valueOf(String)","Target":"com.example.app.Status","Mores":"{\"java.rel.raw_text\":\"Status\",\"java.rel.return.is_array\":false,\"java.rel.return.is_primitive\":false}","IsSource":false}
 {"QN":"com.example.app.Status.values()","Type":"RETURN","Source":"com.example.app.Status.values()","Target":"com.example.app.Status","Mores":"{\"java.rel.raw_text\":\"Status[]\",\"java.rel.return.is_array\":true,\"java.rel.return.is_primitive\":false}","IsSource":false}
+{"QN":"com.example.audit","Type":"CONTAIN","Source":"com.example.audit","Target":"com.example.audit.FieldAccessSuite","Mores":"null","IsSource":false}
+{"QN":"com.example.audit","Type":"CONTAIN","Source":"com.example.audit","Target":"extractor/use/case7/FieldAccessSuite.java","Mores":"null","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite","Type":"CONTAIN","Source":"com.example.audit.FieldAccessSuite","Target":"com.example.audit.FieldAccessSuite.Color","Mores":"null","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite","Type":"CONTAIN","Source":"com.example.audit.FieldAccessSuite","Target":"com.example.audit.FieldAccessSuite.FieldAccessSuite()","Mores":"null","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite","Type":"CONTAIN","Source":"com.example.audit.FieldAccessSuite","Target":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Mores":"null","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.Color","Type":"CONTAIN","Source":"com.example.audit.FieldAccessSuite.Color","Target":"com.example.audit.FieldAccessSuite.Color.GREEN","Mores":"null","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.Color","Type":"CONTAIN","Source":"com.example.audit.FieldAccessSuite.Color","Target":"com.example.audit.FieldAccessSuite.Color.RED","Mores":"null","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.Color","Type":"CONTAIN","Source":"com.example.audit.FieldAccessSuite.Color","Target":"com.example.audit.FieldAccessSuite.Color.valueOf(String)","Mores":"null","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.Color","Type":"CONTAIN","Source":"com.example.audit.FieldAccessSuite.Color","Target":"com.example.audit.FieldAccessSuite.Color.values()","Mores":"null","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.Color.valueOf(String)","Type":"RETURN","Source":"com.example.audit.FieldAccessSuite.Color.valueOf(String)","Target":"com.example.audit.FieldAccessSuite.Color","Mores":"{\"java.rel.raw_text\":\"Color\",\"java.rel.return.is_array\":false,\"java.rel.return.is_primitive\":false}","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.Color.values()","Type":"RETURN","Source":"com.example.audit.FieldAccessSuite.Color.values()","Target":"com.example.audit.FieldAccessSuite.Color","Mores":"{\"java.rel.raw_text\":\"Color[]\",\"java.rel.return.is_array\":true,\"java.rel.return.is_primitive\":false}","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.FieldAccessSuite()","Type":"RETURN","Source":"com.example.audit.FieldAccessSuite.FieldAccessSuite()","Target":"com.example.audit.FieldAccessSuite","Mores":"{\"java.rel.raw_text\":\"com.example.audit.FieldAccessSuite\",\"java.rel.return.is_array\":false,\"java.rel.return.is_primitive\":false}","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Type":"ASSIGN","Source":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Target":"com.example.audit.FieldAccessSuite.testAll(File,Color).c","Location":"extractor/use/case7/FieldAccessSuite.java:14","Mores":"{\"java.rel.assign.is_initializer\":true,\"java.rel.assign.operator\":\"=\",\"java.rel.assign.target_name\":\"c\",\"java.rel.assign.value_expression\":\"Color.RED\",\"java.rel.ast_kind\":\"identifier\",\"java.rel.raw_text\":\"c = Color.RED\"}","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Type":"ASSIGN","Source":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Target":"com.example.audit.FieldAccessSuite.testAll(File,Color).clz1","Location":"extractor/use/case7/FieldAccessSuite.java:16","Mores":"{\"java.rel.assign.is_initializer\":true,\"java.rel.assign.operator\":\"=\",\"java.rel.assign.target_name\":\"clz1\",\"java.rel.assign.value_expression\":\"File.class\",\"java.rel.ast_kind\":\"identifier\",\"java.rel.raw_text\":\"clz1 = File.class\"}","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Type":"ASSIGN","Source":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Target":"com.example.audit.FieldAccessSuite.testAll(File,Color).clz2","Location":"extractor/use/case7/FieldAccessSuite.java:17","Mores":"{\"java.rel.assign.is_initializer\":true,\"java.rel.assign.operator\":\"=\",\"java.rel.assign.target_name\":\"clz2\",\"java.rel.assign.value_expression\":\"Color.class\",\"java.rel.ast_kind\":\"identifier\",\"java.rel.raw_text\":\"clz2 = Color.class\"}","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Type":"ASSIGN","Source":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Target":"com.example.audit.FieldAccessSuite.testAll(File,Color).list","Location":"extractor/use/case7/FieldAccessSuite.java:19","Mores":"{\"java.rel.assign.is_initializer\":true,\"java.rel.assign.operator\":\"=\",\"java.rel.assign.target_name\":\"list\",\"java.rel.assign.value_expression\":\"new ArrayList\\u003c\\u003e()\",\"java.rel.ast_kind\":\"identifier\",\"java.rel.raw_text\":\"list = new ArrayList\\u003c\\u003e()\"}","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Type":"ASSIGN","Source":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Target":"com.example.audit.FieldAccessSuite.testAll(File,Color).p","Location":"extractor/use/case7/FieldAccessSuite.java:18","Mores":"{\"java.rel.assign.is_initializer\":true,\"java.rel.assign.operator\":\"=\",\"java.rel.assign.target_name\":\"p\",\"java.rel.assign.value_expression\":\"Path.of(\\\"x\\\").toString()\",\"java.rel.ast_kind\":\"identifier\",\"java.rel.raw_text\":\"p = Path.of(\\\"x\\\").toString()\"}","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Type":"ASSIGN","Source":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Target":"com.example.audit.FieldAccessSuite.testAll(File,Color).s","Location":"extractor/use/case7/FieldAccessSuite.java:15","Mores":"{\"java.rel.assign.is_initializer\":true,\"java.rel.assign.operator\":\"=\",\"java.rel.assign.target_name\":\"s\",\"java.rel.assign.value_expression\":\"HttpStatus.NOT_FOUND\",\"java.rel.ast_kind\":\"identifier\",\"java.rel.raw_text\":\"s = HttpStatus.NOT_FOUND\"}","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Type":"CONTAIN","Source":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Target":"com.example.audit.FieldAccessSuite.testAll(File,Color).c","Mores":"null","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Type":"CONTAIN","Source":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Target":"com.example.audit.FieldAccessSuite.testAll(File,Color).clz1","Mores":"null","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Type":"CONTAIN","Source":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Target":"com.example.audit.FieldAccessSuite.testAll(File,Color).clz2","Mores":"null","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Type":"CONTAIN","Source":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Target":"com.example.audit.FieldAccessSuite.testAll(File,Color).color","Mores":"null","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Type":"CONTAIN","Source":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Target":"com.example.audit.FieldAccessSuite.testAll(File,Color).file","Mores":"null","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Type":"CONTAIN","Source":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Target":"com.example.audit.FieldAccessSuite.testAll(File,Color).list","Mores":"null","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Type":"CONTAIN","Source":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Target":"com.example.audit.FieldAccessSuite.testAll(File,Color).p","Mores":"null","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Type":"CONTAIN","Source":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Target":"com.example.audit.FieldAccessSuite.testAll(File,Color).s","Mores":"null","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Type":"PARAMETER","Source":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Target":"com.example.audit.FieldAccessSuite.Color","Mores":"{\"java.rel.parameter.index\":1,\"java.rel.parameter.name\":\"color\",\"java.rel.raw_text\":\"Color color\"}","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Type":"USE","Source":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Target":"com.example.audit.FieldAccessSuite.Color","Location":"extractor/use/case7/FieldAccessSuite.java:17","Mores":"{\"java.rel.ast_kind\":\"class_literal\",\"java.rel.context\":\"local_variable_declaration\",\"java.rel.raw_text\":\"Class\\u003c?\\u003e clz2 = Color.class;\",\"java.rel.use.target_name\":\"Color.class\"}","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Type":"USE","Source":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Target":"com.example.audit.FieldAccessSuite.Color.RED","Location":"extractor/use/case7/FieldAccessSuite.java:14","Mores":"{\"java.rel.ast_kind\":\"identifier\",\"java.rel.context\":\"field_access\",\"java.rel.raw_text\":\"Color.RED\",\"java.rel.use.receiver\":\"Color\",\"java.rel.use.target_name\":\"RED\"}","IsSource":false}
+{"QN":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Type":"USE","Source":"com.example.audit.FieldAccessSuite.testAll(File,Color)","Target":"com.example.audit.FieldAccessSuite.testAll(File,Color).list","Location":"extractor/use/case7/FieldAccessSuite.java:20","Mores":"{\"java.rel.ast_kind\":\"identifier\",\"java.rel.context\":\"expression_statement\",\"java.rel.raw_text\":\"list.add(\\\"item\\\");\",\"java.rel.use.receiver_type\":\"List\",\"java.rel.use.target_name\":\"list\"}","IsSource":false}
 {"QN":"com.example.base","Type":"CONTAIN","Source":"com.example.base","Target":"collector/base/AbstractBaseEntity.java","Mores":"null","IsSource":false}
 {"QN":"com.example.base","Type":"CONTAIN","Source":"com.example.base","Target":"collector/base/BaseClass.java","Mores":"null","IsSource":false}
 {"QN":"com.example.base","Type":"CONTAIN","Source":"com.example.base","Target":"collector/base/CallbackManager.java","Mores":"null","IsSource":false}
@@ -3144,6 +3193,13 @@
 {"QN":"extractor/use/case6/ReceiverTest.java","Type":"CONTAIN","Source":"extractor/use/case6/ReceiverTest.java","Target":"extractor/use/case6/ReceiverTest.java","Mores":"null","IsSource":false}
 {"QN":"extractor/use/case6/User.java","Type":"CONTAIN","Source":"extractor/use/case6/User.java","Target":"com.example.rel.use.case6.User","Mores":"null","IsSource":false}
 {"QN":"extractor/use/case6/User.java","Type":"CONTAIN","Source":"extractor/use/case6/User.java","Target":"extractor/use/case6/User.java","Mores":"null","IsSource":false}
+{"QN":"extractor/use/case7/FieldAccessSuite.java","Type":"CONTAIN","Source":"extractor/use/case7/FieldAccessSuite.java","Target":"com.example.audit.FieldAccessSuite","Mores":"null","IsSource":false}
+{"QN":"extractor/use/case7/FieldAccessSuite.java","Type":"CONTAIN","Source":"extractor/use/case7/FieldAccessSuite.java","Target":"extractor/use/case7/FieldAccessSuite.java","Mores":"null","IsSource":false}
+{"QN":"extractor/use/case7/FieldAccessSuite.java","Type":"IMPORT","Source":"extractor/use/case7/FieldAccessSuite.java","Target":"java.io.File","Location":"extractor/use/case7/FieldAccessSuite.java:3","Mores":"null","IsSource":false}
+{"QN":"extractor/use/case7/FieldAccessSuite.java","Type":"IMPORT","Source":"extractor/use/case7/FieldAccessSuite.java","Target":"java.nio.file.Path","Location":"extractor/use/case7/FieldAccessSuite.java:4","Mores":"null","IsSource":false}
+{"QN":"extractor/use/case7/FieldAccessSuite.java","Type":"IMPORT","Source":"extractor/use/case7/FieldAccessSuite.java","Target":"java.util.ArrayList","Location":"extractor/use/case7/FieldAccessSuite.java:5","Mores":"null","IsSource":false}
+{"QN":"extractor/use/case7/FieldAccessSuite.java","Type":"IMPORT","Source":"extractor/use/case7/FieldAccessSuite.java","Target":"java.util.List","Location":"extractor/use/case7/FieldAccessSuite.java:6","Mores":"null","IsSource":false}
+{"QN":"extractor/use/case7/FieldAccessSuite.java","Type":"IMPORT","Source":"extractor/use/case7/FieldAccessSuite.java","Target":"org.springframework.http.HttpStatus","Location":"extractor/use/case7/FieldAccessSuite.java:7","Mores":"null","IsSource":false}
 {"QN":"extractor/use/thisshadow/ThisShadowSuite.java","Type":"CONTAIN","Source":"extractor/use/thisshadow/ThisShadowSuite.java","Target":"com.example.rel.ThisShadowSuite","Mores":"null","IsSource":false}
 {"QN":"extractor/use/thisshadow/ThisShadowSuite.java","Type":"CONTAIN","Source":"extractor/use/thisshadow/ThisShadowSuite.java","Target":"extractor/use/thisshadow/ThisShadowSuite.java","Mores":"null","IsSource":false}
 {"QN":"resolver/generic/GenericPropagationSuite.java","Type":"CONTAIN","Source":"resolver/generic/GenericPropagationSuite.java","Target":"com.example.resolver.GenericPropagationSuite","Mores":"null","IsSource":false}

@@ -251,7 +251,7 @@ func (e *Extractor) discoverActionRelations(fCtx *core.FileContext, gc *core.Glo
 
 		for _, cap := range match.Captures {
 			capName := q.CaptureNames()[cap.Index]
-			if !strings.HasSuffix(capName, "_target") && capName != "explicit_constructor_stmt" && capName != "id_atom" {
+			if !strings.HasSuffix(capName, "_target") && capName != "explicit_constructor_stmt" && capName != "id_atom" && capName != "field_atom" && capName != "class_lit_atom" {
 				continue
 			}
 
@@ -398,6 +398,36 @@ func (e *Extractor) mapAction(capName string, node coreast.Node, fCtx *core.File
 		}
 		return []ActionTarget{{RelType: model.Use, TargetNode: node, ContextNode: ctxNode, Target: target}}
 
+	case "field_atom":
+		// 字段访问的字段名：枚举常量/外部静态字段访问（HttpStatus.NOT_FOUND）。
+		// 该 identifier 是 field_access 的 field，NodeContextResolver 会爬升到 field_access 整体，
+		// 由 ChainResolver 解析为 Field/EnumConstant（内部定义或外部符号）。
+		ctxNode = helper.FindNearestKind(node, "expression_statement", "field_access", "binary_expression", "parenthesized_expression", "return_statement", "arguments")
+		if ctxNode == nil {
+			return nil
+		}
+		target := e.resolver.ResolveAction(gc, fCtx, node, model.Use)
+		// 放行：内部枚举常量（EnumConstant）或外部字段/枚举常量（isUseRel 只收内部 Variable/Field）。
+		if target != nil && target.Kind == model.EnumConstant && !target.IsFormExternal {
+			return []ActionTarget{{RelType: model.Use, TargetNode: node, ContextNode: ctxNode, Target: target}}
+		}
+		if target != nil && target.IsFormExternal && (target.Kind == model.Field || target.Kind == model.EnumConstant) {
+			return []ActionTarget{{RelType: model.Use, TargetNode: node, ContextNode: ctxNode, Target: target}}
+		}
+		return nil
+
+	case "class_lit_atom":
+		// 类字面量：Xxx.class 是类型引用，目标为类型元素（内部或外部）。
+		ctxNode = helper.FindNearestKind(node, "expression_statement", "local_variable_declaration", "method_invocation", "arguments", "binary_expression", "return_statement", "field_access")
+		if ctxNode == nil {
+			return nil
+		}
+		target := e.resolver.ResolveAction(gc, fCtx, node, model.Use)
+		if target != nil && (target.Kind == model.Class || target.Kind == model.Interface || target.Kind == model.Enum || target.Kind == model.KAnnotation) {
+			return []ActionTarget{{RelType: model.Use, TargetNode: node, ContextNode: ctxNode, Target: target}}
+		}
+		return nil
+
 	case "throw_target":
 		ctxNode = helper.FindNearestKind(node, "throw_statement")
 		if ctxNode == nil {
@@ -440,6 +470,14 @@ func (e *Extractor) isUseRel(node coreast.Node, target *model.CodeElement) bool 
 		// 如果是方法调用/引用的名称部分，由 call_target 处理
 		if nameNode := parent.ChildByFieldName("name"); nameNode != nil && nameNode.Equal(node) {
 			return false
+		}
+	case "field_access":
+		// 字段访问的字段名：外部字段/枚举常量由 field_atom 处理，此处排除避免重复；
+		// 内部普通字段（CONSTANT 等）仍走 id_atom（field_atom 只放行 EnumConstant/外部符号）。
+		if f := parent.ChildByFieldName("field"); f != nil && f.Equal(node) {
+			if target.IsFormExternal || target.Kind == model.EnumConstant {
+				return false
+			}
 		}
 	case "scoped_identifier", "package_declaration", "import_declaration":
 		return false

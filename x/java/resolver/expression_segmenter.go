@@ -172,6 +172,19 @@ func (es *ExpressionSegmenter) split(node coreast.Node) (*ExpressionHead, []Expr
 			RawText: node.Utf8Text(es.src),
 		}, nil
 
+	case "class_literal":
+		// Xxx.class 类字面量：类型引用，目标为 _unannotated_type 子节点类型名。
+		if node.NamedChildCount() > 0 {
+			typeNode := node.NamedChild(0)
+			return &ExpressionHead{
+				Type:    HeadIdent,
+				Name:    typeNode.Utf8Text(es.src),
+				ASTNode: typeNode,
+				RawText: typeNode.Utf8Text(es.src),
+			}, nil
+		}
+		return nil, nil
+
 	case "this":
 		return &ExpressionHead{Type: HeadThis, Name: "this", ASTNode: node, RawText: "this"}, nil
 

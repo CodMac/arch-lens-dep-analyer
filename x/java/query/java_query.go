@@ -29,6 +29,12 @@ const JavaActionQuery = `
   ; --普通标识符读取, 后续过滤
   (identifier) @id_atom
 
+  ; --字段访问的字段名: 枚举常量/外部静态字段访问 (HttpStatus.NOT_FOUND, SomeClass.CONST)
+  (field_access field: (identifier) @field_atom)
+
+  ; --类字面量: Xxx.class 是类型引用
+  (class_literal) @class_lit_atom
+
   ; 6. 赋值动作 (统一捕获左值标识符)
   ; 匹配普通赋值: a = 1, this.a = 1, arr[0] = 1
   (assignment_expression

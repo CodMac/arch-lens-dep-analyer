@@ -324,6 +324,22 @@ func TestResolverR3Chained(t *testing.T) {
 	}
 }
 
+// TestResolverR3VariableReceiverExternal 变量接收者的外部方法调用（缺陷 1 修复）：
+// list.add("item") 中接收者 list 声明为 List<String>，receiverContainer 依据变量声明类型
+// （java.variable.type_with_qn = java.util.List）解析容器，目标为 List.add。
+// 修复前会退化为接收者变量名 QN（...FieldAccessSuite.testAll(File,Color).list.add 变量 QN 污染）；
+// 修复后使用接收者声明类型 QN 构造外部方法符号。
+func TestResolverR3VariableReceiverExternal(t *testing.T) {
+	paths := resolveSuitePaths(t, "use/case7")
+	gc, _ := RunExtraction(t, "x/java/testdata", paths)
+	src := parseSource(t, paths[0])
+	fc := mustFileContext(t, gc, paths[0])
+
+	// L20 list.add("item")：接收者变量 list 声明类型 List -> 目标 java.util.List.add。
+	addCall := findNodeByText(t, src, `list.add("item")`)
+	assertResolve(t, gc, fc, addCall, model.Call, "java.util.List.add", model.Method, true)
+}
+
 // =============================================================================
 // R4-R6 重载 / 泛型 / 继承（x/java/testdata/resolver 与 extractor/use/case2）
 // 断言值均来自 debug_dump 实测。

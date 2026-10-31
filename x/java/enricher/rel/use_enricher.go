@@ -82,7 +82,9 @@ func (e *UseEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 		// 2. 识别跨作用域捕获 (IsCapture)
 		isSubScope := strings.Contains(qn, "lambda$") || strings.Contains(qn, ".anonymousClass")
 		if isSubScope {
-			if rel.Target.Kind == model.Field {
+			// 仅内部字段视为捕获：外部静态字段（System.out 等）是全局符号，
+			// 非跨作用域捕获变量，不应产 CAPTURE 噪音。
+			if rel.Target != nil && rel.Target.Kind == model.Field && !rel.Target.IsFormExternal {
 				rel.Mores[constants.RelUseIsCapture] = true
 			}
 			if rel.Target.Kind == model.Variable && rel.Source.Location != nil && rel.Target.Location != nil {
