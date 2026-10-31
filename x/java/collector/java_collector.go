@@ -148,7 +148,17 @@ func (c *Collector) refineVariableScopes(fCtx *core.FileContext) {
 			continue
 		}
 
-		// 2. 遍历容器的子节点，寻找该变量逻辑上所属的 block 节点
+		// 2. 遍历容器的子节点，寻找该变量逻辑上所属的 block 节点。
+		// tree-sitter 中 if/else 是同一 if_statement 下的两个 block 子节点（else 无独立节点），
+		// 因此不能固定匹配第一个 block（否则 else 块变量被误挂到 if 体块）。
+		// 策略：优先选「包含变量声明行」的 block（最内层）；若无 block 包含变量行
+		// （try-with-resources 资源变量/catch 参数/for 头变量/instanceof 模式变量，声明在块外），
+		// 回退到第一个 block 子节点，保持原有行为不回归。
+		varRow := -1
+		if entry.Element.Location != nil {
+			varRow = entry.Element.Location.StartLine
+		}
+		var fallback *core.DefinitionEntry
 		for i := 0; i < containerNode.ChildCount(); i++ {
 			child := containerNode.Child(i)
 			// 只有当子节点是 block，且不是变量自身的定义节点时才处理
@@ -159,16 +169,26 @@ func (c *Collector) refineVariableScopes(fCtx *core.FileContext) {
 			// 3. 在已采集的定义中，通过 Location 匹配找到对应的 block 实体
 			for _, bDef := range blocks {
 				if helper.MatchLocation(child, bDef.Element) {
-					newParentQN := bDef.Element.QualifiedName
-
-					// 4. 更新 ParentQN 并重新构建 QualifiedName
-					entry.ParentQN = newParentQN
-					entry.Element.QualifiedName = c.resolver.BuildQualifiedName(newParentQN, entry.Element.Name)
-
-					// 一旦找到匹配的 block 并完成重定位，即可跳出当前变量的查找
-					goto nextVariable
+					if fallback == nil {
+						fallback = bDef
+					}
+					if varRow >= 0 {
+						sp, ep := child.StartPoint(), child.EndPoint()
+						if varRow >= int(sp.Row)+1 && varRow <= int(ep.Row)+1 {
+							// 4. 变量声明行落在该 block 内：优先重定位到此 block
+							entry.ParentQN = bDef.Element.QualifiedName
+							entry.Element.QualifiedName = c.resolver.BuildQualifiedName(bDef.Element.QualifiedName, entry.Element.Name)
+							goto nextVariable
+						}
+					}
 				}
 			}
+		}
+
+		// 5. 无 block 包含变量声明行：回退到第一个 block（try-with-resources/catch/for 头/instanceof 模式变量）
+		if fallback != nil {
+			entry.ParentQN = fallback.Element.QualifiedName
+			entry.Element.QualifiedName = c.resolver.BuildQualifiedName(fallback.Element.QualifiedName, entry.Element.Name)
 		}
 	nextVariable:
 	}
@@ -391,7 +411,7 @@ func (c *Collector) findNearestBlockParent(node coreast.Node) coreast.Node {
 	curr := node.Parent()
 	for curr != nil {
 		k := curr.Kind()
-		if k == "for_statement" || k == "try_with_resources_statement" || k == "catch_clause" || k == "if_statement" {
+		if k == "for_statement" || k == "enhanced_for_statement" || k == "try_with_resources_statement" || k == "catch_clause" || k == "if_statement" {
 			return curr
 		}
 		if k == "method_declaration" || k == "class_declaration" {

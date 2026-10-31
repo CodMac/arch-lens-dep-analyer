@@ -437,6 +437,32 @@ func TestCollectorS5ScopeContainer(t *testing.T) {
 	AssertMores(t, gc, "com.example.base.test.ScopeVariableTest.test().block$4", constants.MethodComplexity, 1)
 	AssertMores(t, gc, "com.example.base.test.ScopeVariableTest.test().block$5", constants.MethodComplexity, 1)
 
+	// --- if/else 块变量作用域重定位（Bug A 回归：else 块变量须挂 else block，非 if 体块）---
+	// tree-sitter 中 if/else 是同一 if_statement 下两个 block 子节点，旧逻辑固定匹配第一个
+	// block 导致 else 块变量被误挂到 if 体块。修复后 ifVar->block$1、elseVar->block$2。
+	AssertDef(t, gc, "com.example.base.test.IfElseScopeTest.test(int).block$1.ifVar", model.Variable)
+	AssertMores(t, gc, "com.example.base.test.IfElseScopeTest.test(int).block$1.ifVar", constants.VariableRawType, "int")
+	AssertDef(t, gc, "com.example.base.test.IfElseScopeTest.test(int).block$2.elseVar", model.Variable)
+	AssertMores(t, gc, "com.example.base.test.IfElseScopeTest.test(int).block$2.elseVar", constants.VariableRawType, "int")
+	// 宿主方法与各块复杂度
+	AssertDef(t, gc, "com.example.base.test.IfElseScopeTest.test(int)", model.Method)
+	AssertMores(t, gc, "com.example.base.test.IfElseScopeTest.test(int)", constants.MethodComplexity, 2)
+	AssertMores(t, gc, "com.example.base.test.IfElseScopeTest.test(int).block$1", constants.MethodComplexity, 1)
+	AssertMores(t, gc, "com.example.base.test.IfElseScopeTest.test(int).block$2", constants.MethodComplexity, 1)
+
+	// --- 增强 for 循环体内变量归 for 体块（Bug A 延伸：findNearestBlockParent 缺 enhanced_for 分支）---
+	// 旧逻辑向上命中外层 if_statement，for 体内变量被误挂 if 体块 block$1；
+	// 修复后 loopVar/item 正确归 for 体块 block$1.block$1。
+	AssertDef(t, gc, "com.example.base.test.IfElseScopeTest.forEach(int).block$1.block$1.loopVar", model.Variable)
+	AssertMores(t, gc, "com.example.base.test.IfElseScopeTest.forEach(int).block$1.block$1.loopVar", constants.VariableRawType, "int")
+	AssertDef(t, gc, "com.example.base.test.IfElseScopeTest.forEach(int).block$1.block$1.item", model.Variable)
+	AssertMores(t, gc, "com.example.base.test.IfElseScopeTest.forEach(int).block$1.block$1.item", constants.VariableRawType, "String")
+	// 宿主方法复杂度：if(1) + enhanced-for(1) + 基线 = 3；if 体块含 enhanced-for = 2；for 体块 = 1
+	AssertDef(t, gc, "com.example.base.test.IfElseScopeTest.forEach(int)", model.Method)
+	AssertMores(t, gc, "com.example.base.test.IfElseScopeTest.forEach(int)", constants.MethodComplexity, 3)
+	AssertMores(t, gc, "com.example.base.test.IfElseScopeTest.forEach(int).block$1", constants.MethodComplexity, 2)
+	AssertMores(t, gc, "com.example.base.test.IfElseScopeTest.forEach(int).block$1.block$1", constants.MethodComplexity, 1)
+
 	// --- 同名变量在不同容器（不触发重名消歧）---
 	AssertDef(t, gc, "com.example.base.ScopeTest.test().x", model.Variable)
 	AssertMores(t, gc, "com.example.base.ScopeTest.test().x", constants.VariableRawType, "int")

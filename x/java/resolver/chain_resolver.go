@@ -323,15 +323,24 @@ func (cr *ChainResolver) resolveIdent(head ExpressionHead) *model.CodeElement {
 	}
 
 	// 2. 尝试作为类型名兜底。
-	// 注意：PreciseResolve 的 FindByShortName 会把字段/变量短名当类型命中返回
-	//（Builder 链式调用等依赖此回退）。因此不能仅接受类型 kind 一刀切拦截，
-	// 否则会破坏链式字段/方法解析。但静态上下文中引用实例字段是非法访问
-	//（ResolveVar 已拦截返回 NIL），此处兜底必须同样拒绝，避免绕过检查。
+	// 注意：PreciseResolve 的 FindByShortName 会把字段/变量短名当类型命中返回。
+	// 兜底的本意是解析“类型名”，因此必须对命中的元素做种类甄别，避免把非类型
+	// 当作合法结果返回（跨方法/跨类同名变量会串扰——如 else 块变量 userInfo 被
+	// 误解析到另一方法的 userInfo，见 Bug B）。
+	// 合法放行的非类型命中仅两类：
+	//   - Method：方法引用目标（this::foo / Class::foo）无 name 字段，findCoreChain
+	//     退化为裸标识符，须借类型兜底命中同名方法；
+	//   - Field：静态上下文拦截分支（见下），返回 Class kind 外部元素阻断 USE 产出。
+	// 其余非类型命中（Variable 等）一律返回 NIL，交由调用方 generateContextualFallback
+	// 产出外部符号（分辨率失败语义）。
 	if typeEle := cr.resolveTypeFromName(symbol); typeEle != nil {
 		if isTypeKind(typeEle.Kind) {
 			return typeEle
 		}
-		// 兜底命中的是非类型（Field/Variable）。
+		// 方法引用目标：this::foo / Class::foo 的 foo 是方法名，类型兜底命中 Method 合法。
+		if typeEle.Kind == model.Method {
+			return typeEle
+		}
 		// 静态上下文拦截仅适用于：裸标识符引用（无显式 receiver 的字段访问）且
 		// 目标是当前类自身的实例字段（如静态方法内引用 instanceVar）。
 		// 链式调用（new Builder().name()）的 name 段属于 Builder 类，不受此拦截。
@@ -345,7 +354,8 @@ func (cr *ChainResolver) resolveIdent(head ExpressionHead) *model.CodeElement {
 			//    实现“静态方法内引用实例字段应解析失败”的语义。
 			return model.NewExternalElement(model.Class, symbol, cr.contextualQN(symbol))
 		}
-		return typeEle
+		// 其余非类型命中（Variable 等）：跨作用域串扰，拒绝。
+		return nil
 	}
 
 	// 3. 外部兜底。

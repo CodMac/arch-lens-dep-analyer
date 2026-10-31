@@ -217,6 +217,60 @@ func TestExtractorClassLitContexts(t *testing.T) {
 	}
 }
 
+// TestExtractorCrossMethodVar 跨方法同名变量 USE 不串扰（Bug A + Bug B 回归）。
+// 场景（use/case9 CrossMethodVarSuite）：
+//  1. methodA 与 methodB 各自声明同名局部变量 info（methodB 在 else 块内）；
+//  2. methodB else 块 return info 必须解析到 methodB(int).block$2.info（Bug A 修复：
+//     else 块变量归属 else block；Bug B 修复：ResolveVar 成功命中本块变量）；
+//  3. methodC 引用作用域外的 info（未声明），ResolveVar 失败后类型兜底不得命中
+//     methodA/methodB 的 info（Bug B：非类型短名拒绝），应外部兜底为裸名 info。
+func TestExtractorCrossMethodVar(t *testing.T) {
+	paths := resolveSuitePaths(t, "use/case9")
+	_, rels := RunExtraction(t, "x/java/testdata", paths)
+
+	// 1. methodA return info -> methodA(int).info
+	if findRel(rels, func(r *model.DependencyRelation) bool {
+		return r.Type == model.Use && r.Source != nil && r.Target != nil &&
+			r.Source.QualifiedName == "com.example.rel.use.case9.CrossMethodVarSuite.methodA(int)" &&
+			r.Target.QualifiedName == "com.example.rel.use.case9.CrossMethodVarSuite.methodA(int).info"
+	}) == nil {
+		t.Errorf("methodA USE -> methodA(int).info not found")
+	}
+
+	// 2. methodB else 块 return info -> methodB(int).block$2.info（不得串扰到 methodA）
+	if findRel(rels, func(r *model.DependencyRelation) bool {
+		return r.Type == model.Use && r.Source != nil && r.Target != nil &&
+			r.Source.QualifiedName == "com.example.rel.use.case9.CrossMethodVarSuite.methodB(int)" &&
+			r.Target.QualifiedName == "com.example.rel.use.case9.CrossMethodVarSuite.methodB(int).block$2.info"
+	}) == nil {
+		t.Errorf("methodB else-block USE -> methodB(int).block$2.info not found (Bug A regression?)")
+	}
+
+	// 3. methodC 作用域外引用 info：不得产生指向任何方法内 info 的 USE（Bug B 串扰）。
+	//    修复后目标为外部裸名 info（QN == "info"）；修复前错误命中 methodA(int).info。
+	methodCFound := findRel(rels, func(r *model.DependencyRelation) bool {
+		if r.Type != model.Use || r.Source == nil || r.Target == nil {
+			return false
+		}
+		if r.Source.QualifiedName != "com.example.rel.use.case9.CrossMethodVarSuite.methodC()" {
+			return false
+		}
+		return r.Target.QualifiedName == "info"
+	})
+	if methodCFound == nil {
+		// 精确断言失败：检查是否错误串扰到 methodA/methodB 的 info。
+		for _, r := range rels {
+			if r == nil || r.Type != model.Use || r.Source == nil || r.Target == nil {
+				continue
+			}
+			if r.Source.QualifiedName == "com.example.rel.use.case9.CrossMethodVarSuite.methodC()" {
+				t.Errorf("methodC USE -> %s (want external bare 'info', no cross-method contamination)", r.Target.QualifiedName)
+			}
+		}
+		t.Errorf("methodC USE -> external 'info' not found (Bug B regression?)")
+	}
+}
+
 // =============================================================================
 // IMPORT / CONTAIN 层级关系 suite（extractHierarchy 产出）
 // 两种关系不使用注释断言块（Source 形态特殊：IMPORT 的文件元素 / CONTAIN 的父 QN），

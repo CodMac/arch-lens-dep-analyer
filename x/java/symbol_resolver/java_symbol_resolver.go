@@ -137,7 +137,12 @@ func (r *SymbolResolver) ResolveVar(gc *core.GlobalContext, fc *core.FileContext
 	}
 
 	// 无 receiver：按作用域链查找。
-	container := helper.GetBestElement(fc, node, []model.ElementKind{model.Method, model.Class, model.ScopeBlock})
+	// 注意包含 Lambda：lambda 体内变量（如 () -> { int c = 5; } 的 c）的
+	// ParentQN 是 lambda$N，其作用域链必须从 lambda 起始，否则 GetBestElement
+	// 会退化为外层方法，跨过 lambda 层，导致 lambda 体内变量解析失败。
+	// （此前依赖 resolveIdent 的类型名兜底 FindByShortName 兜住，Bug B 修复
+	// 拒绝非类型短名后必须在此正确解析。）
+	container := helper.GetBestElement(fc, node, []model.ElementKind{model.Method, model.Class, model.ScopeBlock, model.Lambda})
 	if container == nil {
 		return nil
 	}
