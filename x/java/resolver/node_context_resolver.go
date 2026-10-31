@@ -57,6 +57,13 @@ func (r *NodeContextResolver) findCoreChain(node coreast.Node) coreast.Node {
 			"method_reference", "array_access", "update_expression", "assignment_expression",
 			"explicit_constructor_invocation":
 			return curr
+		case "class_literal":
+			// class literal（Xxx.class）是类型引用终点：不被外层 method_invocation 吸收，
+			// 否则 SpringUtils.getBean(TaskDaoImpl.class) 的实参会被爬升成外层方法调用，
+			// class_lit_atom 解析出的目标变 METHOD 而非类型。
+			// 注意：Xxx.class.getCanonicalName() 的 CALL 由 call_target 单独捕获（从 name
+			// identifier 爬升到 method_invocation，不经此分支），互不冲突。
+			return curr
 		case "identifier":
 			// identifier 只有在不是 method_invocation/field_access 的 name 时才作为终点；
 			// 若作为接收者链的 name（如 getName 之于 user.getName()），继续向上爬到调用节点。

@@ -164,6 +164,59 @@ func TestExtractorFieldAccessSuite(t *testing.T) {
 	}
 }
 
+// TestExtractorClassLitContexts 验证 class literal 盲区修复的三类新场景（缺陷 3 剩余 87 个）：
+//  1. 枚举构造器实参（enum_constant）：FILE(File.class) -> USE 归属枚举常量，目标 java.io.File；
+//  2. 类级注解参数（modifiers -> 类型声明）：@ClassLitMarker(value = File.class) -> USE 归属宿主类；
+//  3. 注解类型元素默认值（annotation_type_element_declaration）：default File.class -> USE 归属方法元素。
+//
+// 修复前 determinePreciseSource 缺 enum_constant/modifiers/annotation_type_element_declaration
+// 三类 case，sourceElem 解析为 nil，整条 USE 被丢弃（cleanarch 全量 87 个不产 USE）。
+func TestExtractorClassLitContexts(t *testing.T) {
+	paths := resolveSuitePaths(t, "use/case8")
+	_, rels := RunExtraction(t, "x/java/testdata", paths)
+
+	cases := []struct {
+		wantSource string
+		wantTarget string
+		wantKind   model.ElementKind
+		wantLine   int
+	}{
+		// L7 注解类型元素默认值 default File.class -> 方法元素 ClassLitMarker.value()
+		{
+			wantSource: "com.example.audit.ClassLitMarker.value()",
+			wantTarget: "java.io.File", wantKind: model.Class, wantLine: 7,
+		},
+		// L11 类级注解 @ClassLitMarker(value = File.class) -> 宿主类 ClassLitAnnotationSuite
+		{
+			wantSource: "com.example.audit.ClassLitAnnotationSuite",
+			wantTarget: "java.io.File", wantKind: model.Class, wantLine: 11,
+		},
+		// L16 枚举构造器实参 FILE(File.class) -> 枚举常量 ClassLitAnnotationSuite.Kind.FILE
+		{
+			wantSource: "com.example.audit.ClassLitAnnotationSuite.Kind.FILE",
+			wantTarget: "java.io.File", wantKind: model.Class, wantLine: 16,
+		},
+	}
+
+	for _, c := range cases {
+		found := findRel(rels, func(r *model.DependencyRelation) bool {
+			if r.Type != model.Use || r.Source == nil || r.Target == nil {
+				return false
+			}
+			if r.Source.QualifiedName != c.wantSource {
+				return false
+			}
+			if r.Target.QualifiedName != c.wantTarget || r.Target.Kind != c.wantKind {
+				return false
+			}
+			return r.Location != nil && r.Location.StartLine == c.wantLine
+		})
+		if found == nil {
+			t.Errorf("USE %s -> %s (kind=%s, line %d) not found", c.wantSource, c.wantTarget, c.wantKind, c.wantLine)
+		}
+	}
+}
+
 // =============================================================================
 // IMPORT / CONTAIN 层级关系 suite（extractHierarchy 产出）
 // 两种关系不使用注释断言块（Source 形态特殊：IMPORT 的文件元素 / CONTAIN 的父 QN），

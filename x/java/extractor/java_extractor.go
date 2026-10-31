@@ -293,7 +293,7 @@ func (e *Extractor) enrichRelMetadata(enhanceTargets []*model.DependencyRelation
 // 辅助函数
 // =============================================================================
 
-// determinePreciseSource 向上定位关系发起者（方法/块/Lambda/字段）。
+// determinePreciseSource 向上定位关系发起者（方法/块/Lambda/字段/枚举常量/类型级注解宿主）。
 func (e *Extractor) determinePreciseSource(n coreast.Node, fCtx *core.FileContext, gc *core.GlobalContext) *model.CodeElement {
 	for curr := n.Parent(); curr != nil; curr = curr.Parent() {
 
@@ -303,7 +303,7 @@ func (e *Extractor) determinePreciseSource(n coreast.Node, fCtx *core.FileContex
 		// 类型
 		var k model.ElementKind
 		switch curr.Kind() {
-		case "method_declaration", "constructor_declaration":
+		case "method_declaration", "constructor_declaration", "annotation_type_element_declaration":
 			k = model.Method
 		case "static_initializer":
 			k = model.ScopeBlock
@@ -325,6 +325,31 @@ func (e *Extractor) determinePreciseSource(n coreast.Node, fCtx *core.FileContex
 			} else {
 				continue
 			}
+		case "enum_constant":
+			// 枚举常量：枚举构造器实参（DefectType.java: DATA_CLASS(..., InfusionList.class, ...)）
+			// 归属到枚举常量元素，而非其所在枚举。
+			k = model.EnumConstant
+		case "modifiers":
+			// 类型级注解（@MappedTypes/@FeignClient/@SpringBootApplication 等）：
+			// class_literal 祖先链为 annotation -> modifiers -> 类型声明（不经 class_body）。
+			// 归到所属类型元素（Class/Interface/Enum/注解类型）。
+			td := curr.Parent()
+			if td == nil {
+				continue
+			}
+			switch td.Kind() {
+			case "class_declaration", "record_declaration":
+				k = model.Class
+			case "interface_declaration":
+				k = model.Interface
+			case "enum_declaration":
+				k = model.Enum
+			case "annotation_type_declaration":
+				k = model.KAnnotation
+			default:
+				continue
+			}
+			line = int(td.StartPoint().Row) + 1
 		case "class_body", "interface_body", "program":
 			return nil
 		default:
@@ -418,7 +443,9 @@ func (e *Extractor) mapAction(capName string, node coreast.Node, fCtx *core.File
 
 	case "class_lit_atom":
 		// 类字面量：Xxx.class 是类型引用，目标为类型元素（内部或外部）。
-		ctxNode = helper.FindNearestKind(node, "expression_statement", "local_variable_declaration", "method_invocation", "arguments", "binary_expression", "return_statement", "field_access")
+		// 覆盖场景：局部变量/字段初始化、方法调用实参（argument_list）、
+		// 注解参数（element_value_pair/annotation_argument_list/element_value_array_initializer）。
+		ctxNode = helper.FindNearestKind(node, "expression_statement", "local_variable_declaration", "method_invocation", "argument_list", "element_value_pair", "annotation_argument_list", "element_value_array_initializer", "annotation_type_element_declaration", "binary_expression", "return_statement", "field_access")
 		if ctxNode == nil {
 			return nil
 		}
@@ -480,6 +507,17 @@ func (e *Extractor) isUseRel(node coreast.Node, target *model.CodeElement) bool 
 			}
 		}
 	case "scoped_identifier", "package_declaration", "import_declaration":
+		return false
+	case "lambda_expression":
+		// 排除 lambda 参数声明：(request) -> request.getPath()
+		// 参数声明位置不产 USE，仅接收者使用处产出。
+		// 单参数 lambda 的 parameters 字段即 identifier 本身。
+		if params := parent.ChildByFieldName("parameters"); params != nil && params.Equal(node) {
+			return false
+		}
+	case "inferred_parameters":
+		// 多参数无类型 lambda 的声明：(a, b) -> ...
+		// inferred_parameters 仅出现在 lambda 中，其内 identifier 全是参数声明。
 		return false
 	}
 
