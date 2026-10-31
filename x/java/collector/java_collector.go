@@ -220,6 +220,9 @@ func (c *Collector) applySyntacticSugar(fCtx *core.FileContext) {
 	if ok {
 		for _, entry := range enums {
 			c.desugar.DesugarEnumMethods(entry.Element, entry.Node, fCtx)
+			// Lombok 注解可作用于枚举（@Getter/@ToString/@EqualsAndHashCode 等），
+			// 枚举内部（静态块/方法）访问自身成员方法时依赖生成的方法定义。
+			c.desugar.DesugarLombok(entry.Element, entry.Node, fCtx)
 		}
 	}
 }

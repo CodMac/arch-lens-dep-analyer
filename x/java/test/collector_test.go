@@ -303,6 +303,21 @@ func TestCollectorS2TypeDeclaration(t *testing.T) {
 	AssertMores(t, gc, "com.example.base.enum.ErrorCode.values()", constants.MethodIsImplicit, true)
 	AssertDef(t, gc, "com.example.base.enum.ErrorCode.valueOf(String)", model.Method)
 	AssertMores(t, gc, "com.example.base.enum.ErrorCode.valueOf(String)", constants.MethodIsImplicit, true)
+
+	// --- 枚举 + Lombok @Getter（EnumLombok）：枚举内静态块访问自身 getter 需命中生成方法 ---
+	AssertDef(t, gc, "com.example.base.enum.EnumLombok", model.Enum)
+	// @Getter 为非 static 字段生成 getter（枚举字段 private final 也生成）
+	AssertDef(t, gc, "com.example.base.enum.EnumLombok.getKey()", model.Method)
+	AssertMores(t, gc, "com.example.base.enum.EnumLombok.getKey()", constants.MethodIsLombokGenerated, true)
+	AssertMores(t, gc, "com.example.base.enum.EnumLombok.getKey()", constants.MethodReturnType, "String")
+	AssertDef(t, gc, "com.example.base.enum.EnumLombok.getCode()", model.Method)
+	AssertMores(t, gc, "com.example.base.enum.EnumLombok.getCode()", constants.MethodIsLombokGenerated, true)
+	AssertMores(t, gc, "com.example.base.enum.EnumLombok.getCode()", constants.MethodReturnType, "int")
+	// 枚举常量不是 Field，不应被生成 getter
+	AssertNoDef(t, gc, "com.example.base.enum.EnumLombok.getFIRST()")
+	// 隐式方法仍生成
+	AssertDef(t, gc, "com.example.base.enum.EnumLombok.values()", model.Method)
+	AssertDef(t, gc, "com.example.base.enum.EnumLombok.valueOf(String)", model.Method)
 }
 
 // =============================================================================
@@ -1023,6 +1038,7 @@ func TestCollectorS7Lombok(t *testing.T) {
 			qn     string
 			params []string
 		}{
+			// preinitialized 带初始化器（= "fixed"），不进入构造器参数
 			{"com.example.lombok.ConstructorComprehensive.RequiredArgsConstructor.RequiredArgsConstructor(String)", []string{"String requiredField"}},
 			{"com.example.lombok.ConstructorComprehensive.RequiredArgsConstructor.InnerClass.InnerClass(int)", []string{"int id"}},
 		}
@@ -1033,6 +1049,9 @@ func TestCollectorS7Lombok(t *testing.T) {
 			AssertMores(t, gc, c.qn, constants.LombokAnnotationType, "RequiredArgsConstructor")
 			AssertMores(t, gc, c.qn, constants.MethodParameters, c.params)
 		}
+		// 带初始化器的 final 字段不产生构造器参数：
+		// 若解析器误把 preinitialized 收进构造器，会产出 2 参构造器 (String,String)
+		AssertNoDef(t, gc, "com.example.lombok.ConstructorComprehensive.RequiredArgsConstructor.RequiredArgsConstructor(String,String)")
 	})
 
 	// --- @Builder：builder() + Builder 内部类 + 链式方法 + build() ---

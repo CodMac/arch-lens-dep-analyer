@@ -14,6 +14,7 @@ public class ConstructorComprehensive {
     @RequiredArgsConstructor
     public static class RequiredArgsConstructor {
         private final String requiredField;  // final字段 - @RequiredArgsConstructor会生成构造器
+        private final String preinitialized = "fixed";  // 带初始化器的final字段 - 不进入构造器参数
         private String optionalField;
 
         @RequiredArgsConstructor

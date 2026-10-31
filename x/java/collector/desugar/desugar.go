@@ -626,7 +626,9 @@ func (c *DeSugar) lombokRequiredArgsConstructor(elem *model.CodeElement, node co
 	for _, field := range fields {
 		isStatic, _ := field.Element.Extra.Mores[constants.FieldIsStatic].(bool)
 		isFinal, _ := field.Element.Extra.Mores[constants.FieldIsFinal].(bool)
-		if !isStatic && isFinal {
+		// Lombok 语义：@RequiredArgsConstructor 只收「未初始化」的 final 字段（及 @NonNull 字段）。
+		// 带内联初始化器的 final 字段（如 private final Executor e = getBean(...)）不进入构造器。
+		if !isStatic && isFinal && !fieldHasInitializer(field, fCtx) {
 			finalFields = append(finalFields, field)
 		}
 	}
@@ -831,6 +833,26 @@ func (c *DeSugar) lombokBuilder(elem *model.CodeElement, node coreast.Node, fCtx
 // =============================================================================
 // 辅助方法
 // =============================================================================
+
+// fieldHasInitializer 判断字段是否有内联初始化器（如 private final Executor e = getBean(...)）。
+// Lombok @RequiredArgsConstructor 语义：带初始化器的 final 字段不进入构造器参数。
+// tree-sitter 中初始化器挂在 variable_declarator 的 value 字段上（field_declaration 本身无 value）。
+func fieldHasInitializer(field *core.DefinitionEntry, fCtx *core.FileContext) bool {
+	src := *fCtx.SourceBytes
+	for i := 0; i < field.Node.NamedChildCount(); i++ {
+		child := field.Node.NamedChild(i)
+		if child.Kind() != "variable_declarator" {
+			continue
+		}
+		nameNode := child.ChildByFieldName("name")
+		if nameNode == nil || nameNode.Utf8Text(src) != field.Element.Name {
+			continue
+		}
+		// 命中目标声明器：是否存在初始化器（= value）。
+		return child.ChildByFieldName("value") != nil
+	}
+	return false
+}
 
 // extractClassFields 提取类中的所有字段（不含语法糖生成的字段）。
 func (c *DeSugar) extractClassFields(elem *model.CodeElement, fCtx *core.FileContext) []*core.DefinitionEntry {

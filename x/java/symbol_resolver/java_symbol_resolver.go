@@ -146,7 +146,10 @@ func (r *SymbolResolver) ResolveVar(gc *core.GlobalContext, fc *core.FileContext
 	if container == nil {
 		return nil
 	}
-	isStatic = slices.Contains(container.Extra.Modifiers, "static")
+	// 静态上下文判定：只依据方法/块/字段自身的 static 修饰符，绝不能用容器的
+	// 类级 static（静态嵌套类 static class Nested 的 static 只说明类本身是静态
+	// 成员，不代表其字段初始化器/方法体处于静态上下文）。
+	isStatic = isStaticContext(fc, container, node)
 	return r.resolveInScopeHierarchy(gc, fc, container.QualifiedName, symbol, isStatic, container)
 }
 
@@ -363,6 +366,31 @@ func (r *SymbolResolver) checkVisibility(gc *core.GlobalContext, fc *core.FileCo
 		return helper.IsSubClassOf(gc, fc, sourceClass, target.ParentQN)
 	}
 
+	return false
+}
+
+// isStaticContext 判定代码位置是否处于静态上下文。
+// 容器为类元素时一律视为实例上下文：类自身的 static 修饰符只表示该类是
+// 静态嵌套成员（static class Nested），其字段初始化器/实例方法体仍属实例
+// 上下文，不能把类级 static 当作静态上下文。
+// 方法/静态块依据自身修饰符判定（Method 的 static 在 Modifiers 中；
+// ScopeBlock 的静态性存于 Mores[BlockIsStatic]）。
+func isStaticContext(fc *core.FileContext, container *model.CodeElement, node coreast.Node) bool {
+	if container == nil || container.Extra == nil {
+		return false
+	}
+	switch container.Kind {
+	case model.Method, model.Field:
+		return slices.Contains(container.Extra.Modifiers, "static")
+	case model.ScopeBlock:
+		if isStatic, ok := container.Extra.Mores[constants.BlockIsStatic].(bool); ok {
+			return isStatic
+		}
+		return false
+	}
+	// Class/Interface/Enum/AnonymousClass/Lambda 等容器：实例上下文。
+	// Lambda 的静态性由其所处方法决定，作用域链会先回溯到方法容器，
+	// 因此 Lambda 容器自身按实例处理（其捕获的字段以实例上下文解析）。
 	return false
 }
 
