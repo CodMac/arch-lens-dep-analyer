@@ -297,11 +297,12 @@ func (e *Extractor) enrichRelMetadata(enhanceTargets []*model.DependencyRelation
 func (e *Extractor) determinePreciseSource(n coreast.Node, fCtx *core.FileContext, gc *core.GlobalContext) *model.CodeElement {
 	for curr := n.Parent(); curr != nil; curr = curr.Parent() {
 
-		// 行号
+		// 行号（仅作为节点区间匹配的兜底）
 		line := int(curr.StartPoint().Row) + 1
 
-		// 类型
+		// 类型；matchNode 为与元素做区间匹配的锚点节点（默认取 curr，modifiers 分支取类型声明）
 		var k model.ElementKind
+		matchNode := curr
 		switch curr.Kind() {
 		case "method_declaration", "constructor_declaration", "annotation_type_element_declaration":
 			k = model.Method
@@ -349,15 +350,21 @@ func (e *Extractor) determinePreciseSource(n coreast.Node, fCtx *core.FileContex
 			default:
 				continue
 			}
-			line = int(td.StartPoint().Row) + 1
+			matchNode = td
 		case "class_body", "interface_body", "program":
 			return nil
 		default:
 			continue
 		}
 
-		// 根据行号+类型，确定父容器
 		if defs, ok := fCtx.FindByKind(k); ok {
+			// 首选：AST 节点区间包含匹配（最内层优先）。
+			// 同一行多个同类元素（如 stream 链式 filter+forEach 的 lambda、同行枚举常量）
+			// 行号撞车时精确区分归属，避免误归到行内第一个元素。
+			if el := e.matchElementByNode(defs, k, matchNode); el != nil {
+				return el
+			}
+			// 兜底：entry.Node 缺失时退回行号匹配（历史行为，无回归）。
 			for _, entry := range defs {
 				if entry.Element.Kind == k && entry.Element.Location.StartLine == line {
 					return entry.Element
@@ -366,6 +373,28 @@ func (e *Extractor) determinePreciseSource(n coreast.Node, fCtx *core.FileContex
 		}
 	}
 	return nil
+}
+
+// matchElementByNode 在 defs 中查找 AST 节点区间包含 target 的最内层元素（区间最小者）。
+// 同一行多个同类元素（stream 链式 lambda/同行枚举常量）时，用节点区间精确区分归属。
+func (e *Extractor) matchElementByNode(defs []*core.DefinitionEntry, k model.ElementKind,
+	target coreast.Node) *model.CodeElement {
+	tStart, tEnd := target.StartByte(), target.EndByte()
+	var best *model.CodeElement
+	var bestSpan int = -1
+	for _, entry := range defs {
+		if entry.Element.Kind != k || entry.Node == nil {
+			continue
+		}
+		s, en := entry.Node.StartByte(), entry.Node.EndByte()
+		if s <= tStart && tEnd <= en {
+			span := en - s
+			if bestSpan < 0 || span < bestSpan {
+				bestSpan, best = span, entry.Element
+			}
+		}
+	}
+	return best
 }
 
 // ActionTarget 描述 mapAction 产出的一个动作目标。

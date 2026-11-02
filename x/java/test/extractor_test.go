@@ -526,6 +526,73 @@ func TestExtractorInitializerBlocks(t *testing.T) {
 	}
 }
 
+// TestExtractorStreamLambdaChainSource 验证 stream 链式 filter+forEach 两级 lambda 的 Source 归属。
+// 场景（use/case10 StreamLambdaChainSuite）：list.stream().filter(e -> ...).forEach(config -> { body })，
+// filter 谓词 lambda 与 forEach 消费者 lambda 起始行在同一行（链式写法）。
+// 修复前 determinePreciseSource 按行号匹配只取第一个 lambda，消费者 body 内的语句被误归到
+// filter 谓词（BUG-1：CreateIndexJson L113-L123 错标 lambda$2）。修复后按 AST 节点区间匹配最内层，
+// 消费者 body 语句归属消费者 lambda（lambda$2），谓词 lambda（lambda$1）只含自身。
+func TestExtractorStreamLambdaChainSource(t *testing.T) {
+	paths := resolveSuitePaths(t, "use/case10")
+	_, rels := RunExtraction(t, "x/java/testdata", paths)
+
+	// 1. 谓词 lambda 内动作（L22 e.startsWith）-> lambda$1（谓词）。
+	predicateCall := findRel(rels, func(r *model.DependencyRelation) bool {
+		return r.Type == model.Call && r.Source != nil && r.Target != nil &&
+			r.Source.QualifiedName == "com.example.rel.use.case10.StreamLambdaChainSuite.run().lambda$1" &&
+			strings.HasSuffix(r.Target.QualifiedName, "startsWith()")
+	})
+	if predicateCall == nil {
+		t.Errorf("filter 谓词 lambda 内 CALL startsWith 应归属 lambda$1，未找到")
+	}
+
+	// 2. 消费者 body 内动作（L23-L25 config/upper/System.out/println）-> lambda$2（消费者）。
+	// 修复前这些语句被误归 lambda$1（BUG-1），此处逐条断言归属 lambda$2。
+	consumerCases := []struct {
+		typ    model.DependencyType
+		line   int
+		target string
+	}{
+		{model.Use, 23, ".config"},
+		{model.Call, 23, "toUpperCase()"},
+		{model.Use, 24, ".upper"},
+		{model.Call, 24, "length()"},
+		{model.Use, 25, ".out"},
+		{model.Call, 25, "println()"},
+	}
+	for _, cc := range consumerCases {
+		found := findRel(rels, func(r *model.DependencyRelation) bool {
+			if r.Type != cc.typ || r.Source == nil || r.Target == nil {
+				return false
+			}
+			if r.Source.QualifiedName != "com.example.rel.use.case10.StreamLambdaChainSuite.run().lambda$2" {
+				return false
+			}
+			if !strings.HasSuffix(r.Target.QualifiedName, cc.target) {
+				return false
+			}
+			return r.Location != nil && r.Location.StartLine == cc.line
+		})
+		if found == nil {
+			t.Errorf("消费者 lambda body %s L%d -> %s 应归属 lambda$2，未找到（BUG-1 回归?）",
+				cc.typ, cc.line, cc.target)
+		}
+	}
+
+	// 3. 负面：消费者 body 语句不得归属谓词 lambda$1。
+	if findRel(rels, func(r *model.DependencyRelation) bool {
+		if r.Type != model.Call || r.Source == nil || r.Target == nil {
+			return false
+		}
+		if r.Source.QualifiedName != "com.example.rel.use.case10.StreamLambdaChainSuite.run().lambda$1" {
+			return false
+		}
+		return strings.HasSuffix(r.Target.QualifiedName, "toUpperCase()")
+	}) != nil {
+		t.Errorf("消费者 body 内 toUpperCase() 不得归属谓词 lambda$1（BUG-1 回归?）")
+	}
+}
+
 // moresBool 读取 Mores 布尔值（不存在或非 bool 返回 false）。
 func moresBool(m map[string]interface{}, key string) bool {
 	v, ok := m[key]
