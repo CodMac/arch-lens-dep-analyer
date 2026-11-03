@@ -218,6 +218,50 @@ func TestExtractorClassLitContexts(t *testing.T) {
 	}
 }
 
+// TestExtractorClassLitChain 验证 .class. receiver 精度修复（C-2）：
+// Xxx.class 带后续段时，段应在 java.lang.Class 上解析成员（而非类型自身）。
+// RunExtraction 使用 LevelRaw，外部符号不被 NoiseFilter 过滤，可精确断言。
+func TestExtractorClassLitChain(t *testing.T) {
+	paths := resolveSuitePaths(t, "classlit")
+	_, rels := RunExtraction(t, "x/java/testdata", paths)
+
+	// L9 String.class.getCanonicalName() -> CALL java.lang.Class.getCanonicalName（此前解析到 String 自身）
+	src := "com.example.rel.ClassLitChainSuite.chain()"
+	found := findRel(rels, func(r *model.DependencyRelation) bool {
+		if r.Type != model.Call || r.Source == nil || r.Target == nil {
+			return false
+		}
+		if r.Source.QualifiedName != src {
+			return false
+		}
+		if r.Target.QualifiedName != "java.lang.Class.getCanonicalName()" || r.Target.Kind != model.Method {
+			return false
+		}
+		return r.Location != nil && r.Location.StartLine == 9
+	})
+	if found == nil {
+		t.Errorf("CALL %s -> java.lang.Class.getCanonicalName() (line 9) not found", src)
+	}
+
+	// L15 纯 List.class（无段）-> USE java.util.List（类型引用本身，未回归）
+	bareSrc := "com.example.rel.ClassLitChainSuite.bare()"
+	foundBare := findRel(rels, func(r *model.DependencyRelation) bool {
+		if r.Type != model.Use || r.Source == nil || r.Target == nil {
+			return false
+		}
+		if r.Source.QualifiedName != bareSrc {
+			return false
+		}
+		if r.Target.QualifiedName != "java.util.List" || r.Target.Kind != model.Class {
+			return false
+		}
+		return r.Location != nil && r.Location.StartLine == 15
+	})
+	if foundBare == nil {
+		t.Errorf("USE %s -> java.util.List (line 15) not found", bareSrc)
+	}
+}
+
 // TestExtractorCrossMethodVar 跨方法同名变量 USE 不串扰（Bug A + Bug B 回归）。
 // 场景（use/case9 CrossMethodVarSuite）：
 //  1. methodA 与 methodB 各自声明同名局部变量 info（methodB 在 else 块内）；

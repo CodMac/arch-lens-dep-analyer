@@ -434,9 +434,9 @@ func TestCollectorS5ScopeContainer(t *testing.T) {
 	AssertDef(t, gc, "com.example.base.test.ScopeVariableTest.test().block$4.item", model.Variable)
 	AssertMores(t, gc, "com.example.base.test.ScopeVariableTest.test().block$4.item", constants.VariableRawType, "String")
 
-	// --- instanceof 模式变量（block$5，类型 unknown）---
+	// --- instanceof 模式变量（block$5，类型 = right 字段类型 String）---
 	AssertDef(t, gc, "com.example.base.test.ScopeVariableTest.test().block$5.s", model.Variable)
-	AssertMores(t, gc, "com.example.base.test.ScopeVariableTest.test().block$5.s", constants.VariableRawType, "unknown")
+	AssertMores(t, gc, "com.example.base.test.ScopeVariableTest.test().block$5.s", constants.VariableRawType, "String")
 
 	// --- 方法内局部变量 ---
 	AssertDef(t, gc, "com.example.base.test.ScopeVariableTest.test().obj", model.Variable)

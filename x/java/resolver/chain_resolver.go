@@ -44,6 +44,12 @@ func (cr *ChainResolver) ResolveChain(chain *ExpressionChain, relType model.Depe
 	if curr == nil {
 		return nil
 	}
+	// HeadClassLit 带后续段：Xxx.class.getName() 的段在 java.lang.Class 上解析成员，
+	// 而非类型自身（修复 .class. receiver 精度问题，ClassUtils L218 等）。
+	// 纯 Xxx.class（无后续段）保持类型元素（作为 USE/Create 目标是类型引用）。
+	if chain.Head.Type == HeadClassLit && len(chain.Segments) > 0 {
+		curr = cr.classLiteralContainer()
+	}
 	cr.seedInstanceCtx(chain.Head, curr)
 
 	// 2. 迭代 Segments。
@@ -75,6 +81,10 @@ func (cr *ChainResolver) seedInstanceCtx(head ExpressionHead, resolved *model.Co
 	case HeadType:
 		// 显式类型名 -> 静态访问。
 		cr.instanceCtx = false
+	case HeadClassLit:
+		// 类字面量 Xxx.class：无段时为类型引用（静态）；带段时接收者为 java.lang.Class
+		// 实例（getCanonicalName() 等实例方法），由 ResolveChain 在覆盖 curr 后置位。
+		cr.instanceCtx = true
 	}
 }
 
@@ -139,6 +149,11 @@ func (cr *ChainResolver) resolveHead(head ExpressionHead, relType model.Dependen
 		return cr.resolveIdent(head)
 
 	case HeadType:
+		return cr.resolveTypeFromName(head.Name)
+
+	case HeadClassLit:
+		// Xxx.class 头部：解析为类型元素本身。带后续段时由 ResolveChain 覆盖为
+		// java.lang.Class 容器（成员解析），纯 class 引用保持类型元素。
 		return cr.resolveTypeFromName(head.Name)
 
 	case HeadCtorInvoke:
@@ -398,6 +413,12 @@ func (cr *ChainResolver) receiverContainer(elem *model.CodeElement) *model.CodeE
 		return nil
 	}
 	return container
+}
+
+// classLiteralContainer 返回 java.lang.Class 外部元素，作为 Xxx.class 带段链的接收者容器。
+// 成员方法（getCanonicalName/getName/getSimpleName 等）均为 JDK 方法，解析为外部符号。
+func (cr *ChainResolver) classLiteralContainer() *model.CodeElement {
+	return model.NewExternalElement(model.Class, "Class", "java.lang.Class")
 }
 
 // methodReturnContainer 依据方法的返回类型解析接收者容器（类/接口/枚举）。

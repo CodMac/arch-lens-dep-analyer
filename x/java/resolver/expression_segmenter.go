@@ -173,11 +173,13 @@ func (es *ExpressionSegmenter) split(node coreast.Node) (*ExpressionHead, []Expr
 		}, nil
 
 	case "class_literal":
-		// Xxx.class 类字面量：类型引用，目标为 _unannotated_type 子节点类型名。
+		// Xxx.class 类字面量：头部解析为类型元素（HeadClassLit），
+		// 但后续段（.getCanonicalName() 等）应在 java.lang.Class 上解析成员（见 resolveHead）。
+		// 目标为 _unannotated_type 子节点类型名。
 		if node.NamedChildCount() > 0 {
 			typeNode := node.NamedChild(0)
 			return &ExpressionHead{
-				Type:    HeadIdent,
+				Type:    HeadClassLit,
 				Name:    typeNode.Utf8Text(es.src),
 				ASTNode: typeNode,
 				RawText: typeNode.Utf8Text(es.src),

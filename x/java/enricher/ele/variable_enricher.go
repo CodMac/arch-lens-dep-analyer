@@ -50,6 +50,17 @@ func (c *VariableEnricher) extractTypeString(node coreast.Node, src *[]byte) str
 		}
 	}
 
+	// instanceof 模式变量无 type 字段：类型在 right 字段（_type 节点），
+	// 模式名在 name 字段（tree-sitter-java grammar:
+	// instanceof_expression: left + instanceof + optional(final) + right(_type) + optional(name)）。
+	// 修复 C-1：此前落到 unknown 导致模式变量作为 receiver 的方法调用无法解析容器，
+	// 一律兜底 unknown.*。
+	if node.Kind() == "instanceof_expression" {
+		if rt := node.ChildByFieldName("right"); rt != nil {
+			return helper.GetNodeContent(rt, *src)
+		}
+	}
+
 	// catch_formal_parameter 无 type 字段，类型在 catch_type 位置子节点
 	// （tree-sitter-java grammar: seq(modifiers?, catch_type, variable_declarator_id)）。
 	// 多异常联合类型（catch (IOException | SQLException e)）取第一个类型作为代表：

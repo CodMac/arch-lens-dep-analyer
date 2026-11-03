@@ -24,6 +24,9 @@ const (
 	HeadImplicitMethod ExpressionHeadType = "implicit_method"
 	// HeadType 已确认为类型名的标识符（静态访问）。
 	HeadType ExpressionHeadType = "type"
+	// HeadClassLit 类字面量 Xxx.class：本身解析为类型元素，但后续段
+	// （.getCanonicalName() / .getName() 等）应在 java.lang.Class 上解析成员。
+	HeadClassLit ExpressionHeadType = "class_lit"
 	// HeadCtorInvoke 显式构造器调用（super() / this() / 类型构造器）。
 	HeadCtorInvoke ExpressionHeadType = "ctor_invoke"
 	// HeadUnknown 无法识别的头部。

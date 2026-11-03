@@ -648,6 +648,43 @@ func TestResolverR8CreateCastThrow(t *testing.T) {
 	}
 	// L38 模式匹配 instanceof -> String（外部）
 	xs.resolveLineKind(t, 38, "instanceof_expression", model.Cast, "String", model.Class, true)
+	// L39 模式变量作为 receiver（C-1 修复）：str.length() -> String.length（此前兜底 unknown.length）
+	{
+		src := xs.src.Content()
+		for _, n := range nodesByKind(t, xs.src, "method_invocation") {
+			name := n.ChildByFieldName("name")
+			if name != nil && name.Utf8Text(src) == "length" {
+				elem := resolveAction(t, xs.gc, xs.fc, n, model.Call)
+				if elem.QualifiedName != "String.length" {
+					t.Errorf("str.length() QN = %q, want String.length", elem.QualifiedName)
+				}
+			}
+		}
+	}
+
+	// ClassLit 套件（.class. receiver 精度修复）：Xxx.class 带段 -> java.lang.Class 成员；
+	// 纯 Xxx.class（无段）-> 类型本身。
+	cls := resolverSuite(t, "extractor/classlit")
+	{
+		src := cls.src.Content()
+		for _, n := range nodesByKind(t, cls.src, "method_invocation") {
+			name := n.ChildByFieldName("name")
+			if name != nil && name.Utf8Text(src) == "getCanonicalName" {
+				elem := resolveAction(t, cls.gc, cls.fc, n, model.Call)
+				if elem.QualifiedName != "java.lang.Class.getCanonicalName" {
+					t.Errorf("String.class.getCanonicalName() = %q, want java.lang.Class.getCanonicalName", elem.QualifiedName)
+				}
+			}
+		}
+		for _, n := range nodesByKind(t, cls.src, "class_literal") {
+			if n.Utf8Text(src) == "List.class" {
+				elem := resolveAction(t, cls.gc, cls.fc, n, model.Use)
+				if elem.QualifiedName != "java.util.List" {
+					t.Errorf("List.class = %q, want java.util.List", elem.QualifiedName)
+				}
+			}
+		}
+	}
 
 	// Throw 套件。
 	ts := resolverSuite(t, "extractor/throw")
