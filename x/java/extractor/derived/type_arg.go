@@ -69,12 +69,9 @@ func (e *TypeArgExtractor) getRawTypesForTypeArgs(elem *model.CodeElement) (res 
 }
 
 // extractTypeFromParam 从参数原始文本中提取类型部分。
+// 参数名恒为最后一个 token，类型为其前全部内容，再剥离 final/@ 前缀（见 helper.ExtractParamType）。
 func (e *TypeArgExtractor) extractTypeFromParam(p string) string {
-	parts := strings.Fields(p)
-	if len(parts) >= 2 {
-		return parts[len(parts)-2]
-	}
-	return p
+	return helper.ExtractParamType(p)
 }
 
 // parseTypeArgs 解析泛型实参（支持嵌套泛型）。

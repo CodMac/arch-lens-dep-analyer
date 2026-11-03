@@ -567,10 +567,8 @@ func (e *Extractor) resolveTypeForElement(gc *core.GlobalContext, fCtx *core.Fil
 }
 
 // extractTypeFromParam 从参数原始文本中提取类型部分（PARAMETER 关系用）。
+// 参数名恒为最后一个 token，类型为其前全部内容（含泛型/修饰符），再剥离 final/@ 前缀。
+// 修复 BUG-A：StateMachine<A, B> stateMachine 此前取倒数第二个 token 错位成 B>。
 func (e *Extractor) extractTypeFromParam(p string) string {
-	parts := strings.Fields(p)
-	if len(parts) >= 2 {
-		return parts[len(parts)-2]
-	}
-	return p
+	return helper.ExtractParamType(p)
 }

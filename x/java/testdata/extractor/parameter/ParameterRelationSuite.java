@@ -27,4 +27,12 @@ public class ParameterRelationSuite {
     // Target: String
     // Mores: { "java.rel.parameter.is_final": true, "java.rel.parameter.has_annotation": true }
     public void setPath(@Deprecated final String path) {}
+
+    // BUG-A: 带逗号泛型的参数类型错位
+    // 修复前 extractTypeFromParam 取倒数第二个 token，StateMachine<A, B> stateMachine
+    // 会错位解析为 B>（截断泛型），PARAMETER 目标应为泛型基类 StateMachine。
+    // Source: com.example.rel.ParameterRelationSuite.transfer
+    // Target: StateMachine
+    // Mores: { "java.rel.parameter.index": 0, "java.rel.parameter.name": "stateMachine" }
+    public void transfer(StateMachine<RepovizAnalysisStateEnum, RepovizEvents> stateMachine) {}
 }

@@ -71,6 +71,29 @@ func Contains(s []string, str string) bool {
 	return false
 }
 
+// ExtractParamType 从参数原始文本中提取类型部分。
+// 参数形态多样：类型+名字（"String name"）、带泛型（"StateMachine<A, B> stateMachine"）、
+// 带修饰符（"@Deprecated final String path"）、可变参数（"Object... args"）。
+// 算法：参数名恒为最后一个 token，类型为其前全部内容；再剥离 final 与 @ 注解前缀
+// （保留泛型与 "..."，由调用方 Clean 处理）。
+func ExtractParamType(p string) string {
+	parts := strings.Fields(p)
+	if len(parts) < 2 {
+		return p
+	}
+	// 参数名 = 最后一个 token（可能带 "..."，如 "Object... args" 的 "args"）。
+	typePart := strings.Join(parts[:len(parts)-1], " ")
+
+	var kept []string
+	for _, tok := range strings.Fields(typePart) {
+		if tok == "final" || strings.HasPrefix(tok, "@") {
+			continue
+		}
+		kept = append(kept, tok)
+	}
+	return strings.TrimSpace(strings.Join(kept, " "))
+}
+
 // Clean 清洗类型/符号文本：去掉 new/extends/super 前缀、泛型、参数括号、数组尾缀等。
 func Clean(s string) string {
 	s = strings.TrimPrefix(s, "@")
