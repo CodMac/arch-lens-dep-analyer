@@ -422,6 +422,12 @@ func (e *Extractor) mapAction(capName string, node coreast.Node, fCtx *core.File
 		if ctxNode == nil {
 			return nil
 		}
+		// 数组创建（new T[]{...} / new T[n]）无构造器调用语义：只产 CREATE，不产 CALL。
+		// 若对 array 也走 Call 分支，ResolveAction 会从元素类型向上爬升误命中外层
+		// method_invocation（如 List.of(new TaskEngineTypeEnum[]{...}) 误解析为 List.of()，BUG-B）。
+		if ctxNode.Kind() == "array_creation_expression" {
+			return []ActionTarget{{RelType: model.Create, TargetNode: node, ContextNode: ctxNode, Target: e.resolver.ResolveAction(gc, fCtx, node, model.Create)}}
+		}
 		return []ActionTarget{
 			{RelType: model.Create, TargetNode: node, ContextNode: ctxNode, Target: e.resolver.ResolveAction(gc, fCtx, node, model.Create)},
 			{RelType: model.Call, TargetNode: node, ContextNode: ctxNode, Target: e.resolver.ResolveAction(gc, fCtx, node, model.Call)},

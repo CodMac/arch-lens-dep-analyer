@@ -16,6 +16,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 )
 
 // expectedCase 描述一条从源码注释解析出的期望关系断言。
@@ -642,6 +643,78 @@ func TestExtractorScopedTypeCreate(t *testing.T) {
 			t.Errorf("%s %s -> %s (kind=%s, line %d) not found (BUG-2 regression?)",
 				c.typ, src, c.wantTarget, c.wantKind, c.wantLine)
 		}
+	}
+}
+
+// TestExtractorArrayCreateNoSpuriousCall 验证数组创建不作为方法调用实参时不误产 CALL（BUG-B 回归）。
+//
+// 场景（create/case2 ArrayCreateArgSuite）：List.of(new String[]{"a", "b"}) ——
+// 数组创建（array_creation_expression）嵌在方法调用（method_invocation List.of）实参里。
+// 修复前 create_target 分支对 array_creation_expression 产 CREATE + CALL 两条：CALL 沿
+// findCoreChain 从数组 type_identifier 向上爬升，误命中外层 method_invocation（List.of），
+// 产生一条重复 CALL（raw = new String[]{...}，ast_kind = type_identifier，
+// context = array_creation_expression）。修复后 array 只产 CREATE（is_array=true）。
+//
+// 期望（Source 均为 arrayAsArg()）：
+//   - CALL 目标 java.util.List.of()（恰 1 条，ast_kind=identifier, context=method_invocation）
+//   - CREATE 目标 String（is_array=true）
+//   - 负面：不存在从数组产生的 CALL（ast_kind=type_identifier, context=array_creation_expression）
+func TestExtractorArrayCreateNoSpuriousCall(t *testing.T) {
+	paths := resolveSuitePaths(t, "create/case2")
+	_, rels := RunExtraction(t, "x/java/testdata", paths)
+
+	src := "com.example.rel.create.case2.ArrayCreateArgSuite.arrayAsArg()"
+
+	// 1. 真实的 List.of() 调用恰 1 条（method_invocation 的 identifier 命中）。
+	var listOfCalls []*model.DependencyRelation
+	for _, r := range rels {
+		if r.Type != model.Call || r.Source == nil || r.Target == nil {
+			continue
+		}
+		if r.Source.QualifiedName != src {
+			continue
+		}
+		if r.Target.QualifiedName == "java.util.List.of()" {
+			listOfCalls = append(listOfCalls, r)
+		}
+	}
+	if len(listOfCalls) != 1 {
+		t.Errorf("expected exactly 1 CALL to java.util.List.of(), got %d (BUG-B regression?)", len(listOfCalls))
+	}
+
+	// 2. 数组创建产出 CREATE（is_array=true）。
+	createFound := findRel(rels, func(r *model.DependencyRelation) bool {
+		if r.Type != model.Create || r.Source == nil || r.Target == nil {
+			return false
+		}
+		if r.Source.QualifiedName != src {
+			return false
+		}
+		if r.Target.QualifiedName != "String" || r.Target.Kind != model.Class {
+			return false
+		}
+		return r.Location != nil && r.Location.StartLine == 23 && moresBool(r.Mores, constants.RelCreateIsArray)
+	})
+	if createFound == nil {
+		t.Error("CREATE String (is_array=true) at line 23 not found (BUG-B regression?)")
+	}
+
+	// 3. 负面：不存在数组实参误产的 CALL（ast_kind=type_identifier, context=array_creation_expression）。
+	spurious := findRel(rels, func(r *model.DependencyRelation) bool {
+		if r.Type != model.Call || r.Source == nil || r.Target == nil {
+			return false
+		}
+		if r.Source.QualifiedName != src {
+			return false
+		}
+		ast, _ := r.Mores[constants.RelAstKind].(string)
+		ctx, _ := r.Mores[constants.RelContext].(string)
+		return ast == "type_identifier" && ctx == "array_creation_expression"
+	})
+	if spurious != nil {
+		t.Errorf("spurious CALL from array creation arg found: %s -> %s line=%d ast=%s ctx=%s (BUG-B regression?)",
+			src, spurious.Target.QualifiedName, spurious.Location.StartLine,
+			spurious.Mores[constants.RelAstKind], spurious.Mores[constants.RelContext])
 	}
 }
 
