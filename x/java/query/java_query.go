@@ -17,6 +17,8 @@ const JavaActionQuery = `
     type: [
         (type_identifier) @create_target
         (generic_type (type_identifier) @create_target)
+        (scoped_type_identifier) @create_target
+        (generic_type (scoped_type_identifier) @create_target)
     ]) @create_stmt
 
   (array_creation_expression

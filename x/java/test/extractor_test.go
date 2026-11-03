@@ -593,6 +593,58 @@ func TestExtractorStreamLambdaChainSource(t *testing.T) {
 	}
 }
 
+// TestExtractorScopedTypeCreate 验证带限定符 new 表达式的 CREATE/CALL 提取（BUG-2 回归）。
+//
+// 场景（create/case1 NestedClassCreateSuite）：new Outer.Inner() 的类型是
+// scoped_type_identifier（跨文件静态嵌套类 / 自身限定嵌套类）。修复前 action query
+// 的 object_creation_expression 只匹配 type_identifier 简单类名，导致这类 new
+// 漏报 CREATE 与 CALL；修复后新增 (scoped_type_identifier) 分支。
+//
+// 期望（Source 均为 createNested()）：
+//   - L23 new Outer.Inner()                   -> CREATE com.example.rel.create.case1.Outer.Inner
+//   - L23 new Outer.Inner()                   -> CALL   com.example.rel.create.case1.Outer.Inner.Inner()
+//   - L24 new Outer.Inner("n")                -> CREATE com.example.rel.create.case1.Outer.Inner
+//   - L25 new NestedClassCreateSuite.InstanceInner() -> CREATE ...NestedClassCreateSuite.InstanceInner
+func TestExtractorScopedTypeCreate(t *testing.T) {
+	paths := resolveSuitePaths(t, "create/case1")
+	_, rels := RunExtraction(t, "x/java/testdata", paths)
+
+	src := "com.example.rel.create.case1.NestedClassCreateSuite.createNested()"
+	cases := []struct {
+		typ        model.DependencyType
+		wantTarget string
+		wantKind   model.ElementKind
+		wantLine   int
+	}{
+		// L23 new Outer.Inner() -> CREATE 目标静态嵌套类 + CALL 目标其构造器（构造器 QN = 类 QN + "()"）。
+		{typ: model.Create, wantTarget: "com.example.rel.create.case1.Outer.Inner", wantKind: model.Class, wantLine: 23},
+		{typ: model.Call, wantTarget: "com.example.rel.create.case1.Outer.Inner()", wantKind: model.Method, wantLine: 23},
+		// L24 new Outer.Inner("n") -> CREATE（带参构造器）。
+		{typ: model.Create, wantTarget: "com.example.rel.create.case1.Outer.Inner", wantKind: model.Class, wantLine: 24},
+		// L25 new NestedClassCreateSuite.InstanceInner() -> CREATE 自身限定嵌套类。
+		{typ: model.Create, wantTarget: "com.example.rel.create.case1.NestedClassCreateSuite.InstanceInner", wantKind: model.Class, wantLine: 25},
+	}
+
+	for _, c := range cases {
+		found := findRel(rels, func(r *model.DependencyRelation) bool {
+			if r.Type != c.typ || r.Source == nil || r.Target == nil {
+				return false
+			}
+			if r.Source.QualifiedName != src {
+				return false
+			}
+			if r.Target.QualifiedName != c.wantTarget || r.Target.Kind != c.wantKind {
+				return false
+			}
+			return r.Location != nil && r.Location.StartLine == c.wantLine
+		})
+		if found == nil {
+			t.Errorf("%s %s -> %s (kind=%s, line %d) not found (BUG-2 regression?)",
+				c.typ, src, c.wantTarget, c.wantKind, c.wantLine)
+		}
+	}
+}
+
 // moresBool 读取 Mores 布尔值（不存在或非 bool 返回 false）。
 func moresBool(m map[string]interface{}, key string) bool {
 	v, ok := m[key]
