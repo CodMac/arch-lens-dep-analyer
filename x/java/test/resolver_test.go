@@ -719,6 +719,49 @@ func TestResolverR8CreateCastThrow(t *testing.T) {
 	qs.resolveLineKind(t, 39, "field_access", model.Use, "com.example.rel.QualifiedThisSuite.value", model.Field, false)
 }
 
+// TestResolverNestedTypeName 点分嵌套类型名解析（C-10 修复）：
+// ResolveType("CodecConfigurer.DefaultCodecs") 等点分嵌套名应拆外层解析，命中内部嵌套接口，
+// 而非兜底为外部符号。覆盖三种形态：跨包 import 外层 / 同文件 self 限定 / 多级嵌套 A.B.C。
+func TestResolverNestedTypeName(t *testing.T) {
+	paths := resolveSuitePaths(t, "implement/case1/codec", "implement/case1/support", "implement/case1/local")
+	gc, _ := RunExtraction(t, "x/java/testdata", paths)
+
+	baseFc := mustFileContext(t, gc, findPathByBase(t, paths, "BaseDefaultCodecs.java"))
+	localFc := mustFileContext(t, gc, findPathByBase(t, paths, "SelfQualifiedImpl.java"))
+
+	cases := []struct {
+		fc       *core.FileContext
+		symbol   string
+		wantQN   string
+		wantKind model.ElementKind
+	}{
+		// 跨包 import 外层：CodecConfigurer.DefaultCodecs（核心场景，修复前必现）。
+		{fc: baseFc, symbol: "CodecConfigurer.DefaultCodecs", wantQN: "com.example.rel.implement.case1.codec.CodecConfigurer.DefaultCodecs", wantKind: model.Interface},
+		{fc: baseFc, symbol: "CodecConfigurer.DefaultCodecConfig", wantQN: "com.example.rel.implement.case1.codec.CodecConfigurer.DefaultCodecConfig", wantKind: model.Interface},
+		// 同文件 self 限定：SelfQualifiedImpl.NestedContract（用 local 文件上下文）。
+		{fc: localFc, symbol: "SelfQualifiedImpl.NestedContract", wantQN: "com.example.rel.implement.case1.local.SelfQualifiedImpl.NestedContract", wantKind: model.Interface},
+		// 多级嵌套 A.B.C：MultiLevelNested.Level1.Level2。
+		{fc: localFc, symbol: "MultiLevelNested.Level1.Level2", wantQN: "com.example.rel.implement.case1.local.MultiLevelNested.Level1.Level2", wantKind: model.Interface},
+	}
+
+	for _, c := range cases {
+		got := gc.Resolver.ResolveType(gc, c.fc, c.symbol, model.Interface)
+		if got == nil {
+			t.Errorf("ResolveType(%q) = nil, want internal %s", c.symbol, c.wantQN)
+			continue
+		}
+		if got.QualifiedName != c.wantQN || got.Kind != c.wantKind || got.IsFormExternal {
+			t.Errorf("ResolveType(%q) = (QN=%q kind=%s ext=%v), want (QN=%q kind=%s ext=false)",
+				c.symbol, got.QualifiedName, got.Kind, got.IsFormExternal, c.wantQN, c.wantKind)
+		}
+	}
+
+	// 对照：外层裸短名仍能解析（回归防护）。
+	if got := gc.Resolver.ResolveType(gc, baseFc, "CodecConfigurer", model.Interface); got == nil || got.QualifiedName != "com.example.rel.implement.case1.codec.CodecConfigurer" {
+		t.Errorf("ResolveType(CodecConfigurer) = %v, want internal CodecConfigurer", got)
+	}
+}
+
 // TestResolverPackageName 本次缺陷修复断言：外部符号 PackageName 归属 + 基本类型 PRIMITIVE + 泛型变量不产外部。
 // 覆盖：
 //  1. 未 import 裸名（String/RuntimeException）-> PackageName=<external>（不猜 java.lang）

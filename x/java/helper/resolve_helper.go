@@ -57,7 +57,52 @@ func PreciseResolve(gc *core.GlobalContext, fc *core.FileContext, symbol string)
 		return []*core.DefinitionEntry{def}
 	}
 
+	// 点分嵌套名：Class.NestedInterface 形态（如 CodecConfigurer.DefaultCodecs）。
+	// import 键是外层短名（CodecConfigurer），整串查 import 必然 miss；
+	// 拆外层逐级解析：先按标准检索解析外层，再在解析 QN 下拼后缀查全局定义。
+	if strings.Contains(symbol, ".") {
+		if def := resolveDottedNested(gc, fc, symbol); def != nil {
+			return []*core.DefinitionEntry{def}
+		}
+	}
+
 	return nil
+}
+
+// resolveDottedNested 解析点分嵌套类型名（Class.NestedInterface / A.B.C 多级嵌套）。
+// 从右向左尝试每个拆分点：拆为 outer + "." + suffix，先按标准检索解析 outer（短名/
+// import/包内/通配符/全局），再在 outer 解析 QN 下拼 suffix 查全局定义。
+// 递归调用 PreciseResolve 处理多级嵌套（外层自身可能也是嵌套名），字符串逐级缩短保证终止。
+func resolveDottedNested(gc *core.GlobalContext, fc *core.FileContext, symbol string) *core.DefinitionEntry {
+	for i := len(symbol) - 1; i > 0; i-- {
+		if symbol[i] != '.' {
+			continue
+		}
+		outer := symbol[:i]
+		suffix := symbol[i+1:]
+		outerDefs := PreciseResolve(gc, fc, outer)
+		if len(outerDefs) == 0 {
+			continue
+		}
+		elem := outerDefs[0].Element
+		if !isTypeKind(elem.Kind) {
+			continue
+		}
+		fullQN := elem.QualifiedName + "." + suffix
+		if def, ok := gc.FindByQualifiedName(fullQN); ok {
+			return def
+		}
+	}
+	return nil
+}
+
+// isTypeKind 判断元素是否为类型类（可作为点分嵌套名拆分的有效外层）。
+func isTypeKind(k model.ElementKind) bool {
+	switch k {
+	case model.Class, model.Interface, model.Enum, model.KAnnotation, model.AnonymousClass:
+		return true
+	}
+	return false
 }
 
 // GetBestElement 根据 node 所在行与 kinds，匹配合适的 Element。

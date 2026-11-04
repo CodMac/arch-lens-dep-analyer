@@ -760,6 +760,57 @@ func TestExtractorScopedTypeCreate(t *testing.T) {
 	}
 }
 
+// TestExtractorNestedImplement 验证 implements 点分嵌套名（Class.NestedInterface）的
+// IMPLEMENT 提取（C-10 修复）。
+//
+// 场景（implement/case1，模拟 spring-web CodecConfigurer 真实形态）：
+//  1. support.BaseDefaultCodecs implements codec.CodecConfigurer.DefaultCodecs,
+//     codec.CodecConfigurer.DefaultCodecConfig（跨包 import 补全外层，核心场景）
+//  2. local.SelfQualifiedImpl implements SelfQualifiedImpl.NestedContract（同文件 self 限定）
+//  3. local.MultiLevelNested implements MultiLevelNested.Level1.Level2（多级嵌套 A.B.C）
+//
+// 修复前：PreciseResolve 对点分嵌套名未拆分外层类解析，FindByShortName/import 表/
+// 包内拼 QN/通配符四级检索全部 miss，ResolveType 兜底产出外部符号，IMPLEMENT 被
+// LevelBalanced 过滤而系统性丢失（跨包场景必现）。修复后：拆外层（import 命中）->
+// 解析 QN 下拼后缀 -> 命中内部嵌套接口，产出内部 IMPLEMENT。
+func TestExtractorNestedImplement(t *testing.T) {
+	paths := resolveSuitePaths(t, "implement/case1/codec", "implement/case1/support", "implement/case1/local")
+	_, rels := RunExtraction(t, "x/java/testdata", paths)
+
+	cases := []struct {
+		wantSource string
+		wantTarget string
+		wantKind   model.ElementKind
+	}{
+		// 1. 跨包实现嵌套接口（import 外层 codec.CodecConfigurer）。
+		{wantSource: "com.example.rel.implement.case1.support.BaseDefaultCodecs", wantTarget: "com.example.rel.implement.case1.codec.CodecConfigurer.DefaultCodecs", wantKind: model.Interface},
+		{wantSource: "com.example.rel.implement.case1.support.BaseDefaultCodecs", wantTarget: "com.example.rel.implement.case1.codec.CodecConfigurer.DefaultCodecConfig", wantKind: model.Interface},
+		// 2. 同文件 self 限定嵌套接口。
+		{wantSource: "com.example.rel.implement.case1.local.SelfQualifiedImpl", wantTarget: "com.example.rel.implement.case1.local.SelfQualifiedImpl.NestedContract", wantKind: model.Interface},
+		// 3. 多级嵌套 A.B.C。
+		{wantSource: "com.example.rel.implement.case1.local.MultiLevelNested", wantTarget: "com.example.rel.implement.case1.local.MultiLevelNested.Level1.Level2", wantKind: model.Interface},
+	}
+
+	for _, c := range cases {
+		found := findRel(rels, func(r *model.DependencyRelation) bool {
+			if r.Type != model.Implement || r.Source == nil || r.Target == nil {
+				return false
+			}
+			if r.Source.QualifiedName != c.wantSource {
+				return false
+			}
+			if r.Target.QualifiedName != c.wantTarget || r.Target.Kind != c.wantKind || r.Target.IsFormExternal {
+				return false
+			}
+			return true
+		})
+		if found == nil {
+			t.Errorf("IMPLEMENT %s -> %s (kind=%s, internal) not found (C-10 regression?)",
+				c.wantSource, c.wantTarget, c.wantKind)
+		}
+	}
+}
+
 // TestExtractorArrayCreateNoSpuriousCall 验证数组创建不作为方法调用实参时不误产 CALL（BUG-B 回归）。
 //
 // 场景（create/case2 ArrayCreateArgSuite）：List.of(new String[]{"a", "b"}) ——
