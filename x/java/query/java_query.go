@@ -59,6 +59,9 @@ const JavaActionQuery = `
     value: (_))
 
   ; 8. 抛出异常 (Throw)
+  ; 三种形态：throw new X(...) / throw e（变量）/ throw fn()（方法调用链，C-9）
+  ; 捕获 method_invocation 整体（而非 name identifier），供 NodeContextResolver
+  ; 定位为 ExpressNode 后拉平链式解析，由合拍性校正提取返回类型作为异常类型。
   (throw_statement
     [
       (object_creation_expression
@@ -67,6 +70,7 @@ const JavaActionQuery = `
           (generic_type (type_identifier) @throw_target)
         ])
       (identifier) @throw_target
+      (method_invocation) @throw_target
     ]
   ) @throw_stmt
 

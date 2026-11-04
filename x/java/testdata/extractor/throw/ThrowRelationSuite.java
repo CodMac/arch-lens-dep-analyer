@@ -50,4 +50,32 @@ public class ThrowRelationSuite {
             throw e;
         }
     }
+
+    // 6. 方法调用链抛异常（C-9）：throw factory() 返回内部自定义异常类型
+    // Source: com.example.rel.ThrowRelationSuite.throwViaFactory
+    // Target: com.example.rel.ThrowRelationSuite.MyException
+    // Mores: { "java.rel.raw_text": "throw myException()" }
+    public void throwViaFactory() {
+        throw myException();
+    }
+
+    // 7. 方法调用链抛异常（C-9 带参形态）：throw factory(msg, cause) 返回内部异常类型
+    // Source: com.example.rel.ThrowRelationSuite.throwViaFactoryWithArgs
+    // Target: com.example.rel.ThrowRelationSuite.MyException
+    public void throwViaFactoryWithArgs(String msg) {
+        throw myException(msg, new RuntimeException());
+    }
+
+    private MyException myException() {
+        return new MyException();
+    }
+
+    private MyException myException(String msg, RuntimeException cause) {
+        return new MyException();
+    }
+
+    static class MyException extends RuntimeException {
+    }
 }
+
+

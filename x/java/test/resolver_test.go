@@ -704,6 +704,10 @@ func TestResolverR8CreateCastThrow(t *testing.T) {
 	// L29 构造签名 throws Exception
 	excNode := findTypeIdentAtLine(t, ts.src, 29, "Exception")
 	assertResolve(t, ts.gc, ts.fc, excNode, model.Throw, "Exception", model.Class, true)
+
+	// C-9：throw fn() 方法调用链，解析为方法返回类型（内部异常类型）。
+	// L59 throw myException() -> 内部方法 myException 返回 MyException。
+	ts.resolveLineKind(t, 59, "throw_statement", model.Throw, "com.example.rel.ThrowRelationSuite.MyException", model.Class, false)
 }
 
 // TestResolverPackageName 本次缺陷修复断言：外部符号 PackageName 归属 + 基本类型 PRIMITIVE + 泛型变量不产外部。
