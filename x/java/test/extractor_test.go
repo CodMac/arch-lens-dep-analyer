@@ -288,6 +288,101 @@ func TestExtractorQualifiedThis(t *testing.T) {
 	}
 }
 
+// TestExtractorSingleTypeImportShadows C-4 修复断言：单类型导入遮蔽同包类型（JLS §7.5.1）。
+// 场景（extractor/c4，模拟 spring-r2dbc 真实形态 #85/#92）：
+//   - c4/core/Parameter.java：同包废弃类（无 io.r2dbc.spi.Parameter 导入），引用自身应命中
+//     com.example.rel.c4.core.Parameter（内部，对照组）；
+//   - c4/core/NamedParameterUtils.java：与 core.Parameter 同包 + import io.r2dbc.spi.Parameter，
+//     其 Parameter 引用应解析为外部 io.r2dbc.spi.Parameter（单类型导入遮蔽同包类型，PARAMETER/
+//     RETURN/CAST/TYPE_ARG 四类）；
+//   - c4/client/DefaultDatabaseClient.java：跨包 + import io.r2dbc.spi.Parameter，RETURN/TYPE_ARG
+//     同样解析为外部 io.r2dbc.spi.Parameter。
+//
+// RunExtraction 使用 LevelRaw，外部符号不被 NoiseFilter 过滤，可精确断言。
+func TestExtractorSingleTypeImportShadows(t *testing.T) {
+	paths := resolveSuitePaths(t, "c4/core", "c4/client")
+	_, rels := RunExtraction(t, "x/java/testdata", paths)
+
+	// 1. 同包 + 单类型导入：NamedParameterUtils 的 Parameter 引用全部 -> 外部 io.r2dbc.spi.Parameter
+	namedSrc := "com.example.rel.c4.core.NamedParameterUtils"
+	for _, c := range []struct {
+		relType  model.DependencyType
+		source   string
+		target   string
+		wantKind model.ElementKind
+		wantExt  bool
+	}{
+		// PARAMETER expand(Parameter)
+		{model.Parameter, namedSrc + ".expand(Parameter)", "io.r2dbc.spi.Parameter", model.Class, true},
+		// RETURN unwrap(Object) 的 cast 类型 (Parameter) o
+		{model.Return, namedSrc + ".unwrap(Object)", "io.r2dbc.spi.Parameter", model.Class, true},
+		// CAST (Parameter) o
+		{model.Cast, namedSrc + ".unwrap(Object)", "io.r2dbc.spi.Parameter", model.Class, true},
+		// TYPE_ARG List<Parameter> 的泛型实参
+		{model.TypeArg, namedSrc + ".expand(Parameter)", "io.r2dbc.spi.Parameter", model.Class, true},
+	} {
+		found := findRel(rels, func(r *model.DependencyRelation) bool {
+			if r.Type != c.relType || r.Source == nil || r.Target == nil {
+				return false
+			}
+			if r.Source.QualifiedName != c.source {
+				return false
+			}
+			return r.Target.QualifiedName == c.target && r.Target.Kind == c.wantKind && r.Target.IsFormExternal == c.wantExt
+		})
+		if found == nil {
+			t.Errorf("[%s] %s -> %s (kind=%s ext=%v) not found", c.relType, c.source, c.target, c.wantKind, c.wantExt)
+		}
+	}
+
+	// 2. 跨包 + 单类型导入：DefaultDatabaseClient 的 Parameter 引用 -> 外部 io.r2dbc.spi.Parameter
+	clientSrc := "com.example.rel.c4.client.DefaultDatabaseClient"
+	for _, c := range []struct {
+		relType  model.DependencyType
+		source   string
+		target   string
+		wantKind model.ElementKind
+		wantExt  bool
+	}{
+		// RETURN from(Object)
+		{model.Return, clientSrc + ".from(Object)", "io.r2dbc.spi.Parameter", model.Class, true},
+		// PARAMETER use(Parameter)
+		{model.Parameter, clientSrc + ".use(Parameter)", "io.r2dbc.spi.Parameter", model.Class, true},
+		// TYPE_ARG params() List<Parameter>
+		{model.TypeArg, clientSrc + ".params()", "io.r2dbc.spi.Parameter", model.Class, true},
+		// CALL Parameter.from(value)
+		{model.Call, clientSrc + ".from(Object)", "io.r2dbc.spi.Parameter.from()", model.Method, true},
+	} {
+		found := findRel(rels, func(r *model.DependencyRelation) bool {
+			if r.Type != c.relType || r.Source == nil || r.Target == nil {
+				return false
+			}
+			if r.Source.QualifiedName != c.source {
+				return false
+			}
+			return r.Target.QualifiedName == c.target && r.Target.Kind == c.wantKind && r.Target.IsFormExternal == c.wantExt
+		})
+		if found == nil {
+			t.Errorf("[%s] %s -> %s (kind=%s ext=%v) not found", c.relType, c.source, c.target, c.wantKind, c.wantExt)
+		}
+	}
+
+	// 3. 对照组：core.Parameter 自身（无单类型导入）引用 Parameter 仍命中自身（内部）
+	selfSrc := "com.example.rel.c4.core.Parameter.from(Object)"
+	foundSelf := findRel(rels, func(r *model.DependencyRelation) bool {
+		if r.Type != model.Return || r.Source == nil || r.Target == nil {
+			return false
+		}
+		if r.Source.QualifiedName != selfSrc {
+			return false
+		}
+		return r.Target.QualifiedName == "com.example.rel.c4.core.Parameter" && !r.Target.IsFormExternal
+	})
+	if foundSelf == nil {
+		t.Errorf("control: %s RETURN -> core.Parameter (internal) not found", selfSrc)
+	}
+}
+
 // TestExtractorClassLitChain 验证 .class. receiver 精度修复（C-2）：
 // Xxx.class 带后续段时，段应在 java.lang.Class 上解析成员（而非类型自身）。
 // RunExtraction 使用 LevelRaw，外部符号不被 NoiseFilter 过滤，可精确断言。

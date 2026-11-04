@@ -103,7 +103,10 @@ func (b *Binder) resolveToQNScoped(gc *core.GlobalContext, fCtx *core.FileContex
 	}
 
 	// 短名 + owner 作用域：沿词法嵌套链上溯查找。
-	if !strings.Contains(rawType, ".") && ownerQN != "" {
+	// JLS §7.5.1：单类型导入优先级高于同包类型。若存在非通配符单类型导入，
+	// 跳过作用域上溯（其可能命中同包外层类，如 C-4 core.Parameter 遮蔽
+	// io.r2dbc.spi.Parameter），直接走 ResolveType 的 import 优先级。
+	if !strings.Contains(rawType, ".") && ownerQN != "" && !hasSingleTypeImport(fCtx, rawType) {
 		owner := helper.GetOwnerClassQN(gc, &model.CodeElement{QualifiedName: ownerQN})
 		for scope := owner; scope != ""; {
 			scoped := scope + "." + rawType
@@ -123,4 +126,19 @@ func (b *Binder) resolveToQNScoped(gc *core.GlobalContext, fCtx *core.FileContex
 		return rawType // 泛型变量/通配符等非类型：保留原始文本，QN 绑定失败不致命
 	}
 	return ele.QualifiedName
+}
+
+// hasSingleTypeImport 判断文件是否存在指定短名的非通配符单类型导入。
+// 用于 resolveToQNScoped 的 JLS §7.5.1 优先级判断：单类型导入遮蔽同包类型。
+func hasSingleTypeImport(fCtx *core.FileContext, shortName string) bool {
+	imps, ok := fCtx.Imports[shortName]
+	if !ok {
+		return false
+	}
+	for _, imp := range imps {
+		if !imp.IsWildcard {
+			return true
+		}
+	}
+	return false
 }

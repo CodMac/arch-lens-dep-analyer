@@ -27,12 +27,24 @@ func PreciseResolve(gc *core.GlobalContext, fc *core.FileContext, symbol string)
 		return defs
 	}
 
-	// 短符号，升级为确切 QN，全局查找
+	// 短符号，升级为确切 QN，全局查找。
+	// JLS §7.5.1：单类型导入遮蔽同包类型。若存在非通配符单类型导入，
+	// 即便其 QN 未收录进 GlobalContext（外部库），也【不得回退】到同包/
+	// 裸全局查找——直接返回 nil，由调用方（ResolveType）外部兜底用 import
+	// 包前缀分配归属（如 io.r2dbc.spi.Parameter）。
 	if imps, ok := fc.Imports[symbol]; ok {
+		found := false
 		for _, imp := range imps {
-			if def, found := gc.FindByQualifiedName(imp.RawImportPath); found {
+			if imp.IsWildcard {
+				continue
+			}
+			found = true
+			if def, defOK := gc.FindByQualifiedName(imp.RawImportPath); defOK {
 				return []*core.DefinitionEntry{def}
 			}
+		}
+		if found {
+			return nil
 		}
 	}
 
