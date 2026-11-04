@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -106,6 +107,45 @@ func resolveDottedNested(gc *core.GlobalContext, fc *core.FileContext, symbol st
 		}
 	}
 	return nil
+}
+
+// ResolveInheritanceParent 解析继承链上的父类/接口名（C-5 继承方法链）。
+// 根因：父类裸名（如 ReaderContext）可能在调用方文件未 import，只在父类元素所在
+// 文件 import（跨包继承链第 2/3 级或链式返回类型的父类）。调用方 fc 解析失败导致
+// 继承链断裂、父类方法 CALL 缺失。
+// 策略：优先用 elem.Path 反查父类元素所在文件的 fc 解析（该文件 import 了下一级
+// 父类），失败回退调用方 fc 的常规检索，再失败返回 nil（调用方按原逻辑兜底）。
+// 注意：引擎 normalizeFilePath 会把 elem.Path 相对化为 gc.FileContext key；但测试
+// helper（RunExtraction）只相对化 fc.FilePath，元素 Path 仍为绝对路径。此处先按
+// key 精确查找，miss 时按文件 basename 兜底反查（绝对/相对路径 basename 一致）。
+func ResolveInheritanceParent(gc *core.GlobalContext, fc *core.FileContext, elem *model.CodeElement, name string) []*core.DefinitionEntry {
+	// 1. 优先用元素所在文件解析：elem.Path 与 gc.FileContext key 一致（真实引擎）。
+	//    注意：parentFC == fc 时（elem 就在调用方文件）【不得】跳过——此时应继续用
+	//    elem 所在文件解析，而不是落入 basename 兜底（全量多同名文件时 basename 可能
+	//    命中错误文件，如 servlet/reactive 各有 AbstractUrlHandlerMapping.java）。
+	if elem != nil && elem.Path != "" {
+		if parentFC, ok := gc.FileContext(elem.Path); ok {
+			if defs := PreciseResolve(gc, parentFC, name); len(defs) > 0 {
+				return defs
+			}
+		}
+	}
+	// 2. 测试环境兜底：elem.Path 为绝对路径（key 是相对路径），按 basename 反查。
+	//    仅当步骤 1 未命中（gc.FileContext 无此 key）时执行，避免全量多同名文件误匹配。
+	if elem != nil && elem.Path != "" {
+		if _, ok := gc.FileContext(elem.Path); !ok {
+			base := filepath.Base(elem.Path)
+			for key, candidate := range gc.FileContexts() {
+				if filepath.Base(key) == base {
+					if defs := PreciseResolve(gc, candidate, name); len(defs) > 0 {
+						return defs
+					}
+				}
+			}
+		}
+	}
+	// 3. 回退调用方 fc 常规检索。
+	return PreciseResolve(gc, fc, name)
 }
 
 // isTypeKind 判断元素是否为类型类（可作为点分嵌套名拆分的有效外层）。

@@ -177,7 +177,7 @@ func (r *SymbolResolver) ResolveFunc(gc *core.GlobalContext, fc *core.FileContex
 			container = helper.GetBestElement(fc, node, []model.ElementKind{model.Class, model.AnonymousClass})
 			if receiver == "super" && container != nil {
 				if sc, ok := container.Extra.Mores[constants.ClassSuperClass].(string); ok && sc != "" {
-					if parents := helper.PreciseResolve(gc, fc, helper.Clean(sc)); len(parents) > 0 {
+					if parents := helper.ResolveInheritanceParent(gc, fc, container, helper.Clean(sc)); len(parents) > 0 {
 						container = parents[0].Element
 					}
 				}
@@ -318,7 +318,7 @@ func (r *SymbolResolver) resolveFromInheritance(gc *core.GlobalContext, fc *core
 
 	for _, rawSuper := range supers {
 		cleanSuper := strings.Split(rawSuper, "<")[0]
-		if parents := helper.PreciseResolve(gc, fc, cleanSuper); len(parents) > 0 {
+		if parents := helper.ResolveInheritanceParent(gc, fc, elem, cleanSuper); len(parents) > 0 {
 			parent := parents[0].Element
 			targetQN := r.BuildQualifiedName(parent.QualifiedName, symbol)
 			if entry, ok := gc.FindByQualifiedName(targetQN); ok {

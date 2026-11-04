@@ -116,7 +116,7 @@ func (cr *ChainResolver) resolveHead(head ExpressionHead, relType model.Dependen
 		}
 		// super -> 父类。
 		if sc, ok := cls.Extra.Mores[constants.ClassSuperClass].(string); ok && sc != "" {
-			if parents := helper.PreciseResolve(cr.gc, cr.fc, helper.Clean(sc)); len(parents) > 0 {
+			if parents := helper.ResolveInheritanceParent(cr.gc, cr.fc, cls, helper.Clean(sc)); len(parents) > 0 {
 				return parents[0].Element
 			}
 		}
@@ -284,7 +284,7 @@ func (cr *ChainResolver) resolveCtorInvoke(head ExpressionHead, argCount int, in
 			return nil
 		}
 		if sc, ok := cls.Extra.Mores[constants.ClassSuperClass].(string); ok && sc != "" {
-			if parents := helper.PreciseResolve(cr.gc, cr.fc, helper.Clean(sc)); len(parents) > 0 {
+			if parents := helper.ResolveInheritanceParent(cr.gc, cr.fc, cls, helper.Clean(sc)); len(parents) > 0 {
 				targetType = parents[0].Element
 			}
 		}
@@ -329,7 +329,7 @@ func (cr *ChainResolver) resolveCtorOnType(mr *MemberResolver, elem *model.CodeE
 
 	// 沿父类递归（构造器不继承，但 super() 需在父类链上找，此路径兜底覆盖显式父类构造器）。
 	if sc, ok := elem.Extra.Mores[constants.ClassSuperClass].(string); ok && sc != "" {
-		if parents := helper.PreciseResolve(cr.gc, cr.fc, helper.Clean(sc)); len(parents) > 0 {
+		if parents := helper.ResolveInheritanceParent(cr.gc, cr.fc, elem, helper.Clean(sc)); len(parents) > 0 {
 			if found := cr.resolveCtorOnType(mr, parents[0].Element, ctorName, argCount, inferredTypes); found != nil {
 				return found
 			}

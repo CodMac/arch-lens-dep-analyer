@@ -906,6 +906,82 @@ func TestExtractorNestedImplement(t *testing.T) {
 	}
 }
 
+// TestExtractorInheritanceChainCall C-5 修复断言：跨包继承链的方法 CALL 不再缺失。
+// 场景（extractor/c5）：
+//   - aop.ConfigParser 只 import xml.XmlReaderContext，不 import base.ReaderContext；
+//     getReaderContext().error("parse failed") 链式调用返回 XmlReaderContext，其父类
+//     ReaderContext 未在调用方 import -> 修复前继承链断裂，父类方法 error()/warning()
+//     CALL 缺失（C-5 核心，链式方法返回类型的父类）。
+//   - hier.web.HandlerMapping extends WebApplicationObjectSupport（跨 1 级）extends
+//     ApplicationObjectSupport（跨 2 级，基类只在 WebApplicationObjectSupport.java import）；
+//     super.initApplicationContext() / this.getApplicationContext() 应解析为内部方法。
+//
+// RunExtraction 使用 LevelRaw，内部/外部符号均不过滤，可精确断言。
+func TestExtractorInheritanceChainCall(t *testing.T) {
+	paths := resolveSuitePaths(t, "c5/base", "c5/xml", "c5/aop", "c5/hier/base", "c5/hier/web", "c5/samepkg")
+	_, rels := RunExtraction(t, "x/java/testdata", paths)
+
+	cases := []struct {
+		wantType   model.DependencyType
+		wantSource string
+		wantTarget string
+		wantKind   model.ElementKind
+	}{
+		// 1. 链式方法返回类型的父类方法（跨 2 级继承：XmlReaderContext -> ReaderContext）。
+		{
+			wantType:   model.Call,
+			wantSource: "com.example.rel.c5.aop.ConfigParser.parse()",
+			wantTarget: "com.example.rel.c5.base.ReaderContext.error(String)", wantKind: model.Method,
+		},
+		// 2. 变量形态的父类方法调用（同一继承链）。
+		{
+			wantType:   model.Call,
+			wantSource: "com.example.rel.c5.aop.ConfigParser.parse()",
+			wantTarget: "com.example.rel.c5.base.ReaderContext.warning(String)", wantKind: model.Method,
+		},
+		// 3. 3 级继承链基类方法（super 形态，跨 2 级）。
+		{
+			wantType:   model.Call,
+			wantSource: "com.example.rel.c5.hier.web.HandlerMapping.init()",
+			wantTarget: "com.example.rel.c5.hier.base.ApplicationObjectSupport.initApplicationContext()", wantKind: model.Method,
+		},
+		// 4. 3 级继承链基类方法（this 形态，跨 2 级）。
+		{
+			wantType:   model.Call,
+			wantSource: "com.example.rel.c5.hier.web.HandlerMapping.init()",
+			wantTarget: "com.example.rel.c5.hier.base.ApplicationObjectSupport.getApplicationContext()", wantKind: model.Method,
+		},
+		// 5. 第 1 级父类方法（super 形态，本场景对照：调用方已 import WebApplicationObjectSupport）。
+		{
+			wantType:   model.Call,
+			wantSource: "com.example.rel.c5.hier.web.HandlerMapping.init()",
+			wantTarget: "com.example.rel.c5.hier.web.WebApplicationObjectSupport.setServletContext(String)", wantKind: model.Method,
+		},
+		// 6. 同包不同文件继承（C-5 回归：同包继承不应退化，父类方法应解析为内部）。
+		//    无接收者隐式调用 getPathMatcher()（模拟 spring AbstractUrlHandlerMapping）。
+		{
+			wantType:   model.Call,
+			wantSource: "com.example.rel.c5.samepkg.UrlMapper.lookup()",
+			wantTarget: "com.example.rel.c5.samepkg.BaseMapper.getPathMatcher()", wantKind: model.Method,
+		},
+	}
+
+	for _, c := range cases {
+		found := findRel(rels, func(r *model.DependencyRelation) bool {
+			if r.Type != c.wantType || r.Source == nil || r.Target == nil {
+				return false
+			}
+			if r.Source.QualifiedName != c.wantSource {
+				return false
+			}
+			return r.Target.QualifiedName == c.wantTarget && r.Target.Kind == c.wantKind && !r.Target.IsFormExternal
+		})
+		if found == nil {
+			t.Errorf("[C-5] %s %s -> %s (kind=%s, internal) not found", c.wantType, c.wantSource, c.wantTarget, c.wantKind)
+		}
+	}
+}
+
 // TestExtractorArrayCreateNoSpuriousCall 验证数组创建不作为方法调用实参时不误产 CALL（BUG-B 回归）。
 //
 // 场景（create/case2 ArrayCreateArgSuite）：List.of(new String[]{"a", "b"}) ——

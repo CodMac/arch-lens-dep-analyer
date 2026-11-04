@@ -67,7 +67,7 @@ func (mr *MemberResolver) collectMethodCandidates(container *model.CodeElement, 
 
 		// 递归父类。
 		if sc, ok := elem.Extra.Mores[constants.ClassSuperClass].(string); ok && sc != "" {
-			if parents := helper.PreciseResolve(mr.gc, mr.fc, helper.Clean(sc)); len(parents) > 0 {
+			if parents := helper.ResolveInheritanceParent(mr.gc, mr.fc, elem, helper.Clean(sc)); len(parents) > 0 {
 				visit(parents[0].Element)
 			}
 		}
@@ -75,7 +75,7 @@ func (mr *MemberResolver) collectMethodCandidates(container *model.CodeElement, 
 		// 递归接口。
 		if itfs, ok := elem.Extra.Mores[constants.ClassImplementedInterfaces].([]string); ok {
 			for _, itf := range itfs {
-				if parents := helper.PreciseResolve(mr.gc, mr.fc, helper.Clean(itf)); len(parents) > 0 {
+				if parents := helper.ResolveInheritanceParent(mr.gc, mr.fc, elem, helper.Clean(itf)); len(parents) > 0 {
 					visit(parents[0].Element)
 				}
 			}
@@ -123,7 +123,7 @@ func (mr *MemberResolver) resolveFromInheritance(elem *model.CodeElement, symbol
 
 	for _, rawSuper := range supers {
 		cleanSuper := strings.Split(rawSuper, "<")[0]
-		if parents := helper.PreciseResolve(mr.gc, mr.fc, cleanSuper); len(parents) > 0 {
+		if parents := helper.ResolveInheritanceParent(mr.gc, mr.fc, elem, cleanSuper); len(parents) > 0 {
 			parent := parents[0].Element
 			targetQN := mr.gc.BuildQualifiedName(parent.QualifiedName, symbol)
 			if entry, ok := mr.gc.FindByQualifiedName(targetQN); ok {
