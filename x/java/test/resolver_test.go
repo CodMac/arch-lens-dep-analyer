@@ -708,6 +708,15 @@ func TestResolverR8CreateCastThrow(t *testing.T) {
 	// C-9：throw fn() 方法调用链，解析为方法返回类型（内部异常类型）。
 	// L59 throw myException() -> 内部方法 myException 返回 MyException。
 	ts.resolveLineKind(t, 59, "throw_statement", model.Throw, "com.example.rel.ThrowRelationSuite.MyException", model.Class, false)
+
+	// C-7：限定 this 表达式 X.this.xxx 解析为 X 的实例成员调用（非虚增构造器 CALL）。
+	qs := resolverSuite(t, "extractor/qualifiedthis")
+	// L20 匿名类内 QualifiedThisSuite.this.helper() -> 本类实例方法（非构造器）
+	qs.resolveLineKind(t, 20, "method_invocation", model.Call, "com.example.rel.QualifiedThisSuite.helper()", model.Method, false)
+	// L54 内部类内 QualifiedThisSuite.this.helper() -> 本类实例方法（非构造器）
+	qs.resolveLineKind(t, 54, "method_invocation", model.Call, "com.example.rel.QualifiedThisSuite.helper()", model.Method, false)
+	// L39 匿名类内 QualifiedThisSuite.this.value -> 本类字段（限定 this 的 USE 形态）
+	qs.resolveLineKind(t, 39, "field_access", model.Use, "com.example.rel.QualifiedThisSuite.value", model.Field, false)
 }
 
 // TestResolverPackageName 本次缺陷修复断言：外部符号 PackageName 归属 + 基本类型 PRIMITIVE + 泛型变量不产外部。

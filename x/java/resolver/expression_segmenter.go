@@ -57,6 +57,18 @@ func (es *ExpressionSegmenter) split(node coreast.Node) (*ExpressionHead, []Expr
 		if obj == nil || field == nil {
 			return nil, nil
 		}
+		// C-7 限定 this：X.this 是「类型名 X 限定的 this 引用」，不是字段访问。
+		// 常见于匿名类/内部类内调用外层实例成员（InstanceSupplier.this.get()）。
+		// 直接产出 HeadThis（Name 携带限定类型名 X），使后续方法/字段段在 X 的
+		// 实例成员上解析（instanceCtx=true），避免虚增构造器 CALL + 丢失真实方法 CALL。
+		if field.Utf8Text(es.src) == "this" && obj.Kind() == "identifier" {
+			return &ExpressionHead{
+				Type:    HeadThis,
+				Name:    obj.Utf8Text(es.src),
+				ASTNode: node,
+				RawText: node.Utf8Text(es.src),
+			}, nil
+		}
 		head, segs := es.split(obj)
 		return head, append(segs, ExpressionSegment{
 			Kind:    SegmentField,

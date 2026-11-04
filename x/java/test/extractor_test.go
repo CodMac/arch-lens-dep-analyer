@@ -218,6 +218,76 @@ func TestExtractorClassLitContexts(t *testing.T) {
 	}
 }
 
+// TestExtractorQualifiedThis C-7 修复断言：限定 this 表达式 X.this.xxx 应产出
+// X 的实例成员 CALL/USE，而非虚增 X() 构造器 CALL + 丢失真实方法 CALL。
+// 覆盖三类形态：匿名类内方法 CALL / 内部类内方法 CALL / 匿名类内字段 USE。
+// RunExtraction 使用 LevelRaw，可精确断言（修复前 L20/L54 产出虚增 QualifiedThisSuite()）。
+func TestExtractorQualifiedThis(t *testing.T) {
+	paths := resolveSuitePaths(t, "qualifiedthis")
+	_, rels := RunExtraction(t, "x/java/testdata", paths)
+
+	cases := []struct {
+		wantType   model.DependencyType
+		wantSource string
+		wantTarget string
+		wantKind   model.ElementKind
+		wantLine   int
+	}{
+		// L20 匿名类内 QualifiedThisSuite.this.helper() -> CALL 本类实例方法
+		{
+			wantType:   model.Call,
+			wantSource: "com.example.rel.QualifiedThisSuite.main(String[]).anonymousClass$1.run()",
+			wantTarget: "com.example.rel.QualifiedThisSuite.helper()", wantKind: model.Method, wantLine: 20,
+		},
+		// L54 内部类内 QualifiedThisSuite.this.helper() -> CALL 本类实例方法
+		{
+			wantType:   model.Call,
+			wantSource: "com.example.rel.QualifiedThisSuite.Inner.run()",
+			wantTarget: "com.example.rel.QualifiedThisSuite.helper()", wantKind: model.Method, wantLine: 54,
+		},
+		// L39 匿名类内 QualifiedThisSuite.this.value -> USE 本类字段（限定 this 的 USE 形态）
+		{
+			wantType:   model.Use,
+			wantSource: "com.example.rel.QualifiedThisSuite.main(String[]).anonymousClass$2.run()",
+			wantTarget: "com.example.rel.QualifiedThisSuite.value", wantKind: model.Field, wantLine: 39,
+		},
+	}
+
+	for _, c := range cases {
+		found := findRel(rels, func(r *model.DependencyRelation) bool {
+			if r.Type != c.wantType || r.Source == nil || r.Target == nil {
+				return false
+			}
+			if r.Source.QualifiedName != c.wantSource {
+				return false
+			}
+			if r.Target.QualifiedName != c.wantTarget || r.Target.Kind != c.wantKind {
+				return false
+			}
+			return r.Location != nil && r.Location.StartLine == c.wantLine
+		})
+		if found == nil {
+			t.Errorf("[%s] %s -> %s (kind=%s, line %d) not found", c.wantType, c.wantSource, c.wantTarget, c.wantKind, c.wantLine)
+		}
+	}
+
+	// 负面断言：不得产出虚增的 QualifiedThisSuite() 构造器 CALL（修复前 L20/L54 虚增）。
+	// 注意 L10/L30 的 Runnable() 与 L26 的 Inner() 是真实 new 表达式的构造调用，不在此列。
+	for _, line := range []int{20, 54} {
+		if found := findRel(rels, func(r *model.DependencyRelation) bool {
+			if r.Type != model.Call || r.Source == nil || r.Target == nil {
+				return false
+			}
+			if r.Target.QualifiedName != "com.example.rel.QualifiedThisSuite.QualifiedThisSuite()" {
+				return false
+			}
+			return r.Location != nil && r.Location.StartLine == line
+		}); found != nil {
+			t.Errorf("C-7: 虚增构造器 CALL QualifiedThisSuite() at line %d should NOT exist (got %s)", line, found.Source.QualifiedName)
+		}
+	}
+}
+
 // TestExtractorClassLitChain 验证 .class. receiver 精度修复（C-2）：
 // Xxx.class 带后续段时，段应在 java.lang.Class 上解析成员（而非类型自身）。
 // RunExtraction 使用 LevelRaw，外部符号不被 NoiseFilter 过滤，可精确断言。

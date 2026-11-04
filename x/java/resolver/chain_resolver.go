@@ -94,7 +94,20 @@ func (cr *ChainResolver) seedInstanceCtx(head ExpressionHead, resolved *model.Co
 func (cr *ChainResolver) resolveHead(head ExpressionHead, relType model.DependencyType, argCount int, inferredTypes []string, hasSegments bool) *model.CodeElement {
 	switch head.Type {
 	case HeadThis:
-		return cr.currentClass(head.ASTNode)
+		cls := cr.currentClass(head.ASTNode)
+		if cls == nil {
+			return nil
+		}
+		// C-7 限定 this：X.this 的 Name 携带限定类型名 X（非裸 "this"）。
+		// 优先解析到限定类型 X，使后续方法/字段段在 X 的实例成员上解析；
+		// X 未解析（外部/未注册）时回退当前类，保证链不断裂。
+		if head.Name != "" && head.Name != "this" {
+			if typeEle := cr.resolveTypeFromName(head.Name); typeEle != nil && isTypeKind(typeEle.Kind) {
+				return typeEle
+			}
+			return cls
+		}
+		return cls
 
 	case HeadSuper:
 		cls := cr.currentClass(head.ASTNode)
