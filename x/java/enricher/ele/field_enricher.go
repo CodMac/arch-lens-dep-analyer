@@ -22,6 +22,14 @@ func (c *FieldEnricher) EnrichMetadata(elem *model.CodeElement, node coreast.Nod
 	extra := elem.Extra
 	mods := elem.Extra.Modifiers
 
+	// 接口常量（constant_declaration，如 interface X { String PLAIN = "plain"; }）
+	// 无显式 modifiers 节点，按 JLS §9.3 合成隐式 public static final，
+	// 保证 ResolveField 的静态访问校验（isIllegalStatic）正确放行。
+	if node.Kind() == "constant_declaration" {
+		mods = append(mods, "public", "static", "final")
+		elem.Extra.Modifiers = mods
+	}
+
 	isFinal := helper.Contains(mods, "final")
 	isStatic := helper.Contains(mods, "static")
 

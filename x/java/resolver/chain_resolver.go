@@ -231,9 +231,11 @@ func (cr *ChainResolver) resolveSegment(curr *model.CodeElement, seg ExpressionS
 		if resolved := mr.ResolveField(curr, seg.Name, isStatic); resolved != nil {
 			return resolved
 		}
-		// 外部类型接收者：无成员定义，改用接收者类型 QN 构造外部字段/枚举常量符号。
-		// 例：HttpStatus.NOT_FOUND -> org.springframework.http.HttpStatus.NOT_FOUND。
-		if curr != nil && curr.IsFormExternal && isTypeKind(curr.Kind) {
+		// 类型接收者上的字段解析失败（C-8）：
+		// 外部类型（HttpStatus.NOT_FOUND）、外部继承实例字段（this.pageContext，父类不在符号表）、
+		// 缺失的接口常量（AnnotationFilter.PLAIN）——统一构造外部字段符号并继续链，
+		// 而非断链回退类型头（否则回退的类型头会被 alignElementWithRelType 虚增为构造器 CALL）。
+		if curr != nil && isTypeKind(curr.Kind) {
 			return model.NewExternalElement(model.Field, seg.Name, cr.gc.BuildQualifiedName(curr.QualifiedName, seg.Name))
 		}
 		return nil

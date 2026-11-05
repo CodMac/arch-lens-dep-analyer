@@ -288,7 +288,9 @@ func (c *Collector) identifyElements(node coreast.Node, fCtx *core.FileContext, 
 		kind = model.KAnnotation
 	case "annotation_type_element_declaration", "method_declaration", "constructor_declaration":
 		kind = model.Method
-	case "field_declaration":
+	case "field_declaration", "constant_declaration":
+		// constant_declaration 为接口常量（interface X { String PLAIN = "plain"; }），
+		// 隐式 public static final，收集为 Field 供 Type.CONST 静态访问解析。
 		kind = model.Field
 		names = c.extractAllVariableNames(node, fCtx.SourceBytes)
 	case "local_variable_declaration", "formal_parameter", "spread_parameter", "resource", "catch_formal_parameter":

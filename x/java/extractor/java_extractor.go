@@ -415,6 +415,14 @@ func (e *Extractor) mapAction(capName string, node coreast.Node, fCtx *core.File
 		if ctxNode == nil {
 			return nil
 		}
+		// C-8：方法引用 Type::method 的接收者类型标识符（非 name）不应被虚增为构造器 CALL。
+		// tree-sitter 对 (method_reference (identifier) @ref_target) 会为 object 与 name 各产一条匹配：
+		//   - object 匹配（如 A::sm 的 A）经 alignElementWithRelType 被校正为外部 Method "A()"（虚增构造器）；
+		//   - name 匹配（sm）才产出真实的方法 CALL。
+		// 仅在 "::method" 形态跳过 object；"::new" 构造引用（A::new）无 name 匹配，object 就是构造器目标，必须保留。
+		if capName == "ref_target" && isMethodRefObjectIdent(node) {
+			return nil
+		}
 		return []ActionTarget{{RelType: model.Call, TargetNode: node, ContextNode: ctxNode, Target: e.resolver.ResolveAction(gc, fCtx, node, model.Call)}}
 
 	case "create_target":
@@ -510,6 +518,45 @@ func (e *Extractor) mapAction(capName string, node coreast.Node, fCtx *core.File
 	default:
 		return nil
 	}
+}
+
+// isMethodRefObjectIdent 判断 identifier 是否为方法引用 Type::method 的接收者（object）部分，
+// 而非方法名（name）部分。用于 C-8 修复：跳过 object 匹配，避免把类型名虚增为构造器 CALL。
+// 判定规则：
+//   - 直接父节点是 method_reference（object 为裸 identifier 时才有此形态，
+//     field_access 等复杂 object 不会被 (method_reference (identifier) @ref_target) 捕获）；
+//   - 该 identifier 不是 method_reference 的 name：name 是 :: 之后的第一个具名子节点；
+//   - 排除构造引用 A::new（其 name 是未命名 token "new"，object 即构造器目标，须保留）。
+func isMethodRefObjectIdent(node coreast.Node) bool {
+	p := node.Parent()
+	if p == nil || p.Kind() != "method_reference" {
+		return false
+	}
+	cc := p.ChildCount()
+	// 若该方法引用是构造引用（含未命名 "new" token），object 是构造器目标，不跳过。
+	for i := 0; i < cc; i++ {
+		if p.Child(i).Kind() == "new" {
+			return false
+		}
+	}
+	// 定位 :: 之后第一个具名 identifier 子节点（即 name）。
+	// 注意跳过 type_arguments/type_identifier 等泛型前缀节点：
+	// this::<String>genericMethod 的 :: 后是 type_arguments(<String>) 再 identifier(genericMethod)，
+	// 若把 type_arguments 误当 name，会把真正的 name 标识符也判定为 object 而误拦截（回归）。
+	for i := 0; i < cc; i++ {
+		if p.Child(i).Kind() == "::" {
+			for j := i + 1; j < cc; j++ {
+				c := p.Child(j)
+				if c.Kind() == "type_arguments" || c.Kind() == "type_identifier" || c.Kind() == "scoped_type_identifier" {
+					continue
+				}
+				if c.IsNamed() {
+					return !c.Equal(node)
+				}
+			}
+		}
+	}
+	return false
 }
 
 // isUseRel 判定 Use 关系是否成立（排除定义点与调用/引用名称位置）。
