@@ -102,7 +102,7 @@ func (cr *ChainResolver) resolveHead(head ExpressionHead, relType model.Dependen
 		// 优先解析到限定类型 X，使后续方法/字段段在 X 的实例成员上解析；
 		// X 未解析（外部/未注册）时回退当前类，保证链不断裂。
 		if head.Name != "" && head.Name != "this" {
-			if typeEle := cr.resolveTypeFromName(head.Name); typeEle != nil && isTypeKind(typeEle.Kind) {
+			if typeEle := cr.resolveTypeFromNameAt(head.ASTNode, head.Name); typeEle != nil && isTypeKind(typeEle.Kind) {
 				return typeEle
 			}
 			return cls
@@ -132,10 +132,10 @@ func (cr *ChainResolver) resolveHead(head ExpressionHead, relType model.Dependen
 				return anon
 			}
 		}
-		return cr.resolveTypeFromName(head.Name)
+		return cr.resolveTypeFromNameAt(head.ASTNode, head.Name)
 
 	case HeadCastExpr:
-		return cr.resolveTypeFromName(head.CastType)
+		return cr.resolveTypeFromNameAt(head.ASTNode, head.CastType)
 
 	case HeadImplicitMethod:
 		// 无接收者的隐式方法调用（this.method()）。
@@ -162,12 +162,12 @@ func (cr *ChainResolver) resolveHead(head ExpressionHead, relType model.Dependen
 		return cr.resolveIdent(head)
 
 	case HeadType:
-		return cr.resolveTypeFromName(head.Name)
+		return cr.resolveTypeFromNameAt(head.ASTNode, head.Name)
 
 	case HeadClassLit:
 		// Xxx.class 头部：解析为类型元素本身。带后续段时由 ResolveChain 覆盖为
 		// java.lang.Class 容器（成员解析），纯 class 引用保持类型元素。
-		return cr.resolveTypeFromName(head.Name)
+		return cr.resolveTypeFromNameAt(head.ASTNode, head.Name)
 
 	case HeadCtorInvoke:
 		return cr.resolveCtorInvoke(head, argCount, inferredTypes)
@@ -187,7 +187,7 @@ func (cr *ChainResolver) resolveSegment(curr *model.CodeElement, seg ExpressionS
 	// 例：new Builder().name().age() 中，name() 段解析后返回 Method(name)，
 	// 下一段 age 应在其返回类型 Builder 上查找，而非 Method 元素自身。
 	if curr.Kind == model.Method {
-		if container := cr.methodReturnContainer(curr); container != nil {
+		if container := cr.methodReturnContainer(curr, seg.ASTNode); container != nil {
 			switch seg.Kind {
 			case SegmentMethod:
 				if resolved := mr.ResolveMethod(container, seg.Name, argCount, inferredTypes, false); resolved != nil {
@@ -205,7 +205,7 @@ func (cr *ChainResolver) resolveSegment(curr *model.CodeElement, seg ExpressionS
 	// 实例变量/字段接收者：先按声明类型解析成员，再回退到变量自身 QN。
 	// 例：user.getName() 中 curr=Variable(user)，声明类型 User -> 在 User 上查 getName。
 	if curr.Kind == model.Variable || curr.Kind == model.Field {
-		if container := cr.receiverContainer(curr); container != nil {
+		if container := cr.receiverContainer(curr, seg.ASTNode); container != nil {
 			switch seg.Kind {
 			case SegmentMethod:
 				if resolved := mr.ResolveMethod(container, seg.Name, argCount, inferredTypes, false); resolved != nil {
@@ -257,7 +257,7 @@ func (cr *ChainResolver) resolveSegment(curr *model.CodeElement, seg ExpressionS
 	case SegmentArray:
 		// 数组下标读取：消费泛型元素类型。
 		if elemType, ok := cr.genericElem[curr.QualifiedName]; ok {
-			return cr.resolveTypeFromName(elemType)
+			return cr.resolveTypeFromNameAt(seg.ASTNode, elemType)
 		}
 		return curr
 
@@ -301,7 +301,7 @@ func (cr *ChainResolver) resolveCtorInvoke(head ExpressionHead, argCount int, in
 		}
 	default:
 		// TypeName(...) -> 按类型名解析（可能是同文件/同包/import 类型）。
-		targetType = cr.resolveTypeFromName(ref)
+		targetType = cr.resolveTypeFromNameAt(head.ASTNode, ref)
 		if targetType == nil || !isTypeKind(targetType.Kind) {
 			return nil
 		}
@@ -363,7 +363,7 @@ func (cr *ChainResolver) resolveIdent(head ExpressionHead) *model.CodeElement {
 	//   - Field：静态上下文拦截分支（见下），返回 Class kind 外部元素阻断 USE 产出。
 	// 其余非类型命中（Variable 等）一律返回 NIL，交由调用方 generateContextualFallback
 	// 产出外部符号（分辨率失败语义）。
-	if typeEle := cr.resolveTypeFromName(symbol); typeEle != nil {
+	if typeEle := cr.resolveTypeFromNameAt(head.ASTNode, symbol); typeEle != nil {
 		if isTypeKind(typeEle.Kind) {
 			return typeEle
 		}
@@ -410,7 +410,8 @@ func isTypeKind(k model.ElementKind) bool {
 // receiverContainer 依据变量/字段的声明类型解析接收者容器（类/接口/枚举）。
 // 优先用带 QN 的类型（java.variable.type_with_qn / java.field.raw_type 需二次解析），
 // 找不到则回退 nil（由调用方继续按变量自身 QN 兜底）。
-func (cr *ChainResolver) receiverContainer(elem *model.CodeElement) *model.CodeElement {
+// node 为使用点（D-1 消歧用）：声明类型为同文件同名嵌套类型时，按引用点外层类作用域选择。
+func (cr *ChainResolver) receiverContainer(elem *model.CodeElement, node coreast.Node) *model.CodeElement {
 	if elem == nil || elem.Extra == nil {
 		return nil
 	}
@@ -423,7 +424,7 @@ func (cr *ChainResolver) receiverContainer(elem *model.CodeElement) *model.CodeE
 		return nil
 	}
 
-	container := cr.resolveTypeFromName(typeQN)
+	container := cr.resolveTypeFromNameAt(node, typeQN)
 	if container == nil || !isTypeKind(container.Kind) {
 		return nil
 	}
@@ -438,7 +439,8 @@ func (cr *ChainResolver) classLiteralContainer() *model.CodeElement {
 
 // methodReturnContainer 依据方法的返回类型解析接收者容器（类/接口/枚举）。
 // 用于链式调用：方法段的后续段在返回类型上解析成员（如 new Builder().name().age()）。
-func (cr *ChainResolver) methodReturnContainer(elem *model.CodeElement) *model.CodeElement {
+// node 为后续段使用点（D-1 消歧用）：返回类型为同文件同名嵌套类型时按引用点外层类选择。
+func (cr *ChainResolver) methodReturnContainer(elem *model.CodeElement, node coreast.Node) *model.CodeElement {
 	if elem == nil || elem.Extra == nil {
 		return nil
 	}
@@ -451,7 +453,7 @@ func (cr *ChainResolver) methodReturnContainer(elem *model.CodeElement) *model.C
 		return nil
 	}
 
-	container := cr.resolveTypeFromName(retQN)
+	container := cr.resolveTypeFromNameAt(node, retQN)
 	if container == nil || !isTypeKind(container.Kind) {
 		return nil
 	}
@@ -463,6 +465,24 @@ func (cr *ChainResolver) resolveTypeFromName(name string) *model.CodeElement {
 	name = helper.Clean(name)
 	if name == "" {
 		return nil
+	}
+	return cr.gc.Resolver.ResolveType(cr.gc, cr.fc, name, model.Class)
+}
+
+// resolveTypeFromNameAt 将类型名解析为类型元素，node 为引用点（D-1 消歧用）。
+// 同一文件存在多个同名嵌套类型时（如 DataBufferUtils 的 Read/WriteCompletionHandler.Attachment），
+// 依据引用点所在的外层类作用域优先选择，避免按文件收集顺序错配到先定义者。
+func (cr *ChainResolver) resolveTypeFromNameAt(node coreast.Node, name string) *model.CodeElement {
+	name = helper.Clean(name)
+	if name == "" {
+		return nil
+	}
+	if node != nil && !strings.Contains(name, ".") {
+		if defs, ok := cr.fc.FindByShortName(name); ok {
+			if scoped := helper.ResolveInScope(cr.gc, cr.fc, node, defs); len(scoped) > 0 {
+				return scoped[0].Element
+			}
+		}
 	}
 	return cr.gc.Resolver.ResolveType(cr.gc, cr.fc, name, model.Class)
 }

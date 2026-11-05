@@ -45,19 +45,29 @@ func nodesByKind(t *testing.T, src coreast.SourceFile, kind string) []coreast.No
 
 // findNodeByText 在 AST 中查找首个完整文本等于 want 的节点（不含空白）。
 func findNodeByText(t *testing.T, src coreast.SourceFile, want string) coreast.Node {
+	return findNodeByTextOccurrence(t, src, want, 1)
+}
+
+// findNodeByTextOccurrence 在 AST 中查找第 occurrence 个完整文本等于 want 的节点（1 起始）。
+// 用于同文本节点多次出现（如 Read/Write 两个作用域内相同的 attachment.dataBuffer()）。
+func findNodeByTextOccurrence(t *testing.T, src coreast.SourceFile, want string, occurrence int) coreast.Node {
 	t.Helper()
 	content := src.Content()
 	var found coreast.Node
+	idx := 0
 	walkNodes(src.Root(), func(n coreast.Node) {
 		if found != nil {
 			return
 		}
 		if strings.TrimSpace(n.Utf8Text(content)) == want {
-			found = n
+			idx++
+			if idx == occurrence {
+				found = n
+			}
 		}
 	})
 	if found == nil {
-		t.Fatalf("no node with text %q found", want)
+		t.Fatalf("no node with text %q (occurrence %d) found", want, occurrence)
 	}
 	return found
 }
@@ -870,6 +880,48 @@ func TestResolverR10Visibility(t *testing.T) {
 	// 2. L10 packageVar：default 跨包不可见 -> 外部兜底
 	node = findIdentAtLine(t, src, 10, "packageVar")
 	assertResolve(t, gc, fc, node, model.Use, "packageVar", model.Class, true)
+}
+
+// TestResolverD1DuplicateNestedType D-1 修复断言：同文件同名嵌套类型按引用点外层类作用域消歧。
+// 场景（extractor/d1/DuplicateNestedRecord.java，模拟 spring DataBufferUtils 的
+// ReadCompletionHandler.Attachment / WriteCompletionHandler.Attachment 双同名嵌套 record）：
+//   - ReadCompletionHandler 内裸名 Attachment 引用 -> ReadCompletionHandler.Attachment；
+//   - WriteCompletionHandler 内裸名 Attachment 引用 -> WriteCompletionHandler.Attachment。
+//
+// 修复前：Write 作用域内引用按文件收集顺序错配到 Read 版（Read 先定义）。
+func TestResolverD1DuplicateNestedType(t *testing.T) {
+	paths := ResolvePaths(t, "extractor/d1")
+	gc, _ := RunExtraction(t, "x/java/testdata", paths)
+	mainPath := findPathByBase(t, paths, "DuplicateNestedRecord.java")
+	s := &callSuite{gc: gc, fc: mustFileContext(t, gc, mainPath), src: parseSource(t, mainPath)}
+
+	// L31 new Attachment(byteBuffer, dataBuffer, iterator)（Write 作用域）-> WriteCompletionHandler.Attachment
+	s.resolveLineKind(t, 31, "object_creation_expression", model.Create,
+		"com.example.rel.d1.DuplicateNestedRecord.WriteCompletionHandler.Attachment", model.Class, false)
+
+	// L32 attachment.byteBuffer()（Write 作用域）-> Write.Attachment.byteBuffer()
+	byteBufferCall := findNodeByText(t, s.src, `attachment.byteBuffer()`)
+	assertResolve(t, s.gc, s.fc, byteBufferCall, model.Call,
+		"com.example.rel.d1.DuplicateNestedRecord.WriteCompletionHandler.Attachment.byteBuffer()", model.Method, false)
+
+	// L33 attachment.dataBuffer()（Write 作用域，第 2 个出现）-> Write.Attachment.dataBuffer()
+	dataBufferCall := findNodeByTextOccurrence(t, s.src, `attachment.dataBuffer()`, 2)
+	assertResolve(t, s.gc, s.fc, dataBufferCall, model.Call,
+		"com.example.rel.d1.DuplicateNestedRecord.WriteCompletionHandler.Attachment.dataBuffer()", model.Method, false)
+
+	// L37 attachment.iterator()（Write 作用域）-> Write.Attachment.iterator()
+	iteratorCall := findNodeByText(t, s.src, `attachment.iterator()`)
+	assertResolve(t, s.gc, s.fc, iteratorCall, model.Call,
+		"com.example.rel.d1.DuplicateNestedRecord.WriteCompletionHandler.Attachment.iterator()", model.Method, false)
+
+	// L19 new Attachment(buffer, it)（Read 作用域）-> ReadCompletionHandler.Attachment
+	s.resolveLineKind(t, 19, "object_creation_expression", model.Create,
+		"com.example.rel.d1.DuplicateNestedRecord.ReadCompletionHandler.Attachment", model.Class, false)
+
+	// L20 attachment.dataBuffer()（Read 作用域）-> Read.Attachment.dataBuffer()
+	readDataBufferCall := findNodeByText(t, s.src, `attachment.dataBuffer()`)
+	assertResolve(t, s.gc, s.fc, readDataBufferCall, model.Call,
+		"com.example.rel.d1.DuplicateNestedRecord.ReadCompletionHandler.Attachment.dataBuffer()", model.Method, false)
 }
 
 // resolveAction 调用 SymbolResolver.ResolveAction 并返回目标元素。

@@ -167,9 +167,20 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gc *core.GlobalCon
 		// --- 4. 处理方法签名 (Parameter/Return/Throw) ---
 		if elem.Kind == model.Method {
 			if pts, ok := elem.Extra.Mores[constants.MethodParameters].([]string); ok {
-				for _, p := range pts {
+				// 与 RETURN 对称：优先用 Binder 已消解的作用域 QN（MethodParametersWithQN），
+				// 避免参数类型为同文件同名嵌套类型时按文件顺序错配（D-1）。
+				qnParams, _ := elem.Extra.Mores[constants.MethodParametersWithQN].([]string)
+				for i, p := range pts {
 					typePart := e.extractTypeFromParam(p)
-					target := e.resolver.ResolveType(gc, fCtx, helper.Clean(typePart), model.Class)
+					var target *model.CodeElement
+					if i < len(qnParams) && qnParams[i] != "" {
+						if entry, found := gc.FindByQualifiedName(qnParams[i]); found {
+							target = entry.Element
+						}
+					}
+					if target == nil {
+						target = e.resolver.ResolveType(gc, fCtx, helper.Clean(typePart), model.Class)
+					}
 					// 泛型变量参数（T data）解析为 nil，不产关系。
 					if target == nil {
 						continue

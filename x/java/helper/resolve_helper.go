@@ -109,6 +109,54 @@ func resolveDottedNested(gc *core.GlobalContext, fc *core.FileContext, symbol st
 	return nil
 }
 
+// ResolveInScope 在文件内同名定义中，按引用点所在的外层类作用域消歧（D-1）。
+// 根因：同一文件存在多个同名嵌套类型（如 DataBufferUtils 的 ReadCompletionHandler.Attachment
+// 与 WriteCompletionHandler.Attachment），FindByShortName 返回全部定义，调用方取 [0] 会按
+// 文件收集顺序（先定义者优先）错配，而非按引用点所在嵌套类的作用域选择。
+// 算法：引用点 node 定位当前外层类 -> 优先匹配当前类作用域下的类型候选（等于 scope 或
+// scope 直接子成员，且必须是类型 kind，排除构造器 Method/字段等同名非类型）-> 未命中沿
+// 词法外层类回溯 -> 全部未命中返回 nil（由调用方保持 [0] 原语义，外部兜底不受影响）。
+// 注意：仅当 node 非空且候选多于 1 个时启用消歧；单一定义 / 无 node 时原样返回候选。
+func ResolveInScope(gc *core.GlobalContext, fc *core.FileContext, node coreast.Node, defs []*core.DefinitionEntry) []*core.DefinitionEntry {
+	if len(defs) <= 1 || node == nil {
+		return defs
+	}
+	cls := GetBestElement(fc, node, []model.ElementKind{model.Class, model.Interface, model.Enum, model.AnonymousClass})
+	if cls == nil {
+		return defs
+	}
+	// 类型候选过滤：消歧只针对类型 kind（Class/Interface/Enum/KAnnotation/AnonymousClass），
+	// 排除构造器 Method/字段/变量等同名非类型（否则 FindByShortName 混入构造器时会误命中）。
+	var typeDefs []*core.DefinitionEntry
+	for _, d := range defs {
+		if isTypeKind(d.Element.Kind) {
+			typeDefs = append(typeDefs, d)
+		}
+	}
+	if len(typeDefs) <= 1 {
+		return defs
+	}
+	seen := make(map[string]bool)
+	for scope := cls.QualifiedName; scope != ""; {
+		if !seen[scope] {
+			seen[scope] = true
+			for _, d := range typeDefs {
+				// 匹配当前类作用域下的类型：嵌套成员（scope.Name）或顶层类型（等于 scope）。
+				qn := d.Element.QualifiedName
+				if qn == scope || strings.HasPrefix(qn, scope+".") {
+					return []*core.DefinitionEntry{d}
+				}
+			}
+		}
+		parentEntry, ok := gc.FindByQualifiedName(scope)
+		if !ok {
+			break
+		}
+		scope = parentEntry.ParentQN
+	}
+	return defs
+}
+
 // ResolveInheritanceParent 解析继承链上的父类/接口名（C-5 继承方法链）。
 // 根因：父类裸名（如 ReaderContext）可能在调用方文件未 import，只在父类元素所在
 // 文件 import（跨包继承链第 2/3 级或链式返回类型的父类）。调用方 fc 解析失败导致

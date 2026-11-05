@@ -54,28 +54,28 @@ func (b *Binder) BindSymbols(gc *core.GlobalContext) error {
 					// 可变参数类型处理
 					if strings.HasSuffix(fields[0], "...") {
 						fieldType := strings.ReplaceAll(fields[0], "...", "...")
-						qnParams[i] = b.resolveToQN(gc, fCtx, fieldType) + "..."
+						qnParams[i] = b.resolveToQNScoped(gc, fCtx, elem.QualifiedName, fieldType) + "..."
 						continue
 					}
 
-					// 默认类型处理
-					qnParams[i] = b.resolveToQN(gc, fCtx, fields[0])
+					// 默认类型处理（带 owner 作用域：参数类型为方法所属类的嵌套类型时优先命中）
+					qnParams[i] = b.resolveToQNScoped(gc, fCtx, elem.QualifiedName, fields[0])
 				}
 				elem.Extra.Mores[constants.MethodParametersWithQN] = qnParams
 			}
 
-			// 3. 异常消解
+			// 3. 异常消解（带 owner 作用域）
 			if throws, ok := elem.Extra.Mores[constants.MethodThrowsTypes].([]string); ok {
 				qnThrows := make([]string, len(throws))
 				for i, t := range throws {
-					qnThrows[i] = b.resolveToQN(gc, fCtx, t)
+					qnThrows[i] = b.resolveToQNScoped(gc, fCtx, elem.QualifiedName, t)
 				}
 				elem.Extra.Mores[constants.MethodThrowsTypesWithQN] = qnThrows
 			}
 
-			// 4. 变量类型消解
+			// 4. 变量类型消解（带 owner 作用域）
 			if raw, ok := elem.Extra.Mores[constants.VariableRawType].(string); ok {
-				elem.Extra.Mores[constants.VariableTypeWithQN] = b.resolveToQN(gc, fCtx, raw)
+				elem.Extra.Mores[constants.VariableTypeWithQN] = b.resolveToQNScoped(gc, fCtx, elem.QualifiedName, raw)
 			}
 		}
 	}

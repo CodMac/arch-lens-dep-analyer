@@ -409,6 +409,82 @@ func TestExtractorC8TypeNameReceiver(t *testing.T) {
 	}
 }
 
+// TestExtractorD1DuplicateNestedType D-1 修复断言：同文件同名嵌套类型按引用点外层类作用域消歧。
+// 场景（extractor/d1/DuplicateNestedRecord.java，模拟 spring DataBufferUtils 的
+// ReadCompletionHandler.Attachment / WriteCompletionHandler.Attachment 双同名嵌套 record）：
+//   - ReadCompletionHandler 内裸名 Attachment 引用 -> ReadCompletionHandler.Attachment；
+//   - WriteCompletionHandler 内裸名 Attachment 引用 -> WriteCompletionHandler.Attachment
+//     （CREATE/CALL/PARAMETER）。
+//
+// 修复前：Write 作用域内引用按文件收集顺序错配到 Read 版（Read 先定义）。
+// RunExtraction 使用 LevelRaw，可精确断言。
+func TestExtractorD1DuplicateNestedType(t *testing.T) {
+	paths := resolveSuitePaths(t, "d1")
+	_, rels := RunExtraction(t, "x/java/testdata", paths)
+
+	d1 := "com.example.rel.d1.DuplicateNestedRecord"
+	cases := []struct {
+		relType    model.DependencyType
+		wantSource string
+		wantTarget string
+		wantKind   model.ElementKind
+		wantLine   int
+	}{
+		// Write 作用域 L31 new Attachment(...) -> WriteCompletionHandler.Attachment（CREATE，修复前错配 Read 版）
+		{model.Create, d1 + ".WriteCompletionHandler.hookOnNext(DataBuffer)", d1 + ".WriteCompletionHandler.Attachment", model.Class, 31},
+		// Write 作用域 L32 attachment.byteBuffer() -> Write.Attachment.byteBuffer()
+		{model.Call, d1 + ".WriteCompletionHandler.hookOnNext(DataBuffer)", d1 + ".WriteCompletionHandler.Attachment.byteBuffer()", model.Method, 32},
+		// Write 作用域 L33 attachment.dataBuffer() -> Write.Attachment.dataBuffer()
+		{model.Call, d1 + ".WriteCompletionHandler.hookOnNext(DataBuffer)", d1 + ".WriteCompletionHandler.Attachment.dataBuffer()", model.Method, 33},
+		// Write 作用域 L37 attachment.iterator() -> Write.Attachment.iterator()
+		{model.Call, d1 + ".WriteCompletionHandler.completed(Attachment)", d1 + ".WriteCompletionHandler.Attachment.iterator()", model.Method, 37},
+		// Write 作用域 PARAMETER：completed(Attachment attachment) 参数类型 -> Write.Attachment
+		// （PARAMETER 关系无 Location，wantLine 用 0 表示跳过行断言）
+		{model.Parameter, d1 + ".WriteCompletionHandler.completed(Attachment)", d1 + ".WriteCompletionHandler.Attachment", model.Class, 0},
+		// Read 作用域 L19 new Attachment(...) -> ReadCompletionHandler.Attachment（自身引用不受影响）
+		{model.Create, d1 + ".ReadCompletionHandler.read()", d1 + ".ReadCompletionHandler.Attachment", model.Class, 19},
+		// Read 作用域 L20 attachment.dataBuffer() -> Read.Attachment.dataBuffer()
+		{model.Call, d1 + ".ReadCompletionHandler.read()", d1 + ".ReadCompletionHandler.Attachment.dataBuffer()", model.Method, 20},
+	}
+
+	for _, c := range cases {
+		found := findRel(rels, func(r *model.DependencyRelation) bool {
+			if r.Type != c.relType || r.Source == nil || r.Target == nil {
+				return false
+			}
+			if r.Source.QualifiedName != c.wantSource {
+				return false
+			}
+			if r.Target.QualifiedName != c.wantTarget || r.Target.Kind != c.wantKind {
+				return false
+			}
+			if c.wantLine != 0 {
+				return r.Location != nil && r.Location.StartLine == c.wantLine
+			}
+			return true
+		})
+		if found == nil {
+			t.Errorf("[%s] %s -> %s (kind=%s, line %d) not found", c.relType, c.wantSource, c.wantTarget, c.wantKind, c.wantLine)
+		}
+	}
+
+	// 负面断言：Write 作用域不得产出 ReadCompletionHandler.Attachment 的引用（修复前错配）。
+	negSrcs := []string{d1 + ".WriteCompletionHandler.hookOnNext(DataBuffer)", d1 + ".WriteCompletionHandler.completed(Attachment)"}
+	for _, src := range negSrcs {
+		if found := findRel(rels, func(r *model.DependencyRelation) bool {
+			if r.Source == nil || r.Target == nil {
+				return false
+			}
+			if r.Source.QualifiedName != src {
+				return false
+			}
+			return strings.HasPrefix(r.Target.QualifiedName, d1+".ReadCompletionHandler.Attachment")
+		}); found != nil {
+			t.Errorf("D-1: %s 不应引用 ReadCompletionHandler.Attachment（修复前错配）：%s", src, found.Target.QualifiedName)
+		}
+	}
+}
+
 // TestExtractorSingleTypeImportShadows C-4 修复断言：单类型导入遮蔽同包类型（JLS §7.5.1）。
 // 场景（extractor/c4，模拟 spring-r2dbc 真实形态 #85/#92）：
 //   - c4/core/Parameter.java：同包废弃类（无 io.r2dbc.spi.Parameter 导入），引用自身应命中
