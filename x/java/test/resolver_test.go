@@ -401,6 +401,31 @@ func TestResolverR5Overload(t *testing.T) {
 	s.resolveLine(t, 18, "com.example.resolver.OverloadSuite.handle(Object...)", model.Method, false)
 }
 
+// TestResolverC6OverloadArgInference C-6 重载决议实参类型推断。
+// inferArgType 对 identifier/field_access/method_invocation 实参按声明/返回类型推断，
+// 使 accept(Object)/(Class<?>) 双重重载正确区分。修复前这些实参返回 unknown，
+// pickBestOverload 取 entries[0]（Object 版），(Class) 版 0 命中。
+func TestResolverC6OverloadArgInference(t *testing.T) {
+	s := resolverSuite(t, "extractor/c6")
+
+	// L27 accept(text)：identifier(String 参数) -> Object 版
+	s.resolveLine(t, 27, "com.example.rel.c6.OverloadProbe.accept(Object)", model.Method, false)
+	// L28 accept(source)：identifier(Class<?> 参数) -> Class 版（修复前误中 Object 版）
+	s.resolveLine(t, 28, "com.example.rel.c6.OverloadProbe.accept(Class)", model.Method, false)
+	// L29 accept(staticKlass)：identifier(静态字段 Class<?>) -> Class 版
+	s.resolveLine(t, 29, "com.example.rel.c6.OverloadProbe.accept(Class)", model.Method, false)
+	// L30 accept(holder.klass)：field_access(实例字段 Class<?>) -> Class 版
+	s.resolveLine(t, 30, "com.example.rel.c6.OverloadProbe.accept(Class)", model.Method, false)
+	// L31 accept(TypeSource.clazz())：method_invocation(返回 Class<?>) -> Class 版
+	s.resolveLine(t, 31, "com.example.rel.c6.OverloadProbe.accept(Class)", model.Method, false)
+	// L32 accept(TypeSource.str())：method_invocation(返回 String) -> Object 版
+	s.resolveLine(t, 32, "com.example.rel.c6.OverloadProbe.accept(Object)", model.Method, false)
+	// L33 accept(new Object())：object_creation -> Object 版
+	s.resolveLine(t, 33, "com.example.rel.c6.OverloadProbe.accept(Object)", model.Method, false)
+	// L34 accept("literal")：string_literal -> Object 版
+	s.resolveLine(t, 34, "com.example.rel.c6.OverloadProbe.accept(Object)", model.Method, false)
+}
+
 // TestResolverR6Inheritance 继承查找：字段遮蔽 / 继承静态字段 / 继承方法。
 func TestResolverR6Inheritance(t *testing.T) {
 	// use/case2：Child extends Parent，验证字段遮蔽与继承静态字段。

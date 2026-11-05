@@ -210,7 +210,7 @@ func (r *SymbolResolver) ResolveFunc(gc *core.GlobalContext, fc *core.FileContex
 	}
 
 	// 2. 实参信息（重载匹配）。
-	argCount, inferredTypes := r.collectArgs(node, fc)
+	argCount, inferredTypes := r.collectArgs(gc, node, fc)
 
 	// 3. 沿继承链搜索。
 	mr := resolver.NewMemberResolver(gc, fc)
@@ -248,7 +248,7 @@ func (r *SymbolResolver) ResolveAction(gc *core.GlobalContext, fc *core.FileCont
 	}
 
 	// ③ ChainResolver 沿链推导。
-	argCount, inferredTypes := r.collectArgs(ctx.ExpressNode, fc)
+	argCount, inferredTypes := r.collectArgs(gc, ctx.ExpressNode, fc)
 	chainResolver := resolver.NewChainResolver(gc, fc)
 	elem := chainResolver.ResolveChain(chain, relType, argCount, inferredTypes)
 	if elem == nil {
@@ -399,7 +399,7 @@ func isStaticContext(fc *core.FileContext, container *model.CodeElement, node co
 // =============================================================================
 
 // collectArgs 从调用节点收集实参数量与推断类型。
-func (r *SymbolResolver) collectArgs(node coreast.Node, fc *core.FileContext) (int, []string) {
+func (r *SymbolResolver) collectArgs(gc *core.GlobalContext, node coreast.Node, fc *core.FileContext) (int, []string) {
 	if node == nil {
 		return 0, nil
 	}
@@ -413,18 +413,20 @@ func (r *SymbolResolver) collectArgs(node coreast.Node, fc *core.FileContext) (i
 	}
 	argCount := args.NamedChildCount()
 	types := make([]string, 0, argCount)
-	src := *fc.SourceBytes
 	for i := 0; i < argCount; i++ {
-		types = append(types, r.inferArgType(args.NamedChild(i), src))
+		types = append(types, r.inferArgType(gc, args.NamedChild(i), fc))
 	}
 	return argCount, types
 }
 
 // inferArgType 推断单个实参的大致类型。
-func (r *SymbolResolver) inferArgType(arg coreast.Node, src []byte) string {
+// 支持字面量/对象创建/数组创建/强转（已有），以及标识符/字段访问/方法调用（C-6 新增），
+// 使 pickBestOverload 能区分双重重载（如 hasPlainJavaAnnotationsOnly(Object)/(Class<?>)）。
+func (r *SymbolResolver) inferArgType(gc *core.GlobalContext, arg coreast.Node, fc *core.FileContext) string {
 	if arg == nil {
 		return "unknown"
 	}
+	src := *fc.SourceBytes
 	switch arg.Kind() {
 	case "string_literal":
 		return "String"
@@ -438,17 +440,136 @@ func (r *SymbolResolver) inferArgType(arg coreast.Node, src []byte) string {
 		return "null"
 	case "object_creation_expression", "cast_expression":
 		if t := arg.ChildByFieldName("type"); t != nil {
-			return t.Utf8Text(src)
+			return helper.Clean(t.Utf8Text(src))
 		}
 		return "unknown"
 	case "array_creation_expression":
 		if t := arg.ChildByFieldName("type"); t != nil {
-			return t.Utf8Text(src) + "[]"
+			return helper.Clean(t.Utf8Text(src)) + "[]"
+		}
+		return "unknown"
+	case "identifier":
+		// 变量/参数/类成员字段：按声明类型推断。
+		sym := arg.Utf8Text(src)
+		if t := r.inferTypeFromVar(gc, fc, arg, sym); t != "" {
+			return t
+		}
+		return "unknown"
+	case "field_access":
+		// obj.field / Type.CONST：按字段声明类型推断。
+		if t := r.inferTypeFromFieldAccess(gc, fc, arg); t != "" {
+			return t
+		}
+		return "unknown"
+	case "method_invocation":
+		// fn()：按方法返回类型推断。
+		if t := r.inferTypeFromMethodCall(gc, fc, arg); t != "" {
+			return t
 		}
 		return "unknown"
 	default:
 		return "unknown"
 	}
+}
+
+// inferTypeFromVar 依据变量/参数/类成员字段的声明类型推断实参类型。
+// 复用 ResolveVar：局部变量/参数命中 VariableTypeWithQN（回退 VariableRawType），
+// 类成员字段经 resolveInScopeHierarchy 命中 Field 的 FieldRawType。
+func (r *SymbolResolver) inferTypeFromVar(gc *core.GlobalContext, fc *core.FileContext, node coreast.Node, symbol string) string {
+	if varElem := r.ResolveVar(gc, fc, node, "", symbol); varElem != nil && varElem.Extra != nil {
+		if t, ok := varElem.Extra.Mores[constants.VariableTypeWithQN].(string); ok && t != "" {
+			return helper.Clean(t)
+		}
+		if t, ok := varElem.Extra.Mores[constants.VariableRawType].(string); ok && t != "" {
+			return helper.Clean(t)
+		}
+		if t, ok := varElem.Extra.Mores[constants.FieldRawType].(string); ok && t != "" {
+			return helper.Clean(t)
+		}
+	}
+	return ""
+}
+
+// inferTypeFromFieldAccess 依据字段访问（obj.field / Type.CONST）的字段声明类型推断实参类型。
+func (r *SymbolResolver) inferTypeFromFieldAccess(gc *core.GlobalContext, fc *core.FileContext, node coreast.Node) string {
+	obj := node.ChildByFieldName("object")
+	fieldNode := node.ChildByFieldName("field")
+	if obj == nil || fieldNode == nil {
+		return ""
+	}
+	src := *fc.SourceBytes
+	fieldName := fieldNode.Utf8Text(src)
+
+	// 场景 A：类型静态常量访问（Type.CONST）——receiver 是类型名。
+	if obj.Kind() == "identifier" || obj.Kind() == "scoped_type_identifier" {
+		objName := helper.Clean(obj.Utf8Text(src))
+		if ents := helper.PreciseResolve(gc, fc, objName); len(ents) > 0 {
+			recv := ents[0].Element
+			if recv.Kind == model.Class || recv.Kind == model.Interface || recv.Kind == model.Enum {
+				if field := r.resolveInScopeHierarchy(gc, fc, recv.QualifiedName, fieldName, true, recv); field != nil && field.Extra != nil {
+					if t, ok := field.Extra.Mores[constants.FieldRawType].(string); ok && t != "" {
+						return helper.Clean(t)
+					}
+				}
+			}
+		}
+	}
+
+	// 场景 B：实例字段访问（obj.field）——先解析 obj 类型。
+	if t := r.inferTypeFromVar(gc, fc, obj, obj.Utf8Text(src)); t != "" {
+		if ents := helper.PreciseResolve(gc, fc, t); len(ents) > 0 {
+			recv := ents[0].Element
+			if recv.Kind == model.Class || recv.Kind == model.Interface || recv.Kind == model.Enum {
+				if field := r.resolveInScopeHierarchy(gc, fc, recv.QualifiedName, fieldName, false, recv); field != nil && field.Extra != nil {
+					if ft, ok := field.Extra.Mores[constants.FieldRawType].(string); ok && ft != "" {
+						return helper.Clean(ft)
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// inferTypeFromMethodCall 依据方法返回类型推断实参类型（fn() / obj.fn()）。
+func (r *SymbolResolver) inferTypeFromMethodCall(gc *core.GlobalContext, fc *core.FileContext, node coreast.Node) string {
+	src := *fc.SourceBytes
+
+	// 提取调用目标（含 receiver 的完整形态，如 obj.fn 或 fn）。
+	var recv string
+	var name string
+	if obj := node.ChildByFieldName("object"); obj != nil {
+		recv = helper.Clean(obj.Utf8Text(src))
+	}
+	if n := node.ChildByFieldName("name"); n != nil {
+		name = n.Utf8Text(src)
+	} else {
+		// 泛型方法调用形态：name 可能为 type_arguments，跳过取后续具名 identifier。
+		for i := 0; i < node.NamedChildCount(); i++ {
+			child := node.NamedChild(i)
+			if child.Kind() == "identifier" {
+				name = child.Utf8Text(src)
+				break
+			}
+		}
+	}
+	if name == "" {
+		return ""
+	}
+
+	// 方法返回类型：优先 MethodReturnTypeWithQN，回退 MethodReturnType。
+	retQN := ""
+	if method := r.ResolveFunc(gc, fc, node, recv, name); method != nil && method.Extra != nil {
+		if qn, ok := method.Extra.Mores[constants.MethodReturnTypeWithQN].(string); ok && qn != "" {
+			retQN = qn
+		} else if raw, ok := method.Extra.Mores[constants.MethodReturnType].(string); ok && raw != "" {
+			retQN = raw
+		}
+	}
+	if retQN == "" || retQN == "void" {
+		return ""
+	}
+	return helper.Clean(retQN)
 }
 
 // findInvocationNode 向上查找调用节点。
