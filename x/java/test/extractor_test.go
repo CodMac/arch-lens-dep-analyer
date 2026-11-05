@@ -409,6 +409,85 @@ func TestExtractorC8TypeNameReceiver(t *testing.T) {
 	}
 }
 
+// TestExtractorC3GenericChain C-3 #95 修复断言：容器泛型字段 C<X> 上的链式调用
+// （Supplier<X>.get().method()）。
+// 根因：字段类型 Supplier<X> 的泛型实参 X 未传播到外部方法段 .get()，后续段在 X 上
+// 解析失败，断链为 Supplier.get.method() 外部裸名（方法 QN 污染）。
+// 修复后：.get() 外部方法携带 MethodReturnType=X（来自字段类型文本泛型实参），
+// 后续段在 X 容器上继续解析——X 为内部类型时精确解析到内部方法，
+// X 为外部类型时用容器 QN 解析为外部方法（Method 接收者兜底，仅限外部方法）。
+//
+// 场景（extractor/c3/GenericChainSuite.java）：
+//   - L26 internalSupplier.get().internalMethod()：X=InternalTarget（内部）-> 内部方法 CALL；
+//   - L37 externalSupplier.get().length()：X=String（外部）-> java.lang.String.length()。
+//
+// RunExtraction 使用 LevelRaw，可精确断言（修复前 L26/L37 均为 Supplier.get.* 外部裸名）。
+func TestExtractorC3GenericChain(t *testing.T) {
+	paths := resolveSuitePaths(t, "c3")
+	_, rels := RunExtraction(t, "x/java/testdata", paths)
+
+	cases := []struct {
+		wantSource string
+		wantTarget string
+		wantKind   model.ElementKind
+		wantLine   int
+	}{
+		// L26 内部 X：internalSupplier.get().internalMethod() -> 精确解析到内部方法
+		{
+			wantSource: "com.example.rel.c3.GenericChainSuite.useInternal()",
+			wantTarget: "com.example.rel.c3.GenericChainSuite.InternalTarget.internalMethod()", wantKind: model.Method, wantLine: 26,
+		},
+		// L26 中间段：.get() 仍是容器外部方法 Supplier.get()（泛型传播不改变 get 自身归属）
+		{
+			wantSource: "com.example.rel.c3.GenericChainSuite.useInternal()",
+			wantTarget: "java.util.function.Supplier.get()", wantKind: model.Method, wantLine: 26,
+		},
+		// L37 外部 X：externalSupplier.get().length() -> 容器 QN 外部方法 String.length()
+		{
+			wantSource: "com.example.rel.c3.GenericChainSuite.useExternal()",
+			wantTarget: "String.length()", wantKind: model.Method, wantLine: 37,
+		},
+		// L37 中间段：.get() 仍是容器外部方法 Supplier.get()
+		{
+			wantSource: "com.example.rel.c3.GenericChainSuite.useExternal()",
+			wantTarget: "java.util.function.Supplier.get()", wantKind: model.Method, wantLine: 37,
+		},
+	}
+
+	for _, c := range cases {
+		found := findRel(rels, func(r *model.DependencyRelation) bool {
+			if r.Type != model.Call || r.Source == nil || r.Target == nil {
+				return false
+			}
+			if r.Source.QualifiedName != c.wantSource {
+				return false
+			}
+			if r.Target.QualifiedName != c.wantTarget || r.Target.Kind != c.wantKind {
+				return false
+			}
+			return r.Location != nil && r.Location.StartLine == c.wantLine
+		})
+		if found == nil {
+			t.Errorf("CALL %s -> %s (kind=%s, line %d) not found", c.wantSource, c.wantTarget, c.wantKind, c.wantLine)
+		}
+	}
+
+	// 负面断言：不得产出方法 QN 污染的裸名（Supplier.get.internalMethod / Supplier.get.length）。
+	for _, bad := range []string{
+		"java.util.function.Supplier.get.internalMethod()",
+		"java.util.function.Supplier.get.length()",
+	} {
+		if found := findRel(rels, func(r *model.DependencyRelation) bool {
+			if r.Type != model.Call || r.Target == nil {
+				return false
+			}
+			return r.Target.QualifiedName == bad
+		}); found != nil {
+			t.Errorf("C-3 #95: 方法 QN 污染 CALL %s should NOT exist", bad)
+		}
+	}
+}
+
 // TestExtractorD1DuplicateNestedType D-1 修复断言：同文件同名嵌套类型按引用点外层类作用域消歧。
 // 场景（extractor/d1/DuplicateNestedRecord.java，模拟 spring DataBufferUtils 的
 // ReadCompletionHandler.Attachment / WriteCompletionHandler.Attachment 双同名嵌套 record）：

@@ -194,6 +194,13 @@ func (cr *ChainResolver) resolveSegment(curr *model.CodeElement, seg ExpressionS
 					cr.propagateGenericElement(resolved)
 					return resolved
 				}
+				// 外部返回类型接收者兜底（C-3 #95）：仅当 curr 为外部方法（如 varGenericElem 传播
+				// 返回类型的 Supplier.get）时，用接收者容器 QN 构造外部方法符号，避免落入底部
+				// switch 用方法自身 QN 拼出被污染的裸名（Supplier.get.forExecutables()）。
+				// 内部方法返回外部类型（如 getList().add）保持旧断链语义（方法 QN 链），不在此兜底。
+				if curr.IsFormExternal {
+					return model.NewExternalElement(model.Method, seg.Name, cr.gc.BuildQualifiedName(container.QualifiedName, seg.Name))
+				}
 			case SegmentField:
 				if resolved := mr.ResolveField(container, seg.Name, false); resolved != nil {
 					return resolved
@@ -211,6 +218,20 @@ func (cr *ChainResolver) resolveSegment(curr *model.CodeElement, seg ExpressionS
 				if resolved := mr.ResolveMethod(container, seg.Name, argCount, inferredTypes, false); resolved != nil {
 					cr.propagateGenericElement(resolved)
 					return resolved
+				}
+				// C-3 #95：接收者字段/变量类型为单类型参数容器 C<X>（如 Supplier<X>）上的
+				// get 型方法（如 .get()）语义上返回类型参数 X。将 X 作为外部方法返回类型写入，
+				// 使后续段（.getArgumentsForConstraint()）的 methodReturnContainer 能在 X 上继续
+				// 解析，而非断链为 Supplier.get.getArgumentsForConstraint() 外部裸名。
+				// 仅依赖源码内类型文本的泛型实参，不建外部类型签名映射表。
+				// 收窄条件（spring 全量 100 文件验证）：仅「get 开头方法 + 单类型参数容器」
+				// 才传播——List<X>.stream()/Map<K,V>.values()/Set<X>.iterator() 等包装型
+				// 方法返回非 X，若误传播会把后续段错误解析到 X 上（泛型实参污染）。
+				if elemType := cr.varGenericElem(curr); elemType != "" &&
+					strings.HasPrefix(seg.Name, "get") && cr.singleTypeArg(curr) {
+					ext := model.NewExternalElement(model.Method, seg.Name, cr.gc.BuildQualifiedName(container.QualifiedName, seg.Name))
+					ext.GetMores()[constants.MethodReturnType] = elemType
+					return ext
 				}
 				// 外部类型接收者：ResolveMethod 无成员定义，改用接收者类型 QN 构造外部方法符号。
 				// 例：exchange.getRequest() -> org.springframework.web.server.ServerWebExchange.getRequest()，
@@ -429,6 +450,57 @@ func (cr *ChainResolver) receiverContainer(elem *model.CodeElement, node coreast
 		return nil
 	}
 	return container
+}
+
+// varGenericElem 从变量/字段的声明类型文本中提取泛型实参（C<X> 的 X）。
+// 例：Supplier<SpringValidatorAdapter> -> SpringValidatorAdapter；List<Order> -> Order。
+// 仅提取单个顶层泛型实参（嵌套泛型取最内层首个实参）；无泛型/类型为空返回空串。
+// 用途（C-3 #95）：外部容器（如 java.util.function.Supplier）上的方法段（如 .get()）
+// 解析为外部方法且无返回类型元数据时，用泛型实参 X 作为方法返回类型，使后续段
+// （.getArgumentsForConstraint()）能在 X 上继续解析。仅依赖源码内类型文本，不建外部
+// 类型签名映射表。
+func (cr *ChainResolver) varGenericElem(elem *model.CodeElement) string {
+	if elem == nil || elem.Extra == nil {
+		return ""
+	}
+	typeText, _ := elem.Extra.Mores[constants.VariableTypeWithQN].(string)
+	if typeText == "" {
+		typeText, _ = elem.Extra.Mores[constants.FieldRawType].(string)
+	}
+	if !strings.Contains(typeText, "<") {
+		return ""
+	}
+	start, end := strings.Index(typeText, "<"), strings.LastIndex(typeText, ">")
+	if start == -1 || end == -1 || start >= end {
+		return ""
+	}
+	inner := typeText[start+1 : end]
+	if strings.Contains(inner, "<") {
+		inner = strings.Split(inner, ",")[0]
+	}
+	return helper.Clean(inner)
+}
+
+// singleTypeArg 判断变量/字段的声明类型是否为单类型参数容器（C<X>，无逗号分隔的多参数）。
+// 例：Supplier<X>/List<X>/AtomicReference<X> -> true；Map<K,V>/ConverterFactory<S,T> -> false。
+// 用途（C-3 #95 收窄）：多类型参数容器的 get 方法（如 ConverterFactory<S,T>.getConverter()）
+// 返回类型不确定（非首个类型参数），不可用首实参做传播，否则后续段会错误解析到首实参上。
+func (cr *ChainResolver) singleTypeArg(elem *model.CodeElement) bool {
+	if elem == nil || elem.Extra == nil {
+		return false
+	}
+	typeText, _ := elem.Extra.Mores[constants.VariableTypeWithQN].(string)
+	if typeText == "" {
+		typeText, _ = elem.Extra.Mores[constants.FieldRawType].(string)
+	}
+	if !strings.Contains(typeText, "<") {
+		return false
+	}
+	start, end := strings.Index(typeText, "<"), strings.LastIndex(typeText, ">")
+	if start == -1 || end == -1 || start >= end {
+		return false
+	}
+	return !strings.Contains(typeText[start+1:end], ",")
 }
 
 // classLiteralContainer 返回 java.lang.Class 外部元素，作为 Xxx.class 带段链的接收者容器。

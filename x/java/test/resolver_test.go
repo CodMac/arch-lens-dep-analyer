@@ -411,6 +411,41 @@ func TestResolverR5Overload(t *testing.T) {
 	s.resolveLine(t, 18, "com.example.resolver.OverloadSuite.handle(Object...)", model.Method, false)
 }
 
+// TestResolverC3GenericChain C-3 #95 链式泛型字段传播（extractor/c3/GenericChainSuite.java）：
+// 字段类型 Supplier<X> 上 .get().method() 链，.get() 外部方法携带 MethodReturnType=X，
+// 后续段在 X 容器上解析。验证每段的 ResolveAction 结果：
+//   - L26 internalSupplier.get().internalMethod()：X=InternalTarget（内部）-> 内部方法；
+//   - L37 externalSupplier.get().length()：X=String（外部）-> 外部 String.length()。
+//
+// 链中段 .get() 均为容器外部方法 Supplier.get()。
+func TestResolverC3GenericChain(t *testing.T) {
+	s := resolverSuite(t, "extractor/c3")
+
+	// 每段按 name identifier 定位后上溯到 method_invocation 节点。
+	for _, want := range []struct {
+		line   int
+		name   string
+		wantQN string
+		ext    bool
+	}{
+		// L26 链中段 .get()：容器外部方法 Supplier.get（外部 QN 不带括号）
+		{26, "get", "java.util.function.Supplier.get", true},
+		// L26 末端 .internalMethod()：X=InternalTarget（内部）-> 内部方法
+		{26, "internalMethod", "com.example.rel.c3.GenericChainSuite.InternalTarget.internalMethod()", false},
+		// L37 链中段 .get()：容器外部方法 Supplier.get
+		{37, "get", "java.util.function.Supplier.get", true},
+		// L37 末端 .length()：X=String（外部）-> 外部 String.length
+		{37, "length", "String.length", true},
+	} {
+		nameNode := findIdentAtLine(t, s.src, want.line, want.name)
+		callNode := nameNode.Parent()
+		if callNode == nil || callNode.Kind() != "method_invocation" {
+			t.Fatalf("L%d %s parent not method_invocation: %v", want.line, want.name, callNode)
+		}
+		assertResolve(t, s.gc, s.fc, callNode, model.Call, want.wantQN, model.Method, want.ext)
+	}
+}
+
 // TestResolverC6OverloadArgInference C-6 重载决议实参类型推断。
 // inferArgType 对 identifier/field_access/method_invocation 实参按声明/返回类型推断，
 // 使 accept(Object)/(Class<?>) 双重重载正确区分。修复前这些实参返回 unknown，
