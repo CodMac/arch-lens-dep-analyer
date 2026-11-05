@@ -86,15 +86,121 @@ Java 是当前**唯一已落地**的语言实现。全部 9 个 SPI（Parser / C
 
 ## 6. 已知边界与限制
 
+### 6.1 通用边界
+
 | # | 边界 | 说明 |
 |---|---|---|
 | 1 | 显式 `super()`/`this()` | 解析为接收者名，Target QN 为 `super`/`this`（外部 Method 符号），不指向具体构造器 |
 | 2 | 重名普通元素 `$N` 消歧 | 同容器重名普通元素（字段/变量/类）追加 `$N` 的规则**代码支持但未被 e2e 基线触发**（属未验证盲区，待补测试） |
 | 3 | 泛型在 QN 中 | 参数类型列表剥离泛型实参只保留原始类型；泛型实参经 TYPE_ARG 关系递归提取 |
-| 4 | 文件路径分隔符 | 文件元素 QN/Path 用平台分隔符（Windows `\`），跨平台比较需注意 |
-| 5 | 外部符号兜底 | 未命中符号库时按 import 表/包名升级 QN（`List` → `java.util.List`），`IsFormExternal=true` |
-| 6 | 未实现语法糖 | Java 14+ 模式匹配完整语义、record 的 `equals/hashCode/toString` 合成、泛型通配符推断等不在当前覆盖 |
+| 4 | 文件路径分隔符 | 文件元素 QN/Path 统一为**正斜杠** `/` 相对项目根（`engine/stage.go:67 normalizeFilePath` 负责相对化 + `filepath.ToSlash`），跨平台一致；仅 CLI 扫描输入路径可用平台分隔符 |
+| 5 | 外部符号兜底 | 未命中源码符号库时由 `SymbolResolver` 兜底：基本类型产 PRIMITIVE 元素；泛型类型变量（单大写字母）/通配符 `?` 不产外部；其余按 import 表升级完整 QN 并分配包归属（无 import 归 `<external>`）。不补 `java.lang.*` 前缀，隐式 java.lang 符号 QN 保留裸名。详见 6.2 |
+| 6 | 未实现语法糖 | Java 14+ 模式匹配完整语义、泛型通配符推断未覆盖；record 的 `equals/hashCode/toString` 合成**已实现**（`desugar.go:195-230`）；`sealed`/`permits` 等新语法未覆盖 |
 | 7 | 注解处理器 | 不执行编译期注解处理器；仅按源码注解文本识别 Lombok 等 |
+
+### 6.2 外部符号兜底行为（2026-11-05 重评估）
+
+外部符号兜底由 `SymbolResolver`（`java_symbol_resolver.go:63-93` `ResolveType`、`649-702` `generateContextualFallback`）统一处理，行为分四类：
+
+1. **基本类型** → 产 `PRIMITIVE` 元素（`int`/`long`/`boolean`/…），QN 保留原名。
+2. **泛型类型变量**（单大写字母 `T`/`E`/`S`/`K`/`V`）与**通配符 `?`** → 不产外部元素（非真实类型依赖）。
+3. **有 import** → 升级为完整 QN（`List` → `java.util.List`），`PackageName` = import 包前缀。
+4. **无 import**（含同包符号、隐式 java.lang）→ QN 保留原文（裸名），`PackageName` 归 `<external>`，不补 `java.lang.*` 前缀。
+
+以下 5 类缺陷/现象均来自 spring-master 50 个最复杂文件的逐文件审计（LevelRaw 全量抽取值核对）。
+
+| # | 缺陷模式 | 现象 | 案例 |
+|---|---|---|---|
+| E1 | 方法引用目标裸名（最系统） | 方法引用 `A::b` 的目标 QN 退化为裸 `b()`，仅 `PackageName` 保留接收者类型原文 | 6.2.1 |
+| E2 | 文本块字面量接收者污染 | 文本块 `"""...""".formatted()` 的接收者取整段字面量，目标 QN 含换行/缩进 | 6.2.2 |
+| E3 | 泛型参数逗号截断 | 带泛型 receiver 的方法调用，实参含嵌套逗号时按逗号错位分割，QN 混入 `>` 截断垃圾 | 6.2.3 |
+| E4 | 外部接口嵌套类型构造器裸名 | 外部接口的嵌套类型 `new Entry()` 解析为裸 `Entry()`，丢失外层接口 QN | 6.2.4 |
+| E5 | 链式外层断链 | 链式调用外层方法 receiver 为内层调用表达式，目标 QN 退化为 `内层方法.外层方法()` | 6.2.5 |
+
+#### 6.2.1 方法引用目标裸名（E1）
+
+方法引用（静态方法/实例方法/构造器引用）目标解析分三种情形（2026-11-05 重评估后）：
+
+1. **命中源码符号库**（同文件/同包类在源码树中）→ 解析为完整 QN（如 `C8FullProbe::matches` → `com.example.rel.C8FullProbe.matches()`、`MergedAnnotation::isPresent` → `com.example.rel.MergedAnnotation.isPresent()`）。
+2. **外部类且有显式 import** → 按 import 升级完整 QN（如 `acceptedMediaType::isCompatibleWith` → `org.springframework.util.MimeType.isCompatibleWith(MimeType)`、`AnnotationUtils::invokeAnnotationMethod` → `org.springframework.core.annotation.AnnotationUtils.invokeAnnotationMethod(Method,Object)`）。
+3. **同包但无显式 import 的外部类** → 兜底生成**裸名**，`PackageName=<external>`，无法与同名/重载方法区分。
+
+裸名案例（spring-master 已审计文件，行号为源码）：
+
+- `spring-tx/.../reactive/AbstractReactiveTransactionManager.java:395` `TransactionSynchronization::suspend` → 目标 QN 仅 `suspend()`（`TransactionSynchronization` 与所在文件同包 `org.springframework.transaction`，无 import）
+- 同型：同包无 import 的父类/兄弟类方法引用均落此路径
+
+> 注：方法引用**构造器引用**（`Inner::new`）与同文件类型方法引用通常能命中源码库，解析为完整 QN，不属缺陷。
+
+#### 6.2.2 文本块字面量接收者污染（E2）
+
+Java 15 文本块 `"""..."""` 作为字符串字面量被当作调用接收者，目标 QN 取整段字面量原文（含换行/制表符），`PackageName` 同样被污染；与相邻的 `IllegalArgumentException()` 构造调用并列产出两条 CALL。
+
+案例：
+
+```java
+// spring-context/.../cache/interceptor/CacheAspectSupport.java:705-708
+throw new IllegalArgumentException("""
+        Null key returned for cache operation [%s]. If you are using named parameters, \
+        ensure that the compiler uses the '-parameters' flag."""
+        .formatted(context.metadata.operation));
+```
+
+产出：目标 QN `"""...""".formatted()`，`PackageName` 为整段文本块；同时 L705 正常产出 `IllegalArgumentException()` 构造 CALL。同型案例：`AnnotationTypeMapping.java:325`、`ConfigurationClassPostProcessor.java:694`。
+
+#### 6.2.3 泛型参数逗号截断（E3）
+
+带泛型 receiver 的方法调用，当类型实参含**嵌套逗号**时按逗号分割错位，receiver 类型在 `>` 处截断，目标 QN 混入 `>` 与后续实参的残片。
+
+案例：
+
+```java
+// spring-context/.../cache/interceptor/CacheAspectSupport.java:719,730
+private final MultiValueMap<Class<? extends CacheOperation>, CacheOperationContext> contexts;
+...
+this.contexts.add(op.getClass(), getOperationContext(op, method, args, target, targetClass));
+```
+
+`contexts` 类型实参 `Class<? extends CacheOperation>` 内嵌套逗号（`? extends CacheOperation` 与下一实参分隔），解析错位后目标 QN 为 `CacheOperation>, CacheOperationContext.add()`，`PackageName` = `CacheOperation>, CacheOperationContext`。
+
+#### 6.2.4 外部接口嵌套类型构造器裸名（E4）
+
+外部接口的嵌套类型即使**在源码树内**，若仅经 import 引入外层接口（而非嵌套类型本身），构造器调用仍解析为裸类名，丢失外层接口 QN。
+
+案例：
+
+```java
+// spring-context/.../context/annotation/ConfigurationClassParser.java:52,839
+import org.springframework.context.annotation.DeferredImportSelector.Group;   // 只 import Group
+...
+this.imports.add(new Entry(metadata, importClassName));   // Entry = Group.Entry，未 import 嵌套类型
+```
+
+`Entry` 是 `DeferredImportSelector.Group` 接口的嵌套类（spring-master 源码树内 `DeferredImportSelector.java`），但文件只 `import Group`，`new Entry()` 解析为裸 `Entry()`，无 `DeferredImportSelector.Group` 前缀。
+
+#### 6.2.5 链式外层断链（E5）
+
+链式调用中，外层方法的 receiver 是内层调用表达式（如 `StringBuilder.append(...).append(...)`），外层目标 QN 退化为 `内层方法.外层方法()` 拼接，无法解析到真实方法。
+
+案例：
+
+```java
+// spring-web/.../web/util/HierarchicalUriComponents.java:478,483,489,501,504（toUriString() 内）
+uriBuilder.append(getScheme()).append(':');
+uriBuilder.append(this.userInfo).append('@');
+```
+
+外层 `.append(':')` 的 receiver 为内层表达式 `uriBuilder.append(getScheme())`，目标 QN = `StringBuilder.append.append()`，`PackageName` = `StringBuilder.append`（接收者类型未沿链式返回类型解析）。
+
+### 6.3 合理裸名（非缺陷）
+
+以下裸名是**正确**解析结果，不属于缺陷：
+
+- **隐式 java.lang 构造器**：`IllegalStateException()` / `IllegalArgumentException()` / `StringBuilder()` / `String()` / `Thread()` / `Object()`（QN 保留裸名即正确，不补 `java.lang.` 前缀）
+- **外部父类继承方法**：内部类继承外部父类后调用父类方法，如 `DataBufferUtils` 的 `request(1)` = `BaseSubscriber.request(long)`、`ConcurrentReferenceHashMap.Segment` 的 `lock()/unlock()` = `ReentrantLock`、`enqueue()` = `ReferenceQueue`（判断裸名前须先确认类继承边界）
+- **`super()` 构造器**：解析为接收者名 `super`
+- **`getClass()` / `toString()`**：Object 方法
+- **throws 子句宽泛异常**：`Throwable` / `Exception`（接口契约声明，非具体抛出）
 
 ## 7. 与 SPI 契约的对应
 
