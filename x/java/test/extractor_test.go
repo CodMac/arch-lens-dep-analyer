@@ -288,6 +288,127 @@ func TestExtractorQualifiedThis(t *testing.T) {
 	}
 }
 
+// TestExtractorC8TypeNameReceiver C-8 修复断言：类型名接收者不应被虚增为构造器 CALL。
+// 覆盖四类形态（extractor/c8）：
+//   - Form 1 method_ref：Type::method 的接收者类型标识符不再虚增为 Type() 构造器 CALL，
+//     只产出真实方法 CALL；::new 构造引用（Inner::new）必须保留。
+//   - Form 2 接口常量：Type.FIELD.method()（AnnoFilter.PLAIN.length()）——接口常量缺失导致断链，
+//     修复后接口常量（constant_declaration）被收集为 Field，USE 常量 + 链继续，无虚增构造器。
+//   - Form 3 this.field 外部继承：this.pageContext.getAttribute()（父类不在符号表），
+//     修复后产外部字段 USE + 恢复方法 CALL，而非断链回退类型头虚增构造器。
+//   - 接口常量收集：constant_declaration 隐式 public static final 语义合成（IfaceConst.PLAIN）。
+//
+// RunExtraction 使用 LevelRaw，可精确断言（修复前各场景虚增 Xxx() 构造器 CALL）。
+func TestExtractorC8TypeNameReceiver(t *testing.T) {
+	paths := resolveSuitePaths(t, "c8")
+	_, rels := RunExtraction(t, "x/java/testdata", paths)
+
+	cases := []struct {
+		wantType   model.DependencyType
+		wantSource string
+		wantTarget string
+		wantKind   model.ElementKind
+		wantLine   int
+	}{
+		// Form 1：MergedAnnotation::isPresent -> 只产真实方法 CALL（MethodRefProbe.java:19）
+		{
+			wantType:   model.Call,
+			wantSource: "com.example.rel.MethodRefProbe.a(boolean)",
+			wantTarget: "com.example.rel.MergedAnnotation.isPresent()", wantKind: model.Method, wantLine: 19,
+		},
+		// Form 1：Inner::new -> 构造引用保留，目标 Inner() 构造器（MethodRefProbe.java:40）
+		{
+			wantType:   model.Call,
+			wantSource: "com.example.rel.NewRefProbe.d()",
+			wantTarget: "com.example.rel.NewRefProbe.Inner()", wantKind: model.Method, wantLine: 40,
+		},
+		// Form 2：AnnoFilter.PLAIN.length() -> USE 接口常量 Field（C8FullProbe.java:30）
+		{
+			wantType:   model.Use,
+			wantSource: "com.example.rel.C8FullProbe.f2()",
+			wantTarget: "com.example.rel.AnnoFilter.PLAIN", wantKind: model.Field, wantLine: 30,
+		},
+		// Form 2：AnnoFilter.PLAIN.length() -> CALL 链继续到 String.length()（C8FullProbe.java:30）
+		{
+			wantType:   model.Call,
+			wantSource: "com.example.rel.C8FullProbe.f2()",
+			wantTarget: "String.length()", wantKind: model.Method, wantLine: 30,
+		},
+		// Form 2：MergedAnnotation.VALUE.length() -> USE 接口常量 Field（MethodRefProbe.java:25）
+		{
+			wantType:   model.Use,
+			wantSource: "com.example.rel.MethodRefProbe.b()",
+			wantTarget: "com.example.rel.MergedAnnotation.VALUE", wantKind: model.Field, wantLine: 25,
+		},
+		// Form 3：this.pageContext.getAttribute() -> USE 外部继承字段（C8FullProbe.java:35）
+		{
+			wantType:   model.Use,
+			wantSource: "com.example.rel.C8FullProbe.f3()",
+			wantTarget: "com.example.rel.ExternalBase.pageContext", wantKind: model.Field, wantLine: 35,
+		},
+		// Form 3：this.pageContext.getAttribute() -> CALL 恢复（C8FullProbe.java:35）
+		{
+			wantType:   model.Call,
+			wantSource: "com.example.rel.C8FullProbe.f3()",
+			wantTarget: "com.example.rel.JspContext.getAttribute(String)", wantKind: model.Method, wantLine: 35,
+		},
+		// Form 3 外部基类：this.pageContext（父类 SomeExternalBase 不在符号表，C8ExtProbe.java:8）
+		{
+			wantType:   model.Use,
+			wantSource: "com.example.rel.C8ExtProbe.f3()",
+			wantTarget: "com.example.rel.C8ExtProbe.pageContext", wantKind: model.Field, wantLine: 8,
+		},
+		// Form 3 外部静态字段：SomeExternalBase.SIZE（C8ExtProbe.java:13）
+		{
+			wantType:   model.Use,
+			wantSource: "com.example.rel.C8ExtProbe.f4()",
+			wantTarget: "SomeExternalBase.SIZE", wantKind: model.Field, wantLine: 13,
+		},
+	}
+
+	for _, c := range cases {
+		found := findRel(rels, func(r *model.DependencyRelation) bool {
+			if r.Type != c.wantType || r.Source == nil || r.Target == nil {
+				return false
+			}
+			if r.Source.QualifiedName != c.wantSource {
+				return false
+			}
+			if r.Target.QualifiedName != c.wantTarget || r.Target.Kind != c.wantKind {
+				return false
+			}
+			return r.Location != nil && r.Location.StartLine == c.wantLine
+		})
+		if found == nil {
+			t.Errorf("[%s] %s -> %s (kind=%s, line %d) not found", c.wantType, c.wantSource, c.wantTarget, c.wantKind, c.wantLine)
+		}
+	}
+
+	// 负面断言：不得产出虚增构造器 CALL（修复前各场景虚增 Xxx()）。
+	// 真实构造调用（C8FullProbe()/Inner()/NewRefProbe() 等 new 表达式）不在排除之列。
+	for _, neg := range []struct {
+		line        int
+		virtualCtor string
+	}{
+		{line: 19, virtualCtor: "com.example.rel.MergedAnnotation.MergedAnnotation()"}, // Form 1: Type::method
+		{line: 30, virtualCtor: "com.example.rel.C8FullProbe.C8FullProbe()"},           // Form 2: Type.FIELD.method()
+		{line: 35, virtualCtor: "com.example.rel.C8FullProbe.C8FullProbe()"},           // Form 3: this.field.method()
+		{line: 8, virtualCtor: "com.example.rel.C8ExtProbe.C8ExtProbe()"},              // Form 3: 外部基类
+	} {
+		if found := findRel(rels, func(r *model.DependencyRelation) bool {
+			if r.Type != model.Call || r.Source == nil || r.Target == nil {
+				return false
+			}
+			if r.Target.QualifiedName != neg.virtualCtor {
+				return false
+			}
+			return r.Location != nil && r.Location.StartLine == neg.line
+		}); found != nil {
+			t.Errorf("C-8: 虚增构造器 CALL %s at line %d should NOT exist (got source %s)", neg.virtualCtor, neg.line, found.Source.QualifiedName)
+		}
+	}
+}
+
 // TestExtractorSingleTypeImportShadows C-4 修复断言：单类型导入遮蔽同包类型（JLS §7.5.1）。
 // 场景（extractor/c4，模拟 spring-r2dbc 真实形态 #85/#92）：
 //   - c4/core/Parameter.java：同包废弃类（无 io.r2dbc.spi.Parameter 导入），引用自身应命中
