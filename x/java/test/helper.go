@@ -182,7 +182,7 @@ func RunExtraction(t *testing.T, root string, paths []string) (core.GlobalContex
 func RunCollection(t *testing.T, root string, paths []string) core.GlobalContext {
 	t.Helper()
 	impl := JavaImpl(t)
-	gc := core.NewGlobalContext(impl.SymbolResolver, impl.SymbolBuilder)
+	gc := impl.NewGlobalContext(impl.SymbolResolver, impl.SymbolBuilder)
 	runCollect(t, impl, gc, root, paths)
 	return gc
 }

@@ -39,6 +39,10 @@ type LanguageImpl struct {
 	NoiseFilter    NoiseFilter
 	SymbolResolver SymbolResolver
 	SymbolBuilder  SymbolBuilder
+
+	// NewGlobalContext 创建该语言的全局符号上下文（引擎唯一入口）。
+	// 语言专属实现位于 x/{lang}/context，主流程只依赖 core.GlobalContext 接口。
+	NewGlobalContext func(SymbolResolver, SymbolBuilder) GlobalContext
 }
 
 // registry 全局语言注册表。

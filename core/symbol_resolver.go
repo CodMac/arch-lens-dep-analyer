@@ -12,10 +12,6 @@ type SymbolResolver interface {
 	// BuildQualifiedName 拼接父符号 QN 与子符号名称为完整 QN。
 	BuildQualifiedName(parentQN, name string) string
 
-	// RegisterPackage 注册包/命名空间逻辑。
-	// (Java 需要拆分点号，Go 只需要单层，C++ 按 :: 拆分 ns 层级，C 空实现)
-	RegisterPackage(gc GlobalContext, packageName string)
-
 	// IsPrimitive 判断类型名是否为语言基本类型。
 	IsPrimitive(typeName string) bool
 

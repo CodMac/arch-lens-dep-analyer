@@ -33,6 +33,7 @@ type ImportInfo struct {
 //
 // 接口化设计（2026-11-06）：core 只保留契约，通用索引/去重机制由 BaseFileContext 提供，
 // 语言实现内嵌 Base 复用并在需要处覆盖/扩展（如 C++ 的 namespace 列表）。
+// 语言专属能力（如 C++ 的 Namespaces）通过可选能力接口暴露，core 接口本身不含语言概念。
 type FileContext interface {
 	// FilePath 文件路径（相对项目根）。
 	FilePath() string
@@ -40,17 +41,11 @@ type FileContext interface {
 	// SetFilePath 设置文件路径（引擎路径相对化时调用）。
 	SetFilePath(path string)
 
-	// PackageName 包名（Java/Go 单包语义；C++ 置空改用 Namespaces）。
+	// PackageName 包名（Java/Go 单包语义；C++ 置空改用 NamespaceAwareFileContext）。
 	PackageName() string
 
 	// SetPackageName 设置包名。
 	SetPackageName(name string)
-
-	// Namespaces 命名空间列表（C++ 一文件可含多个 namespace；其余语言为空）。
-	Namespaces() []string
-
-	// SetNamespaces 设置命名空间列表。
-	SetNamespaces(ns []string)
 
 	// Root 语法树根节点（供 query 遍历/提取器使用）。
 	Root() coreast.Node
@@ -86,9 +81,16 @@ type FileContext interface {
 	FindByKind(kind model.ElementKind) ([]*DefinitionEntry, bool)
 }
 
-// NewFileContext 创建一个文件上下文（返回 FileContext 接口，默认 Base 实现）。
-func NewFileContext(filePath, packageName string, root coreast.Node, sourceBytes *[]byte) FileContext {
-	return NewBaseFileContext(filePath, packageName, root, sourceBytes)
+// NamespaceAwareFileContext 是语言专属的可选能力接口：
+// 一文件可含多个命名空间的语言（C++）实现该接口，其余语言无需实现。
+type NamespaceAwareFileContext interface {
+	FileContext
+
+	// Namespaces 命名空间列表（按出现顺序，含嵌套前缀）。
+	Namespaces() []string
+
+	// SetNamespaces 设置命名空间列表。
+	SetNamespaces(ns []string)
 }
 
 // BaseFileContext 是 FileContext 的通用实现：提供索引/去重等语言无关机制。
@@ -97,8 +99,6 @@ type BaseFileContext struct {
 	filePath string
 
 	packageName string
-
-	namespaces []string
 
 	root coreast.Node
 
@@ -116,6 +116,9 @@ type BaseFileContext struct {
 
 	// 索引：元素 kind -> 定义。
 	kindMap map[model.ElementKind][]*DefinitionEntry
+
+	// 索引：QN + "|" + Kind -> definitions 下标（声明/定义同键原地替换用）。
+	defIndex map[string]int
 }
 
 // NewBaseFileContext 创建一个空的 Base 文件上下文。
@@ -130,6 +133,7 @@ func NewBaseFileContext(filePath, packageName string, root coreast.Node, sourceB
 		shortNameMap:     make(map[string][]*DefinitionEntry),
 		qualifiedNameMap: make(map[string]*DefinitionEntry),
 		kindMap:          make(map[model.ElementKind][]*DefinitionEntry),
+		defIndex:         make(map[string]int),
 	}
 }
 
@@ -144,12 +148,6 @@ func (fc *BaseFileContext) PackageName() string { return fc.packageName }
 
 // SetPackageName 设置包名。
 func (fc *BaseFileContext) SetPackageName(name string) { fc.packageName = name }
-
-// Namespaces 返回命名空间列表。
-func (fc *BaseFileContext) Namespaces() []string { return fc.namespaces }
-
-// SetNamespaces 设置命名空间列表。
-func (fc *BaseFileContext) SetNamespaces(ns []string) { fc.namespaces = ns }
 
 // Root 返回语法树根节点。
 func (fc *BaseFileContext) Root() coreast.Node { return fc.root }
@@ -167,7 +165,37 @@ func (fc *BaseFileContext) SetSourceBytes(b *[]byte) { fc.sourceBytes = b }
 func (fc *BaseFileContext) Definitions() []*DefinitionEntry { return fc.definitions }
 
 // AddDefinition 注册一个定义并更新索引。
+// 同 QN + Kind 的「声明 → 定义」原地替换，避免同文件前向声明遮蔽后续定义。
 func (fc *BaseFileContext) AddDefinition(def *DefinitionEntry) {
+	key := def.Element.QualifiedName + "|" + string(def.Element.Kind)
+	if idx, ok := fc.defIndex[key]; ok {
+		old := fc.definitions[idx]
+		if old.IsDeclaration && !def.IsDeclaration {
+			fc.definitions[idx] = def
+			if list := fc.shortNameMap[old.Element.Name]; list != nil {
+				for i, d := range list {
+					if d == old {
+						list[i] = def
+						break
+					}
+				}
+			}
+			if list := fc.kindMap[def.Element.Kind]; list != nil {
+				for i, d := range list {
+					if d == old {
+						list[i] = def
+						break
+					}
+				}
+			}
+			fc.qualifiedNameMap[def.Element.QualifiedName] = def
+		}
+		return
+	}
+	if fc.defIndex == nil {
+		fc.defIndex = make(map[string]int)
+	}
+	fc.defIndex[key] = len(fc.definitions)
 	fc.definitions = append(fc.definitions, def)
 	fc.shortNameMap[def.Element.Name] = append(fc.shortNameMap[def.Element.Name], def)
 	fc.qualifiedNameMap[def.Element.QualifiedName] = def

@@ -11,6 +11,7 @@ import (
 	coreast "github.com/CodMac/arch-lens-dep-analyer/core/ast"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/collector/desugar"
+	javactx "github.com/CodMac/arch-lens-dep-analyer/x/java/context"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/enricher/ele"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
 )
@@ -44,7 +45,7 @@ func (c *Collector) CollectDefinitions(src coreast.SourceFile) (core.FileContext
 	content := src.Content()
 	path := src.Path()
 
-	fCtx := core.NewFileContext(path, "", root, &content)
+	fCtx := javactx.NewFileContext(path, "", root, &content)
 
 	// Step 0: 注册文件自身节点并计算指标
 	c.initFileElem(fCtx)

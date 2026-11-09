@@ -12,6 +12,10 @@ type DefinitionEntry struct {
 	Element  *model.CodeElement
 	ParentQN string
 
+	// IsDeclaration 标记该条目是「声明」而非「定义」（C/C++ 前向声明、函数原型、extern 变量）。
+	// 声明与定义共享同一 QN + Kind 时，索引保留定义（后到的定义原地覆盖先到的声明）。
+	IsDeclaration bool
+
 	// Node 保留该定义锚定的 AST 节点（元数据填充/作用域修正/语法糖处理用）。
 	// 仅语言实现内部使用，引擎不负责清理（FileContext 随文件生命周期释放）。
 	Node coreast.Node
@@ -25,6 +29,10 @@ type DefinitionEntry struct {
 type GlobalContext interface {
 	// RegisterFileContext 注册一个文件上下文（Collector 阶段产出）。
 	RegisterFileContext(fc FileContext)
+
+	// RegisterPackage 注册包/命名空间层级（语言专属语义由实现决定）。
+	// Java 拆点号包名；C++ 拆 :: 命名空间；C 空实现。
+	RegisterPackage(packageName string)
 
 	// FileContexts 返回全部文件上下文（只读快照）。
 	FileContexts() map[string]FileContext
@@ -56,9 +64,11 @@ type GlobalContext interface {
 	Builder() SymbolBuilder
 }
 
-// NewGlobalContext 创建全局上下文（返回接口，默认 Base 实现）。
-func NewGlobalContext(resolver SymbolResolver, builder SymbolBuilder) GlobalContext {
-	return NewBaseGlobalContext(resolver, builder)
+// GlobalContextRules 描述语言对全局符号索引的策略差异（core 不含语言硬编码）。
+type GlobalContextRules struct {
+	// OverloadKinds 参与「去参 QN 重载索引」的元素 kind。
+	// Java 仅 Method；C/C++ 含 Method/Function/MethodDecl/FunctionDecl。
+	OverloadKinds map[model.ElementKind]struct{}
 }
 
 // BaseGlobalContext 是 GlobalContext 的通用实现：提供索引/锁/去重等语言无关机制。
@@ -66,6 +76,8 @@ func NewGlobalContext(resolver SymbolResolver, builder SymbolBuilder) GlobalCont
 type BaseGlobalContext struct {
 	Resolver_ SymbolResolver
 	Builder_  SymbolBuilder
+
+	rules GlobalContextRules
 
 	mu           sync.RWMutex
 	fileContexts map[string]FileContext
@@ -82,10 +94,11 @@ type BaseGlobalContext struct {
 }
 
 // NewBaseGlobalContext 创建全局上下文 Base 实现。
-func NewBaseGlobalContext(resolver SymbolResolver, builder SymbolBuilder) *BaseGlobalContext {
+func NewBaseGlobalContext(resolver SymbolResolver, builder SymbolBuilder, rules GlobalContextRules) *BaseGlobalContext {
 	return &BaseGlobalContext{
 		Resolver_:       resolver,
 		Builder_:        builder,
+		rules:           rules,
 		fileContexts:    make(map[string]FileContext),
 		definitions:     make([]*DefinitionEntry, 0),
 		qnIndex:         make(map[string]*DefinitionEntry),
@@ -94,12 +107,9 @@ func NewBaseGlobalContext(resolver SymbolResolver, builder SymbolBuilder) *BaseG
 	}
 }
 
-// RegisterFileContext 注册一个文件上下文（Collector 阶段产出）。
-// 先委托 Resolver 注册包名（Resolver 内部自行加锁，不能在本函数持锁时调用），
-// 再登记文件内全部定义（同一把写锁下批量完成）。
+// RegisterFileContext 登记文件内全部定义（同一把写锁下批量完成）。
+// 包/命名空间注册属于语言策略：语言上下文覆盖本方法，先调用自身 RegisterPackage 再委托本实现。
 func (gc *BaseGlobalContext) RegisterFileContext(fc FileContext) {
-	gc.Resolver_.RegisterPackage(gc, fc.PackageName())
-
 	gc.mu.Lock()
 	defer gc.mu.Unlock()
 	gc.fileContexts[fc.FilePath()] = fc
@@ -148,36 +158,58 @@ func qnKey(qn string, kind model.ElementKind) string {
 	return qn + "|" + string(kind)
 }
 
-// isDeclarationKind 判断是否为声明 kind。
-func isDeclarationKind(kind model.ElementKind) bool {
-	switch kind {
-	case model.FunctionDecl, model.MethodDecl:
-		return true
-	}
-	return false
-}
-
 func (gc *BaseGlobalContext) addDefinitionLocked(def *DefinitionEntry) {
 	key := qnKey(def.Element.QualifiedName, def.Element.Kind)
-	if _, exists := gc.qnIndex[key]; exists {
+	if existing, exists := gc.qnIndex[key]; exists {
+		// 声明与定义同 QN 同 Kind（C 的 struct Fwd; struct Fwd{};）：定义覆盖声明。
+		if existing.IsDeclaration && !def.IsDeclaration {
+			gc.replaceDefinitionLocked(existing, def)
+			gc.qnIndex[key] = def
+			gc.qnPrimary[def.Element.QualifiedName] = def
+		}
 		return
 	}
 	gc.definitions = append(gc.definitions, def)
 	gc.qnIndex[key] = def
 
-	// 主索引：定义优先。声明 kind 不覆盖已有定义（定义优先语义），
+	// 主索引：定义优先。声明不覆盖已有定义（定义优先语义），
 	// 但纯声明符号（无对应定义）仍需可查找（如 C++ 头文件成员声明），故不存在时填入；
 	// 若先注册的是声明、后注册定义，则定义覆盖声明。
 	if existing, exists := gc.qnPrimary[def.Element.QualifiedName]; !exists {
 		gc.qnPrimary[def.Element.QualifiedName] = def
-	} else if isDeclarationKind(existing.Element.Kind) && !isDeclarationKind(def.Element.Kind) {
+	} else if existing.IsDeclaration && !def.IsDeclaration {
 		gc.qnPrimary[def.Element.QualifiedName] = def
 	}
 
-	switch def.Element.Kind {
-	case model.Method, model.Function, model.MethodDecl, model.FunctionDecl:
+	if gc.isOverloadKind(def.Element.Kind) {
 		key := gc.Builder_.BuildQualifiedName(def.ParentQN, def.Element.Name)
 		gc.methodNoParamQN[key] = append(gc.methodNoParamQN[key], def)
+	}
+}
+
+// isOverloadKind 判断元素 kind 是否参与重载索引（语言策略注入）。
+func (gc *BaseGlobalContext) isOverloadKind(kind model.ElementKind) bool {
+	_, ok := gc.rules.OverloadKinds[kind]
+	return ok
+}
+
+// replaceDefinitionLocked 用定义替换已登记的声明（保持注册顺序与索引一致）。
+func (gc *BaseGlobalContext) replaceDefinitionLocked(old, def *DefinitionEntry) {
+	for i, d := range gc.definitions {
+		if d == old {
+			gc.definitions[i] = def
+			break
+		}
+	}
+	if gc.isOverloadKind(def.Element.Kind) {
+		key := gc.Builder_.BuildQualifiedName(def.ParentQN, def.Element.Name)
+		entries := gc.methodNoParamQN[key]
+		for i, d := range entries {
+			if d == old {
+				entries[i] = def
+				break
+			}
+		}
 	}
 }
 
@@ -198,6 +230,10 @@ func (gc *BaseGlobalContext) FindMethodByNoParamsQN(noParamsQN string) ([]*Defin
 	entries, ok := gc.methodNoParamQN[noParamsQN]
 	return entries, ok
 }
+
+// RegisterPackage 默认空实现（无包/命名空间语义的语言直接复用）。
+// 语言实现内嵌 Base 后覆盖此方法即可获得包层级注册能力。
+func (gc *BaseGlobalContext) RegisterPackage(packageName string) {}
 
 // BuildQualifiedName 委托 Builder 拼接 QN。
 func (gc *BaseGlobalContext) BuildQualifiedName(parentQN, name string) string {

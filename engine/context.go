@@ -2,6 +2,8 @@
 package engine
 
 import (
+	"fmt"
+
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 )
@@ -44,10 +46,13 @@ func NewContext(cfg Config) (*EngineContext, error) {
 	if err != nil {
 		return nil, err
 	}
+	if impl.NewGlobalContext == nil {
+		return nil, fmt.Errorf("language %q does not provide NewGlobalContext", cfg.Language)
+	}
 	return &EngineContext{
 		Config: cfg,
 		Impl:   impl,
-		GC:     core.NewGlobalContext(impl.SymbolResolver, impl.SymbolBuilder),
+		GC:     impl.NewGlobalContext(impl.SymbolResolver, impl.SymbolBuilder),
 	}, nil
 }
 

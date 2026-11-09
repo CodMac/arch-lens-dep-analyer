@@ -33,24 +33,6 @@ func (r *SymbolResolver) BuildQualifiedName(parentQN, name string) string {
 	return parentQN + "." + name
 }
 
-// RegisterPackage 注册包：将点号包名拆分为逐级包元素。
-func (r *SymbolResolver) RegisterPackage(gc core.GlobalContext, packageName string) {
-	parts := strings.Split(packageName, ".")
-	var current []string
-	for _, part := range parts {
-		if part == "" {
-			continue
-		}
-		current = append(current, part)
-		pkgQN := strings.Join(current, ".")
-		if _, ok := gc.FindByQualifiedName(pkgQN); !ok {
-			gc.AddDefinition(&core.DefinitionEntry{
-				Element: &model.CodeElement{Kind: model.Package, Name: part, QualifiedName: pkgQN, IsFormSource: true},
-			})
-		}
-	}
-}
-
 // IsPrimitive 判断类型名是否为 Java 基本类型。
 func (r *SymbolResolver) IsPrimitive(typeName string) bool {
 	switch typeName {
