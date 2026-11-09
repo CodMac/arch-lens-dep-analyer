@@ -20,7 +20,8 @@
 | 里程碑 | 内容 |
 |---|---|
 | M1 上下文接口化（2026-11-06） | `FileContext`/`GlobalContext` 改为接口 + Base 实现；`qnIndex` 键加 `|Kind`；新增 `FunctionDecl`/`MethodDecl`；`methodNoParamQN` 放宽至 Function 族；Java 全量机械适配（golden 语义不变） |
-| M2 C/C++ 落地（2026-11-09） | `x/cpp/` 全套 SPI + 三层测试 + e2e 黄金基线（279 行）；C 与 C++ 共用实现，Parser 按扩展名选 grammar |
+| M2 C/C++ 落地（2026-11-09） | `x/cpp/` 全套 SPI + 三层测试 + e2e 黄金基线（719 行）；C 与 C++ 共用实现，Parser 按扩展名选 grammar |
+| M3 上下文分层（2026-11-09） | 语言专属上下文下沉 `x/{lang}/context`：`RegisterPackage` 从 SymbolResolver 迁入 GlobalContext；重载索引 kind 由 `GlobalContextRules` 注入；`Namespaces` 下沉为可选能力接口 `NamespaceAwareFileContext`；删除 `core.NewFileContext`/`core.NewGlobalContext`，改由 `LanguageImpl.NewGlobalContext` 提供（golden 语义不变） |
 
 ## 2. 分阶段路标
 

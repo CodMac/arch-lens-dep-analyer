@@ -56,10 +56,28 @@ type LanguageImpl struct {
 | `Extractor` | `Extract(relPath string, ctx GlobalContext) ([]*model.DependencyRelation, error)` | 提取关系 |
 | `Linker` | `LinkHierarchy(ctx GlobalContext) []*model.DependencyRelation` | 层级拓扑 |
 | `NoiseFilter` | `SetLevel(FilterLevel)` + `IsNoise(rel) bool` | 降噪 |
-| `SymbolResolver` | `BuildQualifiedName` + `RegisterPackage` + `IsPrimitive` + `ResolveType` + `ResolveFunc` + `ResolveVar` + `ResolveAction` | 符号解析 |
+| `SymbolResolver` | `BuildQualifiedName` + `IsPrimitive` + `ResolveType` + `ResolveFunc` + `ResolveVar` + `ResolveAction` | 符号解析 |
 | `SymbolBuilder` | `BuildQualifiedName(parentQN, name) string` + `IsPrimitive(typeName) bool` | QN 构建 |
 
-> **上下文接口化（2026-11-06）**：`FileContext` / `GlobalContext` 均为**接口**，SPI 签名只使用接口类型。通用索引/锁由 `core.BaseFileContext` / `core.BaseGlobalContext` 提供，语言实现内嵌复用。详见 [architecture.md](architecture.md) §3.3.1。
+> **上下文分层（2026-11-06 接口化 / 2026-11-09 语言实现下沉）**：`FileContext` / `GlobalContext` 均为**接口**，SPI 签名只使用接口类型。通用索引/锁由 `core.BaseFileContext` / `core.BaseGlobalContext` 提供；**语言专属语义（包/命名空间注册、重载索引 kind、命名空间列表）由 `x/{lang}/context` 实现**，core 不含语言硬编码。详见 [architecture.md](architecture.md) §3.3.1。
+
+### 3.1 新语言必须提供的上下文
+
+```go
+// x/{lang}/context/file_context.go
+type FileContext struct{ *core.BaseFileContext }
+func NewFileContext(path, pkg string, root ast.Node, src *[]byte) *FileContext
+
+// x/{lang}/context/global_context.go
+type GlobalContext struct{ *core.BaseGlobalContext }
+func NewGlobalContext(r core.SymbolResolver, b core.SymbolBuilder) core.GlobalContext
+func (gc *GlobalContext) RegisterPackage(packageName string)        // 语言语义
+func (gc *GlobalContext) RegisterFileContext(fc core.FileContext)   // 先注册包再委托 Base
+```
+
+- 一文件多命名空间的语言（C++）额外实现 `core.NamespaceAwareFileContext`。
+- 重载索引 kind 通过 `core.GlobalContextRules{OverloadKinds: ...}` 注入。
+- 在 `LanguageImpl.NewGlobalContext` 中挂载工厂；引擎经该字段创建上下文。
 
 ## 4. 注册流程（以 Java 为例）
 
@@ -77,6 +95,8 @@ func init() {
         NoiseFilter:    noise_filter.New(core.LevelBalanced),
         SymbolResolver: resolver,
         SymbolBuilder:  symbol_builder.New(),
+
+        NewGlobalContext: javactx.NewGlobalContext,
     })
 }
 ```
@@ -98,6 +118,7 @@ func init() {
             Extractor: extractor.New(resolver), Linker: linker.New(),
             NoiseFilter: noise_filter.New(core.LevelBalanced),
             SymbolResolver: resolver, SymbolBuilder: builder,
+            NewGlobalContext: cppctx.NewGlobalContext,
         }
     }
     core.Register(impl(core.LangC))

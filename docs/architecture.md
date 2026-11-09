@@ -83,16 +83,15 @@ cmd → engine → core → model
 - 所有接口签名只使用 `core`/`model` 定义的类型，**绝不出现** `*sitter.Node` 等 AST 库类型。
 - 接口是契约，语言实现负责把 AST 适配为 core 语义。
 
-#### 3.3.1 上下文接口化（2026-11-06）
+#### 3.3.1 上下文分层（2026-11-06 接口化 → 2026-11-09 语言实现下沉）
 
-`FileContext` 与 `GlobalContext` 从具体结构体改为**接口 + Base 通用实现**，为多语言（尤其 C/C++ 的 namespace / 声明-定义分离）打基础：
+`FileContext` / `GlobalContext` 是 **core 契约**；通用索引/锁/去重由 `core.BaseFileContext` / `core.BaseGlobalContext` 提供；**语言专属语义由 `x/{lang}/context` 承载**，core 不含任何语言硬编码。
 
 ```go
-// core/file_context.go
+// core/file_context.go —— 只保留语言无关契约
 type FileContext interface {
     FilePath() string;  SetFilePath(string)
     PackageName() string; SetPackageName(string)
-    Namespaces() []string; SetNamespaces([]string)   // C++ 多 namespace（G1）
     Root() ast.Node;  SetRoot(ast.Node)
     SourceBytes() *[]byte; SetSourceBytes(*[]byte)
     Definitions() []*DefinitionEntry; AddDefinition(*DefinitionEntry)
@@ -102,9 +101,16 @@ type FileContext interface {
     FindByKind(model.ElementKind) ([]*DefinitionEntry, bool)
 }
 
+// 可选能力接口：一文件多命名空间的语言（C++）实现
+type NamespaceAwareFileContext interface {
+    FileContext
+    Namespaces() []string; SetNamespaces([]string)
+}
+
 // core/global_context.go
 type GlobalContext interface {
     RegisterFileContext(FileContext)
+    RegisterPackage(packageName string)   // 包/命名空间注册（语言语义）
     FileContexts() map[string]FileContext
     FileContext(relPath string) (FileContext, bool)
     Definitions() []*DefinitionEntry
@@ -115,13 +121,37 @@ type GlobalContext interface {
     Resolver() SymbolResolver
     Builder() SymbolBuilder
 }
+
+// 语言策略注入：core 不再硬编码 kind 集合
+type GlobalContextRules struct {
+    OverloadKinds map[model.ElementKind]struct{}
+}
 ```
 
-- `BaseFileContext` / `BaseGlobalContext` 承载全部索引/锁/去重机制；语言实现内嵌复用（当前 Java 与 C/C++ 均直接使用 Base）。
+**分层职责**
+
+| 层 | 位置 | 内容 |
+|---|---|---|
+| 契约 | `core/*_context.go` | 接口 + `GlobalContextRules` |
+| 通用底座 | `core.BaseFileContext` / `core.BaseGlobalContext` | 索引/锁/去重/声明-定义替换 |
+| 语言实现 | `x/java/context`、`x/cpp/context` | 内嵌 Base + 覆盖 `RegisterPackage` / `RegisterFileContext`；C++ 额外实现 `NamespaceAwareFileContext` |
+| 编排 | `engine` | 只面向 core 接口；经 `LanguageImpl.NewGlobalContext` 取得语言实现 |
+
+**语言差异收敛点**
+
+| 差异 | Java | C/C++ |
+|---|---|---|
+| 包/命名空间注册 | `RegisterPackage` 按 `.` 拆分为 PACKAGE | 按 `::` 拆分为 NAMESPACE |
+| 重载索引 kind | `{Method}` | `{Method, Function, MethodDecl, FunctionDecl}` |
+| 命名空间列表 | 不实现 `NamespaceAwareFileContext` | 实现（`Namespaces()`） |
+
+**通用机制（core 内，语言无关）**
+
 - **声明/定义共存（G2）**：`BaseGlobalContext` 全量索引键为 `QN + "|" + Kind`，使 `add(int,int)|FUNCTION_DECL` 与 `add(int,int)|FUNCTION` 共存；主索引 `qnPrimary` 保持「定义优先」，但纯声明（无定义）仍可命中。
-- **重载索引放宽（G3）**：`methodNoParamQN` 由仅 `Method` 放宽为 `Method || Function || MethodDecl || FunctionDecl`，C 自由函数可参与重载消解。
+- **声明 → 定义原地替换（G2 补强）**：`DefinitionEntry.IsDeclaration` 标记声明条目；同一 `QN + Kind` 下（如 `struct Fwd;` 后接 `struct Fwd {};`、`extern int x;` 后接 `int x;`），后到的定义原地替换先到的声明，FileContext 与 GlobalContext 的索引同步更新，避免前向声明遮蔽真实定义。该判定只看 `IsDeclaration` 字段，与语言 kind 无关。
 - **`ImportInfo.IsSystem`（G5）**：C/C++ 用 `#include <...>` 与 `"..."` 区分系统/项目内头文件。
-- `FileContext.Namespaces` 为 C++ 多命名空间预留；Java/Go 置空。
+
+> 工厂函数 `core.NewFileContext` / `core.NewGlobalContext` 已删除：新语言**必须**提供 `x/{lang}/context` 并在 `LanguageImpl.NewGlobalContext` 中注册，避免误用通用实现。
 
 ### 3.4 model/（数据模型）
 

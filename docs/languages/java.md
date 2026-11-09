@@ -8,7 +8,9 @@
 
 Java 是**首个落地**的语言实现（现与 C/C++ 并存，见 [cpp.md](cpp.md)）。全部 9 个 SPI（Parser / Collector / Binder / Extractor / Linker / NoiseFilter / SymbolResolver / SymbolBuilder / ParserFactory）均已实现并经 `x/java/init.go` 注册。行为契约由 `x/java/testdata/e2e/baseline.golden.jsonl`（4412 行 = 1458 元素 + 2954 关系，LevelBalanced）锚定。
 
-> **上下文接口化影响（2026-11-06）**：`FileContext`/`GlobalContext` 改为接口后，Java 全量实现做了机械适配（字段访问 → 方法调用），**语义不变**，e2e 基线内容不变（仅换行符噪声）。`GlobalContext` 的 `qnIndex` 键改为 `QN|Kind`、`methodNoParamQN` 索引放宽至 Function 族，对 Java 无行为影响（Java 只有 Method 进该索引）。
+> **上下文接口化影响（2026-11-06）**：`FileContext`/`GlobalContext` 改为接口后，Java 全量实现做了机械适配（字段访问 → 方法调用），**语义不变**，e2e 基线内容不变（仅换行符噪声）。
+>
+> **上下文分层（2026-11-09）**：Java 专属上下文下沉到 `x/java/context`（内嵌 `core.Base*`）。`RegisterPackage` 由 `SymbolResolver` 迁入 `GlobalContext`；重载索引 kind 改由 `GlobalContextRules.OverloadKinds` 注入（Java 只收 `Method`）。**语义不变**，e2e 基线内容不变（仅换行符噪声）。
 
 ## 2. 元素覆盖（CodeElement）
 
@@ -216,8 +218,10 @@ uriBuilder.append(this.userInfo).append('@');
 | NoiseFilter | `x/java/noise_filter/` | 三级降噪 |
 | SymbolResolver | `x/java/symbol_resolver/` | 三段式动作解析 + 类型解析 |
 | SymbolBuilder | `x/java/symbol_builder/` | QN 拼接（点号） |
+| FileContext | `x/java/context/` | 内嵌 `core.BaseFileContext`（无命名空间能力） |
+| GlobalContext | `x/java/context/` | 内嵌 `core.BaseGlobalContext`；`RegisterPackage` 按 `.` 注册 PACKAGE；重载索引只收 `Method` |
 
-> SPI 签名中的上下文类型为接口（`core.FileContext` / `core.GlobalContext`），通用索引与锁由 `core.Base*` 提供，Java 直接复用。
+> SPI 签名中的上下文类型为接口（`core.FileContext` / `core.GlobalContext`），通用索引与锁由 `core.Base*` 提供，Java 专属语义在 `x/java/context` 中实现。
 
 ## 8. 测试现状
 

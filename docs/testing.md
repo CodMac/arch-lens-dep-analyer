@@ -96,9 +96,20 @@ C/C++ 不使用 Java 的「源码注释期望块」模式，改用**显式断言
 
 | 测试 | 覆盖 |
 |---|---|
-| `TestCollectorC` | C 函数/声明/结构体/枚举/typedef/宏/全局与局部变量/匿名 struct 承载 |
+| `TestCollectorC` | C 函数/声明/结构体/枚举/typedef/宏/全局与局部变量/匿名 struct 承载（基础样例 `collector/base`） |
+| `TestCollectorCBase` | 基准元素：文件/函数+原型/全局变量/结构体/枚举/typedef/宏（`collector/c/base`） |
+| `TestCollectorCFunc` | 函数族：`(void)`/`()`/可变参数/static/inline/递归/函数指针返回/数组指针返回 |
+| `TestCollectorCDeclDef` | 同文件声明+定义共享 QN、前向声明覆盖、extern 声明+定义、头文件原型 |
+| `TestCollectorCStruct` | 具名/嵌套/位域/匿名 union 成员/匿名 struct 多声明器/union |
+| `TestCollectorCEnum` | 具名/显式值/匿名常量挂文件级/前向声明/枚举类型变量 |
+| `TestCollectorCTypedef` | 基础/指针/数组/函数指针别名、多声明器、链式、匿名 struct 承载 |
+| `TestCollectorCMacro` | 对象宏/函数式宏/空宏/多行宏/条件分支同名宏 |
+| `TestCollectorCVariable` | 全局/static/const/局部/块作用域/多声明器/混合声明器 |
+| `TestCollectorCParam` | 具名/无名指针/多级指针/数组/函数指针/const/struct+enum 关键字 |
+| `TestCollectorCConditional` | `#ifdef`/`#ifndef`/`#if`/`#elif`/`#else`/嵌套分支标注（`cpp.condition`） |
+| `TestCollectorCEdge` | 类型引用负例/块内重名/重载式命名/无名指针参数/嵌套结构体 |
 | `TestCollectorCpp` | namespace/class/继承/模板/纯虚/访问级别/enum class/类外定义 |
-| `TestCollectorConditional` | 条件编译分支标注（`cpp.condition`） |
+| `TestCollectorConditional` | 条件编译分支标注（`collector/cond` 基础样例） |
 | `TestExtractorStructural` | Import/Contain/Extend/Parameter/Return/TypeArg |
 | `TestExtractorActions` | Call/Assign/Use/Cast |
 | `TestExtractorImplLink` | 跨文件签名配对、static 不配对、类外定义配对 |
@@ -121,6 +132,8 @@ x/java/testdata/
 x/cpp/testdata/
 ├── collector/base/  # C/C++ 基础样例（basic.c / basic.cpp / basic.h）
 ├── collector/cond/  # 条件编译样例（cond.c）
+├── collector/c/     # C 全场景元素提取样例（11 组：base/func/decl_def/struct/
+│                    #   enum/typedef/macro/variable/param/cond/edge）
 ├── resolver/        # 解析样例（calls.cpp）
 └── e2e/             # 端到端黄金基线（baseline.golden.jsonl）
 ```

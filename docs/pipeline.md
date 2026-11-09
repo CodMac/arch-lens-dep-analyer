@@ -43,10 +43,10 @@ type EngineContext struct {
 }
 ```
 
-> 上下文接口化（2026-11-06）：`GC` 与各 SPI 签名中的上下文均为**接口**，通用索引/锁机制由 `core.BaseGlobalContext` / `core.BaseFileContext` 提供，语言实现内嵌复用。详见 [architecture.md](architecture.md) §3.3.1。
+> 上下文分层（2026-11-06 接口化 / 2026-11-09 语言实现下沉）：`GC` 与各 SPI 签名中的上下文均为**接口**，通用索引/锁机制由 `core.BaseGlobalContext` / `core.BaseFileContext` 提供；语言专属实现位于 `x/{lang}/context`，engine 经 `LanguageImpl.NewGlobalContext` 创建。详见 [architecture.md](architecture.md) §3.3.1。
 
 **生命周期**：
-1. **创建**：engine 初始化时构造（含 GC 创建、Resolver/Builder 注入）。
+1. **创建**：engine 初始化时构造（`GC = impl.NewGlobalContext(impl.SymbolResolver, impl.SymbolBuilder)`，由语言上下文实现创建）。
 2. **使用**：各阶段读写。
 3. **结束**：流水线完成后统一清理临时字段、释放资源。
 
