@@ -8,5 +8,5 @@ import (
 // 各阶段中该接口在文件级并行执行。
 type Collector interface {
 	// CollectDefinitions 从源文件收集符号定义并产出 FileContext。
-	CollectDefinitions(src ast.SourceFile) (*FileContext, error)
+	CollectDefinitions(src ast.SourceFile) (FileContext, error)
 }

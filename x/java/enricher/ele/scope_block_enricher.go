@@ -10,7 +10,7 @@ import (
 
 // ScopeBlockEnricher 为代码块（实例初始化块/静态初始化块/普通块）生成元数据。
 type ScopeBlockEnricher struct {
-	fCtx *core.FileContext
+	fCtx core.FileContext
 }
 
 // EnrichMetadata 填充块级 Mores（是否静态、复杂度）与 Signature。

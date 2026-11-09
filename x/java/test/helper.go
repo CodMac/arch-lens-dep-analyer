@@ -100,7 +100,7 @@ func RunPipeline(t *testing.T, root string, paths []string, level core.FilterLev
 }
 
 // runCollect 并行执行 Collect 阶段，将文件注册进 GlobalContext。
-func runCollect(t *testing.T, impl *core.LanguageImpl, gc *core.GlobalContext, root string, paths []string) {
+func runCollect(t *testing.T, impl *core.LanguageImpl, gc core.GlobalContext, root string, paths []string) {
 	t.Helper()
 	sched := engine.NewScheduler(4, ParserFactory(impl))
 	absRoot := absRoot(root)
@@ -117,7 +117,7 @@ func runCollect(t *testing.T, impl *core.LanguageImpl, gc *core.GlobalContext, r
 		if err != nil {
 			return err
 		}
-		fc.FilePath = filepath.ToSlash(relPath)
+		fc.SetFilePath(filepath.ToSlash(relPath))
 		gc.RegisterFileContext(fc)
 		return nil
 	})
@@ -129,7 +129,7 @@ func runCollect(t *testing.T, impl *core.LanguageImpl, gc *core.GlobalContext, r
 // RunExtraction 跑"解析 -> Collect -> Bind -> Extract"四步，
 // 返回可断言的 GlobalContext 与动作/结构关系（不含 Linker 的 Contain 与 NoiseFilter 过滤），
 // 供三层测试精确断言关系提取结果。
-func RunExtraction(t *testing.T, root string, paths []string) (*core.GlobalContext, []*model.DependencyRelation) {
+func RunExtraction(t *testing.T, root string, paths []string) (core.GlobalContext, []*model.DependencyRelation) {
 	t.Helper()
 	impl := JavaImpl(t)
 
@@ -179,7 +179,7 @@ func RunExtraction(t *testing.T, root string, paths []string) (*core.GlobalConte
 
 // RunCollection 只跑"解析 -> Collect"两步，返回含全部定义（未 Bind）的 GlobalContext，
 // 供 Collector 层测试直接断言元素定义。
-func RunCollection(t *testing.T, root string, paths []string) *core.GlobalContext {
+func RunCollection(t *testing.T, root string, paths []string) core.GlobalContext {
 	t.Helper()
 	impl := JavaImpl(t)
 	gc := core.NewGlobalContext(impl.SymbolResolver, impl.SymbolBuilder)
@@ -188,7 +188,7 @@ func RunCollection(t *testing.T, root string, paths []string) *core.GlobalContex
 }
 
 // FindDef 按 QN 在全局上下文中查找定义，找不到则 fatal。
-func FindDef(t *testing.T, gc *core.GlobalContext, qn string) *model.CodeElement {
+func FindDef(t *testing.T, gc core.GlobalContext, qn string) *model.CodeElement {
 	t.Helper()
 	entry, ok := gc.FindByQualifiedName(qn)
 	if !ok {
@@ -198,7 +198,7 @@ func FindDef(t *testing.T, gc *core.GlobalContext, qn string) *model.CodeElement
 }
 
 // DefExists 判断某 QN 的定义是否存在。
-func DefExists(gc *core.GlobalContext, qn string) bool {
+func DefExists(gc core.GlobalContext, qn string) bool {
 	_, ok := gc.FindByQualifiedName(qn)
 	return ok
 }
@@ -227,7 +227,7 @@ func FindRel(t *testing.T, rels []*model.DependencyRelation, pred func(*model.De
 }
 
 // PrintCodeElements 打印全部定义（调试用，-v 时可见）。
-func PrintCodeElements(t *testing.T, gc *core.GlobalContext) {
+func PrintCodeElements(t *testing.T, gc core.GlobalContext) {
 	t.Helper()
 	for _, def := range gc.Definitions() {
 		el := def.Element
@@ -258,7 +258,7 @@ func PrintRelations(t *testing.T, rels []*model.DependencyRelation) {
 // =============================================================================
 
 // AssertDef 断言某 QN 的定义存在且 kind 匹配（wantKind 传空串则只校验存在）。
-func AssertDef(t *testing.T, gc *core.GlobalContext, qn string, wantKind model.ElementKind) *model.CodeElement {
+func AssertDef(t *testing.T, gc core.GlobalContext, qn string, wantKind model.ElementKind) *model.CodeElement {
 	t.Helper()
 	entry, ok := gc.FindByQualifiedName(qn)
 	if !ok {
@@ -272,7 +272,7 @@ func AssertDef(t *testing.T, gc *core.GlobalContext, qn string, wantKind model.E
 }
 
 // AssertNoDef 断言某 QN 的定义不存在（守护"明确不生成"的项）。
-func AssertNoDef(t *testing.T, gc *core.GlobalContext, qn string) {
+func AssertNoDef(t *testing.T, gc core.GlobalContext, qn string) {
 	t.Helper()
 	if _, ok := gc.FindByQualifiedName(qn); ok {
 		t.Errorf("definition should NOT exist: %s", qn)
@@ -280,7 +280,7 @@ func AssertNoDef(t *testing.T, gc *core.GlobalContext, qn string) {
 }
 
 // AssertMores 断言某 QN 元素的 Mores 键值（want 传 nil 表示仅断言键存在）。
-func AssertMores(t *testing.T, gc *core.GlobalContext, qn, key string, want interface{}) {
+func AssertMores(t *testing.T, gc core.GlobalContext, qn, key string, want interface{}) {
 	t.Helper()
 	elem := AssertDef(t, gc, qn, "")
 	if elem == nil {
@@ -329,7 +329,7 @@ func moresEqual(got, want interface{}) bool {
 }
 
 // AssertSig 断言某 QN 元素的 Signature 包含子串。
-func AssertSig(t *testing.T, gc *core.GlobalContext, qn, wantSubstr string) {
+func AssertSig(t *testing.T, gc core.GlobalContext, qn, wantSubstr string) {
 	t.Helper()
 	elem := AssertDef(t, gc, qn, "")
 	if elem == nil {
@@ -342,7 +342,7 @@ func AssertSig(t *testing.T, gc *core.GlobalContext, qn, wantSubstr string) {
 
 // AssertMods 断言某 QN 元素的 Extra.Modifiers 包含全部指定修饰符（顺序无关）。
 // 用于直接校验修饰符列表（如包私有空列表 / protected / public static 等）。
-func AssertMods(t *testing.T, gc *core.GlobalContext, qn string, want ...string) {
+func AssertMods(t *testing.T, gc core.GlobalContext, qn string, want ...string) {
 	t.Helper()
 	elem := AssertDef(t, gc, qn, "")
 	if elem == nil {
@@ -373,7 +373,7 @@ func AssertMods(t *testing.T, gc *core.GlobalContext, qn string, want ...string)
 
 // AssertAnnos 断言某 QN 元素的 Extra.Annotations 包含全部指定注解文本（顺序无关）。
 // 注解文本为原始形态（如 "@Override" / "@Loggable"）。
-func AssertAnnos(t *testing.T, gc *core.GlobalContext, qn string, want ...string) {
+func AssertAnnos(t *testing.T, gc core.GlobalContext, qn string, want ...string) {
 	t.Helper()
 	elem := AssertDef(t, gc, qn, "")
 	if elem == nil {
@@ -403,7 +403,7 @@ func AssertAnnos(t *testing.T, gc *core.GlobalContext, qn string, want ...string
 }
 
 // ChildrenOf 返回某父 QN 下的全部子定义（用于枚举容器成员）。
-func ChildrenOf(t *testing.T, gc *core.GlobalContext, parentQN string) []*model.CodeElement {
+func ChildrenOf(t *testing.T, gc core.GlobalContext, parentQN string) []*model.CodeElement {
 	t.Helper()
 	var out []*model.CodeElement
 	for _, def := range gc.Definitions() {
@@ -415,7 +415,7 @@ func ChildrenOf(t *testing.T, gc *core.GlobalContext, parentQN string) []*model.
 }
 
 // ChildQNs 返回某父 QN 下的全部子定义 QN 集合（断言用）。
-func ChildQNs(t *testing.T, gc *core.GlobalContext, parentQN string) map[string]bool {
+func ChildQNs(t *testing.T, gc core.GlobalContext, parentQN string) map[string]bool {
 	t.Helper()
 	out := map[string]bool{}
 	for _, def := range gc.Definitions() {

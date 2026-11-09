@@ -32,7 +32,7 @@ type EngineContext struct {
 	Impl *core.LanguageImpl
 
 	// GC 全局符号上下文。
-	GC *core.GlobalContext
+	GC core.GlobalContext
 
 	// Relations 已提取的依赖关系集合（阶段 3+ 填充）。
 	Relations []*model.DependencyRelation

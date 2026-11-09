@@ -12,12 +12,12 @@ import (
 
 // MemberResolver 提供方法/字段成员解析：候选收集（含继承回溯）-> 重载打分。
 type MemberResolver struct {
-	gc *core.GlobalContext
-	fc *core.FileContext
+	gc core.GlobalContext
+	fc core.FileContext
 }
 
 // NewMemberResolver 创建成员解析器。
-func NewMemberResolver(gc *core.GlobalContext, fc *core.FileContext) *MemberResolver {
+func NewMemberResolver(gc core.GlobalContext, fc core.FileContext) *MemberResolver {
 	return &MemberResolver{gc: gc, fc: fc}
 }
 
@@ -266,7 +266,7 @@ func (mr *MemberResolver) checkVisibility(container *model.CodeElement, target *
 
 	// 同包。
 	targetPkg := helper.GetRealPackage(mr.gc, target.Element)
-	if targetPkg == mr.fc.PackageName {
+	if targetPkg == mr.fc.PackageName() {
 		return true
 	}
 

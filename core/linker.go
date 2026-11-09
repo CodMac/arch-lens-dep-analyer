@@ -8,5 +8,5 @@ import (
 // 该阶段串行执行（依赖全局拓扑）。
 type Linker interface {
 	// LinkHierarchy 生成层级拓扑关系。
-	LinkHierarchy(ctx *GlobalContext) []*model.DependencyRelation
+	LinkHierarchy(ctx GlobalContext) []*model.DependencyRelation
 }

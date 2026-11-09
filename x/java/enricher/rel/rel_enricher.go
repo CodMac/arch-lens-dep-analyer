@@ -18,14 +18,14 @@ type IEnricher interface {
 // 内部持有 SymbolResolver 与双上下文，供 receiver 类型解析等场景使用。
 type Enricher struct {
 	resolver core.SymbolResolver
-	fCtx     *core.FileContext
-	gCtx     *core.GlobalContext
+	fCtx     core.FileContext
+	gCtx     core.GlobalContext
 
 	enricherMap map[model.DependencyType]IEnricher
 }
 
 // NewEnricher 创建关系元数据增强器（注册全部动作关系类型）。
-func NewEnricher(resolver core.SymbolResolver, fCtx *core.FileContext, gCtx *core.GlobalContext) *Enricher {
+func NewEnricher(resolver core.SymbolResolver, fCtx core.FileContext, gCtx core.GlobalContext) *Enricher {
 	enricherMap := make(map[model.DependencyType]IEnricher)
 	enricherMap[model.Call] = &CallEnricher{resolver: resolver, fCtx: fCtx, gCtx: gCtx}
 	enricherMap[model.Create] = &CreateEnricher{resolver: resolver, fCtx: fCtx, gCtx: gCtx}

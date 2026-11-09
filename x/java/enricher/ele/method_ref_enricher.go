@@ -10,12 +10,12 @@ import (
 
 // MethodRefEnricher 为方法引用 (如 System.out::println) 生成接收者/目标元数据。
 type MethodRefEnricher struct {
-	fCtx *core.FileContext
+	fCtx core.FileContext
 }
 
 // EnrichMetadata 填充方法引用级 Mores（receiver/target/type_args）与 Signature。
 func (c *MethodRefEnricher) EnrichMetadata(elem *model.CodeElement, node coreast.Node) {
-	srcs := c.fCtx.SourceBytes
+	srcs := c.fCtx.SourceBytes()
 	extra := elem.Extra
 
 	var receiver, target string

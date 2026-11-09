@@ -4,5 +4,5 @@ package core
 // 该阶段串行执行（依赖全局索引一致性）。
 type Binder interface {
 	// BindSymbols 遍历全局上下文中的全部定义，完成类型绑定。
-	BindSymbols(ctx *GlobalContext) error
+	BindSymbols(ctx GlobalContext) error
 }

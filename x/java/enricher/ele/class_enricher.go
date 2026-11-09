@@ -13,7 +13,7 @@ import (
 
 // ClassEnricher 为类/接口/枚举/注解类型生成签名与继承关系元数据。
 type ClassEnricher struct {
-	fCtx *core.FileContext
+	fCtx core.FileContext
 }
 
 // EnrichMetadata 填充类级 Mores（abstract/final/static、父类、实现接口）与 Signature。
@@ -27,26 +27,26 @@ func (c *ClassEnricher) EnrichMetadata(elem *model.CodeElement, node coreast.Nod
 
 	typeParams := ""
 	if tpNode := node.ChildByFieldName("type_parameters"); tpNode != nil {
-		typeParams = helper.GetNodeContent(tpNode, *c.fCtx.SourceBytes)
+		typeParams = helper.GetNodeContent(tpNode, *c.fCtx.SourceBytes())
 		extra.Mores[constants.ClassTypeParameters] = typeParams
 	}
 
 	heritage := ""
 	if super := node.ChildByFieldName("superclass"); super != nil {
-		content := helper.GetNodeContent(super, *c.fCtx.SourceBytes)
+		content := helper.GetNodeContent(super, *c.fCtx.SourceBytes())
 		extra.Mores[constants.ClassSuperClass] = strings.TrimSpace(strings.TrimPrefix(content, "extends"))
 		heritage += " " + content
 	}
 
 	ifacesNode := c.findInterfacesNode(node)
 	if ifacesNode != nil {
-		if ifaces := c.extractInterfaceList(ifacesNode, c.fCtx.SourceBytes); len(ifaces) > 0 {
+		if ifaces := c.extractInterfaceList(ifacesNode, c.fCtx.SourceBytes()); len(ifaces) > 0 {
 			mKey := constants.InterfaceImplementedInterfaces
 			if elem.Kind == model.Class {
 				mKey = constants.ClassImplementedInterfaces
 			}
 			extra.Mores[mKey] = ifaces
-			heritage += " " + helper.GetNodeContent(ifacesNode, *c.fCtx.SourceBytes)
+			heritage += " " + helper.GetNodeContent(ifacesNode, *c.fCtx.SourceBytes())
 		}
 	}
 

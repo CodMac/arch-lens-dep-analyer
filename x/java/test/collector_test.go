@@ -161,7 +161,7 @@ type ImportWant struct {
 
 // assertImports 断言某文件 Imports 表包含全部预期条目（顺序无关）。
 // relPath 使用正斜杠分隔（如 "collector/import/ImportTest.java"），跨平台安全。
-func assertImports(t *testing.T, gc *core.GlobalContext, relPath string, wants []ImportWant) {
+func assertImports(t *testing.T, gc core.GlobalContext, relPath string, wants []ImportWant) {
 	t.Helper()
 	fc, ok := findFileCtx(gc, relPath)
 	if !ok {
@@ -170,7 +170,7 @@ func assertImports(t *testing.T, gc *core.GlobalContext, relPath string, wants [
 	matched := make(map[string]bool, len(wants))
 	for _, w := range wants {
 		found := false
-		for _, info := range fc.Imports[w.Alias] {
+		for _, info := range fc.Imports()[w.Alias] {
 			if info.RawImportPath == w.RawPath && info.Kind == w.Kind && info.IsStatic == w.Static && info.IsWildcard == w.Wildcard {
 				found = true
 				break
@@ -184,7 +184,7 @@ func assertImports(t *testing.T, gc *core.GlobalContext, relPath string, wants [
 		matched[w.Alias+"|"+w.RawPath] = true
 	}
 	// 反向校验：Imports 表不包含多余条目。
-	for alias, infos := range fc.Imports {
+	for alias, infos := range fc.Imports() {
 		for _, info := range infos {
 			key := alias + "|" + info.RawImportPath
 			if !matched[key] {
@@ -196,7 +196,7 @@ func assertImports(t *testing.T, gc *core.GlobalContext, relPath string, wants [
 }
 
 // findFileCtx 按相对路径（正斜杠）查找文件上下文，兼容 Windows 反斜杠分隔。
-func findFileCtx(gc *core.GlobalContext, relPath string) (*core.FileContext, bool) {
+func findFileCtx(gc core.GlobalContext, relPath string) (core.FileContext, bool) {
 	want := filepath.ToSlash(relPath)
 	for key, fc := range gc.FileContexts() {
 		if filepath.ToSlash(key) == want {
@@ -207,7 +207,7 @@ func findFileCtx(gc *core.GlobalContext, relPath string) (*core.FileContext, boo
 }
 
 // findFile 在全局上下文中按文件名查找 FILE 元素。
-func findFile(t *testing.T, gc *core.GlobalContext, name string) *model.CodeElement {
+func findFile(t *testing.T, gc core.GlobalContext, name string) *model.CodeElement {
 	t.Helper()
 	for _, def := range gc.Definitions() {
 		if def.Element.Kind == model.File && def.Element.Name == name {
@@ -621,7 +621,7 @@ func TestCollectorS4NestedStructure(t *testing.T) {
 }
 
 // assertImplicitCtor 断言某构造器 QN 存在且为隐式合成构造器。
-func assertImplicitCtor(t *testing.T, gc *core.GlobalContext, ctorQN string) {
+func assertImplicitCtor(t *testing.T, gc core.GlobalContext, ctorQN string) {
 	t.Helper()
 	AssertDef(t, gc, ctorQN, model.Method)
 	AssertMores(t, gc, ctorQN, constants.MethodIsConstructor, true)
@@ -1166,7 +1166,7 @@ func TestCollectorS8Metrics(t *testing.T) {
 }
 
 // assertFileLOC 断言指定文件名 FILE 元素的 LOC 数值。
-func assertFileLOC(t *testing.T, gc *core.GlobalContext, name string, loc, locRaw int) {
+func assertFileLOC(t *testing.T, gc core.GlobalContext, name string, loc, locRaw int) {
 	t.Helper()
 	f := findFile(t, gc, name)
 	AssertMores(t, gc, f.QualifiedName, constants.FileLOC, loc)

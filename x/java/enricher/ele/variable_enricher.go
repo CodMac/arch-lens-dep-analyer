@@ -13,12 +13,12 @@ import (
 
 // VariableEnricher 为局部变量/参数生成签名与类型元数据。
 type VariableEnricher struct {
-	fCtx *core.FileContext
+	fCtx core.FileContext
 }
 
 // EnrichMetadata 填充变量级 Mores（类型、final、是否参数）与 Signature。
 func (c *VariableEnricher) EnrichMetadata(elem *model.CodeElement, node coreast.Node) {
-	srcs := c.fCtx.SourceBytes
+	srcs := c.fCtx.SourceBytes()
 	extra := elem.Extra
 	mods := elem.Extra.Modifiers
 

@@ -10,7 +10,7 @@ import (
 
 // AnonymousClassEnricher 为匿名内部类生成父类型元数据。
 type AnonymousClassEnricher struct {
-	fCtx *core.FileContext
+	fCtx core.FileContext
 }
 
 // EnrichMetadata 提取 new 关键字后的父类型并构造 Signature。
@@ -25,7 +25,7 @@ func (c *AnonymousClassEnricher) EnrichMetadata(elem *model.CodeElement, node co
 	// 提取 new 关键字后的类型，例如 new Runnable() { ... } 中的 Runnable
 	typeNode := node.ChildByFieldName("type")
 	if typeNode != nil {
-		typeName := helper.GetNodeContent(typeNode, *c.fCtx.SourceBytes)
+		typeName := helper.GetNodeContent(typeNode, *c.fCtx.SourceBytes())
 		extra.Mores[constants.AnonymousClassType] = typeName
 		elem.Signature = "anonymous extends/implements " + typeName
 	}

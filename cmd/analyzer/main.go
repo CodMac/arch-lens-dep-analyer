@@ -9,12 +9,14 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/engine"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/output"
+	_ "github.com/CodMac/arch-lens-dep-analyer/x/cpp"  // 注册 C/C++ 语言实现
 	_ "github.com/CodMac/arch-lens-dep-analyer/x/java" // 注册 Java 语言实现
 )
 
@@ -113,9 +115,19 @@ func runExport(cfg Config, ec *engine.EngineContext) (int, int, error) {
 }
 
 // scanFiles 按正则过滤扫描目录下的源文件。
+// 未指定 filter 时，按语言的扩展名列表生成默认正则（多扩展名语言如 C/C++ 需一次匹配多个扩展名）。
 func scanFiles(rootPath, filter, lang string) ([]string, error) {
 	if filter == "" {
-		filter = fmt.Sprintf(`.*\.%s$`, lang)
+		exts, ok := langExtensions[lang]
+		if !ok {
+			// 未登记语言沿用历史行为：lang 值即扩展名。
+			exts = []string{lang}
+		}
+		quoted := make([]string, 0, len(exts))
+		for _, ext := range exts {
+			quoted = append(quoted, regexp.QuoteMeta(strings.TrimPrefix(ext, ".")))
+		}
+		filter = fmt.Sprintf(`.*\.(%s)$`, strings.Join(quoted, "|"))
 	}
 	re, err := regexp.Compile(filter)
 	if err != nil {
@@ -138,4 +150,12 @@ func scanFiles(rootPath, filter, lang string) ([]string, error) {
 func exitWithError(msg string, err error) {
 	fmt.Fprintf(os.Stderr, "❌ %s: %v\n", msg, err)
 	os.Exit(1)
+}
+
+// langExtensions 各语言的默认源文件扩展名列表（无自定义 filter 时的扫描依据）。
+var langExtensions = map[string][]string{
+	"java": {".java"},
+	"go":   {".go"},
+	"c":    {".c", ".h"},
+	"cpp":  {".cpp", ".hpp", ".cc", ".cxx", ".h"},
 }

@@ -38,7 +38,7 @@ func New() *Extractor {
 // =============================================================================
 
 // Extract 提取指定文件（相对路径）的全部依赖关系。
-func (e *Extractor) Extract(relPath string, gc *core.GlobalContext) ([]*model.DependencyRelation, error) {
+func (e *Extractor) Extract(relPath string, gc core.GlobalContext) ([]*model.DependencyRelation, error) {
 	fCtx, ok := gc.FileContext(relPath)
 	if !ok {
 		return nil, fmt.Errorf("file context not found: %s", relPath)
@@ -72,13 +72,13 @@ func (e *Extractor) Extract(relPath string, gc *core.GlobalContext) ([]*model.De
 }
 
 // extractHierarchy 提取 Import 与 Contain 关系。
-func (e *Extractor) extractHierarchy(fCtx *core.FileContext, gc *core.GlobalContext) []*model.DependencyRelation {
+func (e *Extractor) extractHierarchy(fCtx core.FileContext, gc core.GlobalContext) []*model.DependencyRelation {
 	var rels []*model.DependencyRelation
 
-	fileDef, ok := gc.FindByQualifiedName(fCtx.FilePath)
+	fileDef, ok := gc.FindByQualifiedName(fCtx.FilePath())
 	if ok {
 		fileSource := fileDef.Element
-		for _, imports := range fCtx.Imports {
+		for _, imports := range fCtx.Imports() {
 			for _, imp := range imports {
 				target := e.resolver.ResolveType(gc, fCtx, imp.RawImportPath, imp.Kind)
 				rels = append(rels, &model.DependencyRelation{
@@ -88,7 +88,7 @@ func (e *Extractor) extractHierarchy(fCtx *core.FileContext, gc *core.GlobalCont
 		}
 	}
 
-	for _, entry := range fCtx.Definitions {
+	for _, entry := range fCtx.Definitions() {
 		if entry.ParentQN != "" {
 			if parent, ok := gc.FindByQualifiedName(entry.ParentQN); ok {
 				rels = append(rels, &model.DependencyRelation{Type: model.Contain, Source: parent.Element, Target: entry.Element})
@@ -99,9 +99,9 @@ func (e *Extractor) extractHierarchy(fCtx *core.FileContext, gc *core.GlobalCont
 }
 
 // extractStructural 提取 Extend/Implement/Annotation/Parameter/Return/Throw/TypeArg。
-func (e *Extractor) extractStructural(fCtx *core.FileContext, gc *core.GlobalContext) []*model.DependencyRelation {
+func (e *Extractor) extractStructural(fCtx core.FileContext, gc core.GlobalContext) []*model.DependencyRelation {
 	var rels []*model.DependencyRelation
-	for _, entry := range fCtx.Definitions {
+	for _, entry := range fCtx.Definitions() {
 		elem := entry.Element
 		if elem.Extra == nil {
 			continue
@@ -231,7 +231,7 @@ func (e *Extractor) extractStructural(fCtx *core.FileContext, gc *core.GlobalCon
 }
 
 // discoverActionRelations 执行动作查询，映射为动作关系。
-func (e *Extractor) discoverActionRelations(fCtx *core.FileContext, gc *core.GlobalContext) ([]*model.DependencyRelation, error) {
+func (e *Extractor) discoverActionRelations(fCtx core.FileContext, gc core.GlobalContext) ([]*model.DependencyRelation, error) {
 	lang := sitter.NewLanguage(treeSitterJava.Language())
 	q, qErr := sitter.NewQuery(lang, query.JavaActionQuery)
 	if qErr != nil {
@@ -241,8 +241,8 @@ func (e *Extractor) discoverActionRelations(fCtx *core.FileContext, gc *core.Glo
 
 	var rels []*model.DependencyRelation
 	qc := sitter.NewQueryCursor()
-	root := javast.Unwrap(fCtx.Root)
-	matches := qc.Matches(q, root, *fCtx.SourceBytes)
+	root := javast.Unwrap(fCtx.Root())
+	matches := qc.Matches(q, root, *fCtx.SourceBytes())
 
 	for {
 		match := matches.Next()
@@ -279,7 +279,7 @@ func (e *Extractor) discoverActionRelations(fCtx *core.FileContext, gc *core.Glo
 					Type:     at.RelType,
 					Source:   sourceElem,
 					Target:   at.Target, // 使用 mapAction resolve 好的对象
-					Location: helper.ExtractLocation(at.TargetNode, fCtx.FilePath),
+					Location: helper.ExtractLocation(at.TargetNode, fCtx.FilePath()),
 				}
 				// 私有临时字段传递 AST 节点（enricher 阶段消费，流水线末尾清理）。
 				relObj.SetTmpNode(at.TargetNode)
@@ -292,7 +292,7 @@ func (e *Extractor) discoverActionRelations(fCtx *core.FileContext, gc *core.Glo
 }
 
 // enrichRelMetadata 对动作/结构关系做类型级元数据增强。
-func (e *Extractor) enrichRelMetadata(enhanceTargets []*model.DependencyRelation, fCtx *core.FileContext, gc *core.GlobalContext) {
+func (e *Extractor) enrichRelMetadata(enhanceTargets []*model.DependencyRelation, fCtx core.FileContext, gc core.GlobalContext) {
 	enricher := rel.NewEnricher(e.resolver, fCtx, gc)
 
 	for _, relObj := range enhanceTargets {
@@ -305,7 +305,7 @@ func (e *Extractor) enrichRelMetadata(enhanceTargets []*model.DependencyRelation
 // =============================================================================
 
 // determinePreciseSource 向上定位关系发起者（方法/块/Lambda/字段/枚举常量/类型级注解宿主）。
-func (e *Extractor) determinePreciseSource(n coreast.Node, fCtx *core.FileContext, gc *core.GlobalContext) *model.CodeElement {
+func (e *Extractor) determinePreciseSource(n coreast.Node, fCtx core.FileContext, gc core.GlobalContext) *model.CodeElement {
 	for curr := n.Parent(); curr != nil; curr = curr.Parent() {
 
 		// 行号（仅作为节点区间匹配的兜底）
@@ -417,7 +417,7 @@ type ActionTarget struct {
 }
 
 // mapAction 依据捕获名将动作节点映射为关系目标。
-func (e *Extractor) mapAction(capName string, node coreast.Node, fCtx *core.FileContext, gc *core.GlobalContext) []ActionTarget {
+func (e *Extractor) mapAction(capName string, node coreast.Node, fCtx core.FileContext, gc core.GlobalContext) []ActionTarget {
 	var ctxNode coreast.Node
 
 	switch capName {
@@ -619,7 +619,7 @@ func (e *Extractor) isUseRel(node coreast.Node, target *model.CodeElement) bool 
 
 // resolveTypeForElement 解析类型名，优先使用 Binder 已消解的作用域 QN（MethodReturnTypeWithQN），
 // 避免短名（如嵌套 Builder）经 FindByShortName 命中错误的同名外层类。
-func (e *Extractor) resolveTypeForElement(gc *core.GlobalContext, fCtx *core.FileContext, elem *model.CodeElement, raw string) *model.CodeElement {
+func (e *Extractor) resolveTypeForElement(gc core.GlobalContext, fCtx core.FileContext, elem *model.CodeElement, raw string) *model.CodeElement {
 	if elem != nil && elem.Extra != nil {
 		if qn, ok := elem.Extra.Mores[constants.MethodReturnTypeWithQN].(string); ok && qn != "" {
 			if entry, found := gc.FindByQualifiedName(qn); found {

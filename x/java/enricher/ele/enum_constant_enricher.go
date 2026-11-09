@@ -10,12 +10,12 @@ import (
 
 // EnumConstantEnricher 为枚举常量生成构造参数元数据。
 type EnumConstantEnricher struct {
-	fCtx *core.FileContext
+	fCtx core.FileContext
 }
 
 // EnrichMetadata 填充枚举常量 Mores（构造参数列表）与 Signature。
 func (c *EnumConstantEnricher) EnrichMetadata(elem *model.CodeElement, node coreast.Node) {
-	srcs := c.fCtx.SourceBytes
+	srcs := c.fCtx.SourceBytes()
 	extra := elem.Extra
 
 	if argList := helper.FindNamedChildOfType(node, "argument_list"); argList != nil {

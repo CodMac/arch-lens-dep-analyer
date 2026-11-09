@@ -12,12 +12,12 @@ import (
 
 // LambdaEnricher 为 Lambda 表达式生成参数/主体形态与签名。
 type LambdaEnricher struct {
-	fCtx *core.FileContext
+	fCtx core.FileContext
 }
 
 // EnrichMetadata 填充 Lambda 级 Mores（参数文本、主体是否块、复杂度）与 Signature。
 func (c *LambdaEnricher) EnrichMetadata(elem *model.CodeElement, node coreast.Node) {
-	srcs := c.fCtx.SourceBytes
+	srcs := c.fCtx.SourceBytes()
 	extra := elem.Extra
 
 	// 1. 提取参数部分

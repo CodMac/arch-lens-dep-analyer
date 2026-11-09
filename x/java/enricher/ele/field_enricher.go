@@ -13,12 +13,12 @@ import (
 
 // FieldEnricher 为成员字段生成签名与类型/修饰符元数据。
 type FieldEnricher struct {
-	fCtx *core.FileContext
+	fCtx core.FileContext
 }
 
 // EnrichMetadata 填充字段级 Mores（类型、static/final/常量）与 Signature。
 func (c *FieldEnricher) EnrichMetadata(elem *model.CodeElement, node coreast.Node) {
-	srcs := c.fCtx.SourceBytes
+	srcs := c.fCtx.SourceBytes()
 	extra := elem.Extra
 	mods := elem.Extra.Modifiers
 

@@ -15,8 +15,8 @@ type DerivedExtractor interface {
 
 // Context 派生提取上下文。
 type Context struct {
-	GC       *core.GlobalContext
-	FC       *core.FileContext
+	GC       core.GlobalContext
+	FC       core.FileContext
 	Resolver core.SymbolResolver
 	Deps     []*model.DependencyRelation // 已提取并经元数据增强的源关系（Capture 消费 is_capture）
 }

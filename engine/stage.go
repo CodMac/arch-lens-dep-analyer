@@ -64,10 +64,10 @@ func (s *CollectorStage) Execute(ec *EngineContext) error {
 //   - 各 Import 记录的 Location.FilePath（collector 阶段记录的是扫描时的绝对路径）
 //
 // 语言 SPI（Collector）不感知项目根，相对化是引擎的编排职责。
-func normalizeFilePath(fc *core.FileContext, relPath string) {
+func normalizeFilePath(fc core.FileContext, relPath string) {
 	slashRel := filepath.ToSlash(relPath)
-	fc.FilePath = slashRel
-	for _, def := range fc.Definitions {
+	fc.SetFilePath(slashRel)
+	for _, def := range fc.Definitions() {
 		el := def.Element
 		if el == nil {
 			continue
@@ -80,7 +80,7 @@ func normalizeFilePath(fc *core.FileContext, relPath string) {
 			el.Location.FilePath = slashRel
 		}
 	}
-	for _, imps := range fc.Imports {
+	for _, imps := range fc.Imports() {
 		for _, imp := range imps {
 			if imp.Location != nil {
 				imp.Location.FilePath = slashRel

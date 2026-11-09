@@ -22,7 +22,7 @@ func IsScopeContainer(k model.ElementKind) bool {
 
 // PreciseResolve 根据 symbol 查找符号定义（4 级检索）。
 // v2 中 GlobalContext 内部自加锁，此处不再持锁（避免嵌套锁死锁）。
-func PreciseResolve(gc *core.GlobalContext, fc *core.FileContext, symbol string) []*core.DefinitionEntry {
+func PreciseResolve(gc core.GlobalContext, fc core.FileContext, symbol string) []*core.DefinitionEntry {
 	// 短符号，文件内查找
 	if defs, ok := fc.FindByShortName(symbol); ok {
 		return defs
@@ -33,7 +33,7 @@ func PreciseResolve(gc *core.GlobalContext, fc *core.FileContext, symbol string)
 	// 即便其 QN 未收录进 GlobalContext（外部库），也【不得回退】到同包/
 	// 裸全局查找——直接返回 nil，由调用方（ResolveType）外部兜底用 import
 	// 包前缀分配归属（如 io.r2dbc.spi.Parameter）。
-	if imps, ok := fc.Imports[symbol]; ok {
+	if imps, ok := fc.Imports()[symbol]; ok {
 		found := false
 		for _, imp := range imps {
 			if imp.IsWildcard {
@@ -50,13 +50,13 @@ func PreciseResolve(gc *core.GlobalContext, fc *core.FileContext, symbol string)
 	}
 
 	// 短符号，包内查找
-	pkgQN := gc.BuildQualifiedName(fc.PackageName, symbol)
+	pkgQN := gc.BuildQualifiedName(fc.PackageName(), symbol)
 	if def, ok := gc.FindByQualifiedName(pkgQN); ok {
 		return []*core.DefinitionEntry{def}
 	}
 
 	// 短符号，升级为匹配式 QN，全局查找（通配符导入）
-	for _, imps := range fc.Imports {
+	for _, imps := range fc.Imports() {
 		for _, imp := range imps {
 			if imp.IsWildcard {
 				basePath := strings.TrimSuffix(imp.RawImportPath, "*")
@@ -86,7 +86,7 @@ func PreciseResolve(gc *core.GlobalContext, fc *core.FileContext, symbol string)
 // 从右向左尝试每个拆分点：拆为 outer + "." + suffix，先按标准检索解析 outer（短名/
 // import/包内/通配符/全局），再在 outer 解析 QN 下拼 suffix 查全局定义。
 // 递归调用 PreciseResolve 处理多级嵌套（外层自身可能也是嵌套名），字符串逐级缩短保证终止。
-func resolveDottedNested(gc *core.GlobalContext, fc *core.FileContext, symbol string) *core.DefinitionEntry {
+func resolveDottedNested(gc core.GlobalContext, fc core.FileContext, symbol string) *core.DefinitionEntry {
 	for i := len(symbol) - 1; i > 0; i-- {
 		if symbol[i] != '.' {
 			continue
@@ -117,7 +117,7 @@ func resolveDottedNested(gc *core.GlobalContext, fc *core.FileContext, symbol st
 // scope 直接子成员，且必须是类型 kind，排除构造器 Method/字段等同名非类型）-> 未命中沿
 // 词法外层类回溯 -> 全部未命中返回 nil（由调用方保持 [0] 原语义，外部兜底不受影响）。
 // 注意：仅当 node 非空且候选多于 1 个时启用消歧；单一定义 / 无 node 时原样返回候选。
-func ResolveInScope(gc *core.GlobalContext, fc *core.FileContext, node coreast.Node, defs []*core.DefinitionEntry) []*core.DefinitionEntry {
+func ResolveInScope(gc core.GlobalContext, fc core.FileContext, node coreast.Node, defs []*core.DefinitionEntry) []*core.DefinitionEntry {
 	if len(defs) <= 1 || node == nil {
 		return defs
 	}
@@ -166,7 +166,7 @@ func ResolveInScope(gc *core.GlobalContext, fc *core.FileContext, node coreast.N
 // 注意：引擎 normalizeFilePath 会把 elem.Path 相对化为 gc.FileContext key；但测试
 // helper（RunExtraction）只相对化 fc.FilePath，元素 Path 仍为绝对路径。此处先按
 // key 精确查找，miss 时按文件 basename 兜底反查（绝对/相对路径 basename 一致）。
-func ResolveInheritanceParent(gc *core.GlobalContext, fc *core.FileContext, elem *model.CodeElement, name string) []*core.DefinitionEntry {
+func ResolveInheritanceParent(gc core.GlobalContext, fc core.FileContext, elem *model.CodeElement, name string) []*core.DefinitionEntry {
 	// 1. 优先用元素所在文件解析：elem.Path 与 gc.FileContext key 一致（真实引擎）。
 	//    注意：parentFC == fc 时（elem 就在调用方文件）【不得】跳过——此时应继续用
 	//    elem 所在文件解析，而不是落入 basename 兜底（全量多同名文件时 basename 可能
@@ -206,14 +206,14 @@ func isTypeKind(k model.ElementKind) bool {
 }
 
 // GetBestElement 根据 node 所在行与 kinds，匹配合适的 Element。
-func GetBestElement(fc *core.FileContext, node coreast.Node, kinds []model.ElementKind) *model.CodeElement {
+func GetBestElement(fc core.FileContext, node coreast.Node, kinds []model.ElementKind) *model.CodeElement {
 	if node == nil {
 		return nil
 	}
 	var best *model.CodeElement
 	var minSize = 1 << 30
 	row := int(node.StartPoint().Row + 1)
-	for _, entry := range fc.Definitions {
+	for _, entry := range fc.Definitions() {
 		if slices.Contains(kinds, entry.Element.Kind) {
 			loc := entry.Element.Location
 			if loc != nil && row >= loc.StartLine && row <= loc.EndLine {
@@ -228,7 +228,7 @@ func GetBestElement(fc *core.FileContext, node coreast.Node, kinds []model.Eleme
 }
 
 // GetRealPackage 获得 Element 的包名。
-func GetRealPackage(gc *core.GlobalContext, elem *model.CodeElement) string {
+func GetRealPackage(gc core.GlobalContext, elem *model.CodeElement) string {
 	curr := elem.QualifiedName
 	for {
 		idx := strings.LastIndex(curr, ".")
@@ -248,7 +248,7 @@ func GetRealPackage(gc *core.GlobalContext, elem *model.CodeElement) string {
 }
 
 // GetOwnerClassQN 获得 Element 的持有类 QN。
-func GetOwnerClassQN(gc *core.GlobalContext, elem *model.CodeElement) string {
+func GetOwnerClassQN(gc core.GlobalContext, elem *model.CodeElement) string {
 	curr := elem
 	for curr != nil {
 		if curr.Kind == model.Class || curr.Kind == model.Interface || curr.Kind == model.AnonymousClass {
@@ -266,7 +266,7 @@ func GetOwnerClassQN(gc *core.GlobalContext, elem *model.CodeElement) string {
 }
 
 // GetOwnerClass 获得 Element 的持有类 CodeElement。
-func GetOwnerClass(gc *core.GlobalContext, elem *model.CodeElement) *model.CodeElement {
+func GetOwnerClass(gc core.GlobalContext, elem *model.CodeElement) *model.CodeElement {
 	qn := GetOwnerClassQN(gc, elem)
 	if qn == "" {
 		return nil
@@ -319,11 +319,11 @@ func FindNamedChildOfType(node coreast.Node, nodeType string) coreast.Node {
 }
 
 // IsSubClassOf 判断 srcQN 类是否为 superQN 的子类（含自身）。
-func IsSubClassOf(gc *core.GlobalContext, fc *core.FileContext, srcQN, superQN string) bool {
+func IsSubClassOf(gc core.GlobalContext, fc core.FileContext, srcQN, superQN string) bool {
 	return isSubClassOfRecursive(gc, fc, srcQN, superQN, make(map[string]bool))
 }
 
-func isSubClassOfRecursive(gc *core.GlobalContext, fc *core.FileContext, srcQN, superQN string, visited map[string]bool) bool {
+func isSubClassOfRecursive(gc core.GlobalContext, fc core.FileContext, srcQN, superQN string, visited map[string]bool) bool {
 	if srcQN == "" || superQN == "" || visited[srcQN] {
 		return false
 	}

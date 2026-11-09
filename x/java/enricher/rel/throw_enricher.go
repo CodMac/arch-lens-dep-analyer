@@ -10,8 +10,8 @@ import (
 // ThrowEnricher 为异常抛出关系（Throw）识别运行时异常/重抛/签名声明。
 type ThrowEnricher struct {
 	resolver core.SymbolResolver
-	fCtx     *core.FileContext
-	gCtx     *core.GlobalContext
+	fCtx     core.FileContext
+	gCtx     core.GlobalContext
 }
 
 // EnrichMetadata 依据触发节点形态区分 throw 语句与 throws 签名声明。

@@ -11,6 +11,8 @@ type Language string
 const (
 	LangJava Language = "java"
 	LangGo   Language = "go"
+	LangC    Language = "c"
+	LangCPP  Language = "cpp"
 )
 
 // FilterLevel 表示噪音过滤等级。

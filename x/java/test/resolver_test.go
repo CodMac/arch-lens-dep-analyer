@@ -74,7 +74,7 @@ func findNodeByTextOccurrence(t *testing.T, src coreast.SourceFile, want string,
 
 // assertResolve 调用 ResolveAction 并断言返回元素的精确 QN / Kind / IsFormExternal。
 // wantQN 传空串表示只断言非空；wantKind 传空串表示不校验 kind。
-func assertResolve(t *testing.T, gc *core.GlobalContext, fc *core.FileContext, node coreast.Node, relTyp model.DependencyType, wantQN string, wantKind model.ElementKind, wantExternal bool) {
+func assertResolve(t *testing.T, gc core.GlobalContext, fc core.FileContext, node coreast.Node, relTyp model.DependencyType, wantQN string, wantKind model.ElementKind, wantExternal bool) {
 	t.Helper()
 	elem := resolveAction(t, gc, fc, node, relTyp)
 	if elem == nil {
@@ -94,7 +94,7 @@ func assertResolve(t *testing.T, gc *core.GlobalContext, fc *core.FileContext, n
 
 // assertResolvePkg 在 assertResolve 基础上追加 PackageName 断言。
 // 用于验证本次缺陷修复：外部裸名符号 PackageName=<external>，import 补全符号带包前缀。
-func assertResolvePkg(t *testing.T, gc *core.GlobalContext, fc *core.FileContext, node coreast.Node, relTyp model.DependencyType, wantQN string, wantKind model.ElementKind, wantExternal bool, wantPkg string) {
+func assertResolvePkg(t *testing.T, gc core.GlobalContext, fc core.FileContext, node coreast.Node, relTyp model.DependencyType, wantQN string, wantKind model.ElementKind, wantExternal bool, wantPkg string) {
 	t.Helper()
 	elem := resolveAction(t, gc, fc, node, relTyp)
 	if elem == nil {
@@ -211,8 +211,8 @@ func TestResolverAllActions(t *testing.T) {
 
 // callSuite 解析 CallRelationSuite 并返回共享上下文（gc/fc/src 已就绪）。
 type callSuite struct {
-	gc  *core.GlobalContext
-	fc  *core.FileContext
+	gc  core.GlobalContext
+	fc  core.FileContext
 	src coreast.SourceFile
 }
 
@@ -364,7 +364,7 @@ func resolverSuite(t *testing.T, dirs ...string) *callSuite {
 }
 
 // mustFileContext 按路径取 FileContext，找不到则 fatal。
-func mustFileContext(t *testing.T, gc *core.GlobalContext, path string) *core.FileContext {
+func mustFileContext(t *testing.T, gc core.GlobalContext, path string) core.FileContext {
 	t.Helper()
 	fc, ok := gc.FileContext(relOf(t, "x/java/testdata", path))
 	if !ok {
@@ -800,7 +800,7 @@ func TestResolverNestedTypeName(t *testing.T) {
 	localFc := mustFileContext(t, gc, findPathByBase(t, paths, "SelfQualifiedImpl.java"))
 
 	cases := []struct {
-		fc       *core.FileContext
+		fc       core.FileContext
 		symbol   string
 		wantQN   string
 		wantKind model.ElementKind
@@ -815,7 +815,7 @@ func TestResolverNestedTypeName(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		got := gc.Resolver.ResolveType(gc, c.fc, c.symbol, model.Interface)
+		got := gc.Resolver().ResolveType(gc, c.fc, c.symbol, model.Interface)
 		if got == nil {
 			t.Errorf("ResolveType(%q) = nil, want internal %s", c.symbol, c.wantQN)
 			continue
@@ -827,7 +827,7 @@ func TestResolverNestedTypeName(t *testing.T) {
 	}
 
 	// 对照：外层裸短名仍能解析（回归防护）。
-	if got := gc.Resolver.ResolveType(gc, baseFc, "CodecConfigurer", model.Interface); got == nil || got.QualifiedName != "com.example.rel.implement.case1.codec.CodecConfigurer" {
+	if got := gc.Resolver().ResolveType(gc, baseFc, "CodecConfigurer", model.Interface); got == nil || got.QualifiedName != "com.example.rel.implement.case1.codec.CodecConfigurer" {
 		t.Errorf("ResolveType(CodecConfigurer) = %v, want internal CodecConfigurer", got)
 	}
 }
@@ -862,12 +862,12 @@ func TestResolverPackageName(t *testing.T) {
 	genericPath := findPathByBase(t, paths, "GenericTest.java")
 	fc := mustFileContext(t, gc, genericPath)
 	for _, v := range []string{"E", "T", "?"} {
-		if got := gc.Resolver.ResolveType(gc, fc, v, model.Class); got != nil {
+		if got := gc.Resolver().ResolveType(gc, fc, v, model.Class); got != nil {
 			t.Errorf("ResolveType(%q) = %v (QN=%q), want nil (generic var/wildcard not a real dependency)", v, got, got.QualifiedName)
 		}
 	}
 	// 对照：真实外部类型 Serializable（import java.io.Serializable）仍产外部 Class 并补全 QN。
-	ser := gc.Resolver.ResolveType(gc, fc, "Serializable", model.Class)
+	ser := gc.Resolver().ResolveType(gc, fc, "Serializable", model.Class)
 	if ser == nil {
 		t.Error("ResolveType(Serializable) = nil, want external Class (real dependency)")
 	} else if ser.QualifiedName != "java.io.Serializable" || ser.PackageName != "java.io" {
@@ -960,9 +960,9 @@ func TestResolverD1DuplicateNestedType(t *testing.T) {
 }
 
 // resolveAction 调用 SymbolResolver.ResolveAction 并返回目标元素。
-func resolveAction(t *testing.T, gc *core.GlobalContext, fc *core.FileContext, node coreast.Node, relTyp model.DependencyType) *model.CodeElement {
+func resolveAction(t *testing.T, gc core.GlobalContext, fc core.FileContext, node coreast.Node, relTyp model.DependencyType) *model.CodeElement {
 	t.Helper()
-	resolver := gc.Resolver
+	resolver := gc.Resolver()
 	return resolver.ResolveAction(gc, fc, node, relTyp)
 }
 

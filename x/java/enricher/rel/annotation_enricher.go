@@ -11,8 +11,8 @@ import (
 // AnnotationEnricher 为注解关系（Annotation）映射注解目标并修正 Target 名。
 type AnnotationEnricher struct {
 	resolver core.SymbolResolver
-	fCtx     *core.FileContext
-	gCtx     *core.GlobalContext
+	fCtx     core.FileContext
+	gCtx     core.GlobalContext
 }
 
 // EnrichMetadata 将 Source 元素类型映射为注解目标，并去除 Target 的括号后缀。

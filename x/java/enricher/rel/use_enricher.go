@@ -12,14 +12,14 @@ import (
 // UseEnricher 为使用关系（Use）提取接收者/上下文/跨作用域捕获等元数据。
 type UseEnricher struct {
 	resolver core.SymbolResolver
-	fCtx     *core.FileContext
-	gCtx     *core.GlobalContext
+	fCtx     core.FileContext
+	gCtx     core.GlobalContext
 }
 
 // EnrichMetadata 填充 Use 关系的目标名、上下文、receiver 与捕获判定。
 func (e *UseEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 	node, _, ctx := GetRelTmpValue(rel)
-	src := *e.fCtx.SourceBytes
+	src := *e.fCtx.SourceBytes()
 
 	if node == nil || ctx == nil {
 		return

@@ -32,6 +32,10 @@ const (
 	Method     ElementKind = "METHOD"      // 类/结构体的方法
 	Macro      ElementKind = "MACRO"       // 预处理器宏 (C/C++)
 
+	// --- 声明（无实现体，与对应定义 kind 成对） ---
+	FunctionDecl ElementKind = "FUNCTION_DECL" // 独立函数声明 (C/C++ 头文件原型)
+	MethodDecl   ElementKind = "METHOD_DECL"   // 类/结构体方法声明 (C++ 头文件成员声明)
+
 	// --- 存储和声明 ---
 	Variable ElementKind = "VARIABLE" // 局部/全局变量
 	Constant ElementKind = "CONSTANT" // 常量

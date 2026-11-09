@@ -12,12 +12,12 @@ import (
 
 // AnnotationMemberEnricher 为注解类型中的元素方法生成默认值与签名。
 type AnnotationMemberEnricher struct {
-	fCtx *core.FileContext
+	fCtx core.FileContext
 }
 
 // EnrichMetadata 填充注解元素 Mores（是否注解方法、默认值）与 Signature。
 func (e *AnnotationMemberEnricher) EnrichMetadata(elem *model.CodeElement, node coreast.Node) {
-	srcs := e.fCtx.SourceBytes
+	srcs := e.fCtx.SourceBytes()
 
 	elem.Extra.Mores[constants.MethodIsAnnotation] = true
 

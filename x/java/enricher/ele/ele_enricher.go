@@ -18,12 +18,12 @@ type IEnricher interface {
 
 // Enricher 按 ElementKind 分派到具体的元素增强器。
 type Enricher struct {
-	fCtx        *core.FileContext
+	fCtx        core.FileContext
 	enricherMap map[model.ElementKind]IEnricher
 }
 
 // NewEnricher 创建元素元数据增强器（注册全部 Java 元素类型）。
-func NewEnricher(fCtx *core.FileContext) *Enricher {
+func NewEnricher(fCtx core.FileContext) *Enricher {
 	enricherMap := make(map[model.ElementKind]IEnricher)
 	enricherMap[model.File] = &FileEnricher{fCtx: fCtx}
 	enricherMap[model.Class] = &ClassEnricher{fCtx: fCtx}
@@ -45,7 +45,7 @@ func NewEnricher(fCtx *core.FileContext) *Enricher {
 
 // EnrichMetadata 为一个定义填充通用元数据并按类型分派。
 func (e *Enricher) EnrichMetadata(entry *core.DefinitionEntry) {
-	srcs := e.fCtx.SourceBytes
+	srcs := e.fCtx.SourceBytes()
 	elem := entry.Element
 	node := entry.Node
 

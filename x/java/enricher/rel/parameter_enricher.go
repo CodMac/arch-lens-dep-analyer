@@ -11,8 +11,8 @@ import (
 // ParameterEnricher 为参数类型关系（Parameter）匹配签名参数索引与名称。
 type ParameterEnricher struct {
 	resolver core.SymbolResolver
-	fCtx     *core.FileContext
-	gCtx     *core.GlobalContext
+	fCtx     core.FileContext
+	gCtx     core.GlobalContext
 }
 
 // EnrichMetadata 在 Source 方法的参数列表中定位目标参数的位置与形态。

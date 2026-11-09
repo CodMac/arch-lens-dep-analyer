@@ -8,5 +8,5 @@ import (
 // 该阶段在文件级并行执行。
 type Extractor interface {
 	// Extract 提取指定文件（相对路径）的全部依赖关系。
-	Extract(relPath string, ctx *GlobalContext) ([]*model.DependencyRelation, error)
+	Extract(relPath string, ctx GlobalContext) ([]*model.DependencyRelation, error)
 }

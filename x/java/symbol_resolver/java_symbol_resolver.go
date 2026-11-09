@@ -34,7 +34,7 @@ func (r *SymbolResolver) BuildQualifiedName(parentQN, name string) string {
 }
 
 // RegisterPackage 注册包：将点号包名拆分为逐级包元素。
-func (r *SymbolResolver) RegisterPackage(gc *core.GlobalContext, packageName string) {
+func (r *SymbolResolver) RegisterPackage(gc core.GlobalContext, packageName string) {
 	parts := strings.Split(packageName, ".")
 	var current []string
 	for _, part := range parts {
@@ -63,7 +63,7 @@ func (r *SymbolResolver) IsPrimitive(typeName string) bool {
 // ResolveType 解析结构体符号，上下文未找到则返回指定 kind 的外部实体。
 // 分类处理：基本类型产 PRIMITIVE 元素；泛型类型变量/通配符不产外部（非类型依赖）；
 // 其余外部符号按 import 表分配 PackageName（无 import 则归 <external>）。
-func (r *SymbolResolver) ResolveType(gc *core.GlobalContext, fc *core.FileContext, symbol string, kind model.ElementKind) *model.CodeElement {
+func (r *SymbolResolver) ResolveType(gc core.GlobalContext, fc core.FileContext, symbol string, kind model.ElementKind) *model.CodeElement {
 	symbol = helper.Clean(symbol)
 	if symbol == "" || symbol == "?" {
 		return nil
@@ -86,7 +86,7 @@ func (r *SymbolResolver) ResolveType(gc *core.GlobalContext, fc *core.FileContex
 	// ③ 外部兜底：分配包归属。有 import 用 import 包前缀，否则归 <external>。
 	qualifiedName := symbol
 	pkg := "<external>"
-	if imps, ok := fc.Imports[symbol]; ok && len(imps) > 0 {
+	if imps, ok := fc.Imports()[symbol]; ok && len(imps) > 0 {
 		qualifiedName = imps[0].RawImportPath
 		pkg = helper.PkgOf(qualifiedName)
 	}
@@ -94,7 +94,7 @@ func (r *SymbolResolver) ResolveType(gc *core.GlobalContext, fc *core.FileContex
 }
 
 // ResolveVar 处理变量查找（本地作用域回溯 + 类成员继承查找）。
-func (r *SymbolResolver) ResolveVar(gc *core.GlobalContext, fc *core.FileContext, node coreast.Node, receiver, symbol string) *model.CodeElement {
+func (r *SymbolResolver) ResolveVar(gc core.GlobalContext, fc core.FileContext, node coreast.Node, receiver, symbol string) *model.CodeElement {
 	receiver = helper.Clean(receiver)
 	symbol = helper.Clean(symbol)
 
@@ -154,7 +154,7 @@ func (r *SymbolResolver) ResolveVar(gc *core.GlobalContext, fc *core.FileContext
 }
 
 // ResolveFunc 处理方法查找：容器定位 -> 继承链搜索 -> 重载消解。
-func (r *SymbolResolver) ResolveFunc(gc *core.GlobalContext, fc *core.FileContext, node coreast.Node, receiver, symbol string) *model.CodeElement {
+func (r *SymbolResolver) ResolveFunc(gc core.GlobalContext, fc core.FileContext, node coreast.Node, receiver, symbol string) *model.CodeElement {
 	receiver = helper.Clean(receiver)
 	symbol = helper.Clean(symbol)
 
@@ -228,7 +228,7 @@ func (r *SymbolResolver) ResolveFunc(gc *core.GlobalContext, fc *core.FileContex
 }
 
 // ResolveAction 统一动作解析入口：三段式 + 合拍性校正 + 兜底。
-func (r *SymbolResolver) ResolveAction(gc *core.GlobalContext, fc *core.FileContext, node coreast.Node, relType model.DependencyType) *model.CodeElement {
+func (r *SymbolResolver) ResolveAction(gc core.GlobalContext, fc core.FileContext, node coreast.Node, relType model.DependencyType) *model.CodeElement {
 	if node == nil {
 		return nil
 	}
@@ -241,7 +241,7 @@ func (r *SymbolResolver) ResolveAction(gc *core.GlobalContext, fc *core.FileCont
 	}
 
 	// ② ExpressionSegmenter 拉平符号链。
-	seg := resolver.NewExpressionSegmenter(*fc.SourceBytes)
+	seg := resolver.NewExpressionSegmenter(*fc.SourceBytes())
 	chain := seg.Segment(ctx.ExpressNode, relType)
 	if chain == nil {
 		return nil
@@ -270,7 +270,7 @@ func (r *SymbolResolver) ResolveAction(gc *core.GlobalContext, fc *core.FileCont
 // =============================================================================
 
 // resolveInScopeHierarchy 递归向上查找容器及继承链。
-func (r *SymbolResolver) resolveInScopeHierarchy(gc *core.GlobalContext, fc *core.FileContext, previousQN, symbol string, isStatic bool, container *model.CodeElement) *model.CodeElement {
+func (r *SymbolResolver) resolveInScopeHierarchy(gc core.GlobalContext, fc core.FileContext, previousQN, symbol string, isStatic bool, container *model.CodeElement) *model.CodeElement {
 	if previousQN == "" {
 		return nil
 	}
@@ -303,7 +303,7 @@ func (r *SymbolResolver) resolveInScopeHierarchy(gc *core.GlobalContext, fc *cor
 }
 
 // resolveFromInheritance 沿继承树查找字段/常量。
-func (r *SymbolResolver) resolveFromInheritance(gc *core.GlobalContext, fc *core.FileContext, elem *model.CodeElement, symbol string, isStatic bool, source *model.CodeElement) *model.CodeElement {
+func (r *SymbolResolver) resolveFromInheritance(gc core.GlobalContext, fc core.FileContext, elem *model.CodeElement, symbol string, isStatic bool, source *model.CodeElement) *model.CodeElement {
 	if elem == nil || elem.Extra == nil {
 		return nil
 	}
@@ -337,7 +337,7 @@ func (r *SymbolResolver) resolveFromInheritance(gc *core.GlobalContext, fc *core
 }
 
 // checkVisibility 可见性检查。
-func (r *SymbolResolver) checkVisibility(gc *core.GlobalContext, fc *core.FileContext, container *model.CodeElement, target *core.DefinitionEntry) bool {
+func (r *SymbolResolver) checkVisibility(gc core.GlobalContext, fc core.FileContext, container *model.CodeElement, target *core.DefinitionEntry) bool {
 	if target.Element.Kind == model.Variable {
 		return true
 	}
@@ -357,7 +357,7 @@ func (r *SymbolResolver) checkVisibility(gc *core.GlobalContext, fc *core.FileCo
 	}
 
 	targetPkg := helper.GetRealPackage(gc, target.Element)
-	if targetPkg == fc.PackageName {
+	if targetPkg == fc.PackageName() {
 		return true
 	}
 
@@ -375,7 +375,7 @@ func (r *SymbolResolver) checkVisibility(gc *core.GlobalContext, fc *core.FileCo
 // 上下文，不能把类级 static 当作静态上下文。
 // 方法/静态块依据自身修饰符判定（Method 的 static 在 Modifiers 中；
 // ScopeBlock 的静态性存于 Mores[BlockIsStatic]）。
-func isStaticContext(fc *core.FileContext, container *model.CodeElement, node coreast.Node) bool {
+func isStaticContext(fc core.FileContext, container *model.CodeElement, node coreast.Node) bool {
 	if container == nil || container.Extra == nil {
 		return false
 	}
@@ -399,7 +399,7 @@ func isStaticContext(fc *core.FileContext, container *model.CodeElement, node co
 // =============================================================================
 
 // collectArgs 从调用节点收集实参数量与推断类型。
-func (r *SymbolResolver) collectArgs(gc *core.GlobalContext, node coreast.Node, fc *core.FileContext) (int, []string) {
+func (r *SymbolResolver) collectArgs(gc core.GlobalContext, node coreast.Node, fc core.FileContext) (int, []string) {
 	if node == nil {
 		return 0, nil
 	}
@@ -422,11 +422,11 @@ func (r *SymbolResolver) collectArgs(gc *core.GlobalContext, node coreast.Node, 
 // inferArgType 推断单个实参的大致类型。
 // 支持字面量/对象创建/数组创建/强转（已有），以及标识符/字段访问/方法调用（C-6 新增），
 // 使 pickBestOverload 能区分双重重载（如 hasPlainJavaAnnotationsOnly(Object)/(Class<?>)）。
-func (r *SymbolResolver) inferArgType(gc *core.GlobalContext, arg coreast.Node, fc *core.FileContext) string {
+func (r *SymbolResolver) inferArgType(gc core.GlobalContext, arg coreast.Node, fc core.FileContext) string {
 	if arg == nil {
 		return "unknown"
 	}
-	src := *fc.SourceBytes
+	src := *fc.SourceBytes()
 	switch arg.Kind() {
 	case "string_literal":
 		return "String"
@@ -475,7 +475,7 @@ func (r *SymbolResolver) inferArgType(gc *core.GlobalContext, arg coreast.Node, 
 // inferTypeFromVar 依据变量/参数/类成员字段的声明类型推断实参类型。
 // 复用 ResolveVar：局部变量/参数命中 VariableTypeWithQN（回退 VariableRawType），
 // 类成员字段经 resolveInScopeHierarchy 命中 Field 的 FieldRawType。
-func (r *SymbolResolver) inferTypeFromVar(gc *core.GlobalContext, fc *core.FileContext, node coreast.Node, symbol string) string {
+func (r *SymbolResolver) inferTypeFromVar(gc core.GlobalContext, fc core.FileContext, node coreast.Node, symbol string) string {
 	if varElem := r.ResolveVar(gc, fc, node, "", symbol); varElem != nil && varElem.Extra != nil {
 		if t, ok := varElem.Extra.Mores[constants.VariableTypeWithQN].(string); ok && t != "" {
 			return helper.Clean(t)
@@ -491,13 +491,13 @@ func (r *SymbolResolver) inferTypeFromVar(gc *core.GlobalContext, fc *core.FileC
 }
 
 // inferTypeFromFieldAccess 依据字段访问（obj.field / Type.CONST）的字段声明类型推断实参类型。
-func (r *SymbolResolver) inferTypeFromFieldAccess(gc *core.GlobalContext, fc *core.FileContext, node coreast.Node) string {
+func (r *SymbolResolver) inferTypeFromFieldAccess(gc core.GlobalContext, fc core.FileContext, node coreast.Node) string {
 	obj := node.ChildByFieldName("object")
 	fieldNode := node.ChildByFieldName("field")
 	if obj == nil || fieldNode == nil {
 		return ""
 	}
-	src := *fc.SourceBytes
+	src := *fc.SourceBytes()
 	fieldName := fieldNode.Utf8Text(src)
 
 	// 场景 A：类型静态常量访问（Type.CONST）——receiver 是类型名。
@@ -532,8 +532,8 @@ func (r *SymbolResolver) inferTypeFromFieldAccess(gc *core.GlobalContext, fc *co
 }
 
 // inferTypeFromMethodCall 依据方法返回类型推断实参类型（fn() / obj.fn()）。
-func (r *SymbolResolver) inferTypeFromMethodCall(gc *core.GlobalContext, fc *core.FileContext, node coreast.Node) string {
-	src := *fc.SourceBytes
+func (r *SymbolResolver) inferTypeFromMethodCall(gc core.GlobalContext, fc core.FileContext, node coreast.Node) string {
+	src := *fc.SourceBytes()
 
 	// 提取调用目标（含 receiver 的完整形态，如 obj.fn 或 fn）。
 	var recv string
@@ -591,7 +591,7 @@ func (r *SymbolResolver) findInvocationNode(n coreast.Node) coreast.Node {
 // =============================================================================
 
 // alignElementWithRelType 校验推导结果是否符合关系类型预期，必要时语义修正。
-func (r *SymbolResolver) alignElementWithRelType(gc *core.GlobalContext, fc *core.FileContext, elem *model.CodeElement, relType model.DependencyType) *model.CodeElement {
+func (r *SymbolResolver) alignElementWithRelType(gc core.GlobalContext, fc core.FileContext, elem *model.CodeElement, relType model.DependencyType) *model.CodeElement {
 	if elem == nil {
 		return nil
 	}
@@ -647,7 +647,7 @@ func (r *SymbolResolver) alignElementWithRelType(gc *core.GlobalContext, fc *cor
 }
 
 // generateContextualFallback 依据拉平链拼装最吻合的外部符号 QN。
-func (r *SymbolResolver) generateContextualFallback(gc *core.GlobalContext, fc *core.FileContext, chain *resolver.ExpressionChain, relType model.DependencyType) *model.CodeElement {
+func (r *SymbolResolver) generateContextualFallback(gc core.GlobalContext, fc core.FileContext, chain *resolver.ExpressionChain, relType model.DependencyType) *model.CodeElement {
 	if chain == nil {
 		return nil
 	}
@@ -668,7 +668,7 @@ func (r *SymbolResolver) generateContextualFallback(gc *core.GlobalContext, fc *
 	// 查 import 表升级为完整 QN 并分配包归属。
 	qualified := base
 	pkg := "<external>"
-	if imps, ok := fc.Imports[base]; ok && len(imps) > 0 {
+	if imps, ok := fc.Imports()[base]; ok && len(imps) > 0 {
 		qualified = imps[0].RawImportPath
 		pkg = helper.PkgOf(qualified)
 	}

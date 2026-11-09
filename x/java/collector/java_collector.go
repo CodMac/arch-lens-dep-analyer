@@ -36,7 +36,7 @@ func New(resolver core.SymbolResolver) *Collector {
 // =============================================================================
 
 // CollectDefinitions 从源文件收集符号定义并产出 FileContext。
-func (c *Collector) CollectDefinitions(src coreast.SourceFile) (*core.FileContext, error) {
+func (c *Collector) CollectDefinitions(src coreast.SourceFile) (core.FileContext, error) {
 	if src == nil || src.Root() == nil {
 		return nil, fmt.Errorf("empty source file")
 	}
@@ -54,7 +54,7 @@ func (c *Collector) CollectDefinitions(src coreast.SourceFile) (*core.FileContex
 
 	// Step 2: 递归收集定义 (Building Tree)
 	nameOccurrence := make(map[string]int)
-	c.collectBasicDefinitions(root, fCtx, fCtx.PackageName, nameOccurrence)
+	c.collectBasicDefinitions(root, fCtx, fCtx.PackageName(), nameOccurrence)
 
 	// Step 3: 变量特殊作用域修正
 	c.refineVariableScopes(fCtx)
@@ -72,8 +72,8 @@ func (c *Collector) CollectDefinitions(src coreast.SourceFile) (*core.FileContex
 // 核心生命周期 (Core Workflow)
 // =============================================================================
 
-func (c *Collector) initFileElem(fCtx *core.FileContext) {
-	filePath := fCtx.FilePath
+func (c *Collector) initFileElem(fCtx core.FileContext) {
+	filePath := fCtx.FilePath()
 
 	fileElem := &model.CodeElement{
 		Kind:          model.File,
@@ -83,11 +83,11 @@ func (c *Collector) initFileElem(fCtx *core.FileContext) {
 		IsFormSource:  true,
 	}
 
-	fCtx.AddDefinition(&core.DefinitionEntry{Element: fileElem, ParentQN: "", Node: fCtx.Root})
+	fCtx.AddDefinition(&core.DefinitionEntry{Element: fileElem, ParentQN: "", Node: fCtx.Root()})
 }
 
-func (c *Collector) processTopLevelDeclarations(fCtx *core.FileContext) {
-	root := fCtx.Root
+func (c *Collector) processTopLevelDeclarations(fCtx core.FileContext) {
+	root := fCtx.Root()
 	for i := 0; i < root.ChildCount(); i++ {
 		child := root.Child(i)
 		if child == nil {
@@ -96,9 +96,9 @@ func (c *Collector) processTopLevelDeclarations(fCtx *core.FileContext) {
 		switch child.Kind() {
 		case "package_declaration":
 			if ident := helper.FindNamedChildOfType(child, "scoped_identifier"); ident != nil {
-				fCtx.PackageName = helper.GetNodeContent(ident, *fCtx.SourceBytes)
+				fCtx.SetPackageName(helper.GetNodeContent(ident, *fCtx.SourceBytes()))
 			} else if nameNode := child.ChildByFieldName("name"); nameNode != nil {
-				fCtx.PackageName = helper.GetNodeContent(nameNode, *fCtx.SourceBytes)
+				fCtx.SetPackageName(helper.GetNodeContent(nameNode, *fCtx.SourceBytes()))
 			}
 		case "import_declaration":
 			c.handleImport(child, fCtx)
@@ -106,11 +106,11 @@ func (c *Collector) processTopLevelDeclarations(fCtx *core.FileContext) {
 	}
 }
 
-func (c *Collector) collectBasicDefinitions(node coreast.Node, fCtx *core.FileContext, currentQN string, occurrences map[string]int) {
+func (c *Collector) collectBasicDefinitions(node coreast.Node, fCtx core.FileContext, currentQN string, occurrences map[string]int) {
 	if node.IsNamed() {
 		if elems, kind := c.identifyElements(node, fCtx, currentQN); len(elems) > 0 {
 			for _, elem := range elems {
-				c.applyUniqueQN(elem, node, currentQN, occurrences, fCtx.SourceBytes)
+				c.applyUniqueQN(elem, node, currentQN, occurrences, fCtx.SourceBytes())
 				fCtx.AddDefinition(&core.DefinitionEntry{Element: elem, ParentQN: currentQN, Node: node})
 			}
 
@@ -129,14 +129,14 @@ func (c *Collector) collectBasicDefinitions(node coreast.Node, fCtx *core.FileCo
 	}
 }
 
-func (c *Collector) refineVariableScopes(fCtx *core.FileContext) {
+func (c *Collector) refineVariableScopes(fCtx core.FileContext) {
 	// 获取所有已注册的 block，用于后续比对
 	blocks, _ := fCtx.FindByShortName("block")
 	if len(blocks) == 0 {
 		return
 	}
 
-	for _, entry := range fCtx.Definitions {
+	for _, entry := range fCtx.Definitions() {
 		// 仅针对变量进行作用域修正
 		if entry.Element.Kind != model.Variable {
 			continue
@@ -194,15 +194,15 @@ func (c *Collector) refineVariableScopes(fCtx *core.FileContext) {
 	}
 }
 
-func (c *Collector) enrichMetadata(fCtx *core.FileContext) {
+func (c *Collector) enrichMetadata(fCtx core.FileContext) {
 	enricher := ele.NewEnricher(fCtx)
 
-	for _, entry := range fCtx.Definitions {
+	for _, entry := range fCtx.Definitions() {
 		enricher.EnrichMetadata(entry)
 	}
 }
 
-func (c *Collector) applySyntacticSugar(fCtx *core.FileContext) {
+func (c *Collector) applySyntacticSugar(fCtx core.FileContext) {
 	clazz, ok := fCtx.FindByKind(model.Class)
 	if ok {
 		for _, entry := range clazz {
@@ -231,7 +231,7 @@ func (c *Collector) applySyntacticSugar(fCtx *core.FileContext) {
 // 元素识别逻辑 (Element Identification)
 // =============================================================================
 
-func (c *Collector) handleImport(node coreast.Node, fCtx *core.FileContext) {
+func (c *Collector) handleImport(node coreast.Node, fCtx core.FileContext) {
 	isStatic, isWildcard := false, false
 	var pathParts []string
 	for i := 0; i < node.ChildCount(); i++ {
@@ -240,7 +240,7 @@ func (c *Collector) handleImport(node coreast.Node, fCtx *core.FileContext) {
 		case "static":
 			isStatic = true
 		case "scoped_identifier", "identifier", "asterisk":
-			pathParts = append(pathParts, helper.GetNodeContent(child, *fCtx.SourceBytes))
+			pathParts = append(pathParts, helper.GetNodeContent(child, *fCtx.SourceBytes()))
 			if child.Kind() == "asterisk" {
 				isWildcard = true
 			}
@@ -266,11 +266,11 @@ func (c *Collector) handleImport(node coreast.Node, fCtx *core.FileContext) {
 		RawImportPath: fullPath,
 		IsWildcard:    isWildcard,
 		IsStatic:      isStatic,
-		Location:      helper.ExtractLocation(node, fCtx.FilePath),
+		Location:      helper.ExtractLocation(node, fCtx.FilePath()),
 	})
 }
 
-func (c *Collector) identifyElements(node coreast.Node, fCtx *core.FileContext, parentQN string) ([]*model.CodeElement, model.ElementKind) {
+func (c *Collector) identifyElements(node coreast.Node, fCtx core.FileContext, parentQN string) ([]*model.CodeElement, model.ElementKind) {
 	var kind model.ElementKind
 	var names []string
 	kindStr := node.Kind()
@@ -292,14 +292,14 @@ func (c *Collector) identifyElements(node coreast.Node, fCtx *core.FileContext, 
 		// constant_declaration 为接口常量（interface X { String PLAIN = "plain"; }），
 		// 隐式 public static final，收集为 Field 供 Type.CONST 静态访问解析。
 		kind = model.Field
-		names = c.extractAllVariableNames(node, fCtx.SourceBytes)
+		names = c.extractAllVariableNames(node, fCtx.SourceBytes())
 	case "local_variable_declaration", "formal_parameter", "spread_parameter", "resource", "catch_formal_parameter":
 		kind = model.Variable
-		names = c.extractAllVariableNames(node, fCtx.SourceBytes)
+		names = c.extractAllVariableNames(node, fCtx.SourceBytes())
 	case "enhanced_for_statement", "instanceof_expression":
 		if nameNode := node.ChildByFieldName("name"); nameNode != nil {
 			kind = model.Variable
-			names = []string{helper.GetNodeContent(nameNode, *fCtx.SourceBytes)}
+			names = []string{helper.GetNodeContent(nameNode, *fCtx.SourceBytes())}
 		}
 	case "lambda_expression":
 		kind = model.Lambda
@@ -325,7 +325,7 @@ func (c *Collector) identifyElements(node coreast.Node, fCtx *core.FileContext, 
 	}
 
 	if kind != "" && names == nil {
-		names = []string{c.resolveMissingName(node, kind, parentQN, fCtx.SourceBytes)}
+		names = []string{c.resolveMissingName(node, kind, parentQN, fCtx.SourceBytes())}
 	}
 	if kind == "" || names == nil {
 		return nil, ""
@@ -336,15 +336,15 @@ func (c *Collector) identifyElements(node coreast.Node, fCtx *core.FileContext, 
 		elements = append(elements, &model.CodeElement{
 			Kind:         kind,
 			Name:         name,
-			Path:         fCtx.FilePath,
-			Location:     helper.ExtractLocation(node, fCtx.FilePath),
+			Path:         fCtx.FilePath(),
+			Location:     helper.ExtractLocation(node, fCtx.FilePath()),
 			IsFormSource: true,
 		})
 	}
 	return elements, kind
 }
 
-func (c *Collector) identifyLambdaParameter(node coreast.Node, fCtx *core.FileContext) (model.ElementKind, string) {
+func (c *Collector) identifyLambdaParameter(node coreast.Node, fCtx core.FileContext) (model.ElementKind, string) {
 	parent := node.Parent()
 	if parent == nil {
 		return "", ""
@@ -355,12 +355,12 @@ func (c *Collector) identifyLambdaParameter(node coreast.Node, fCtx *core.FileCo
 		// 如果是单参数 Lambda (s -> ...)，确保 identifier 是参数位置而非 Body 位置
 		if pKind == "lambda_expression" {
 			firstChild := parent.NamedChild(0)
-			if firstChild == nil || helper.GetNodeContent(firstChild, *fCtx.SourceBytes) != helper.GetNodeContent(node, *fCtx.SourceBytes) {
+			if firstChild == nil || helper.GetNodeContent(firstChild, *fCtx.SourceBytes()) != helper.GetNodeContent(node, *fCtx.SourceBytes()) {
 				return "", ""
 			}
 		}
 
-		return model.Variable, helper.GetNodeContent(node, *fCtx.SourceBytes)
+		return model.Variable, helper.GetNodeContent(node, *fCtx.SourceBytes())
 	}
 	return "", ""
 }

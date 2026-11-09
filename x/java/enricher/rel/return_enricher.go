@@ -12,8 +12,8 @@ import (
 // ReturnEnricher 为返回类型关系（Return）标记基本类型与数组形态。
 type ReturnEnricher struct {
 	resolver core.SymbolResolver
-	fCtx     *core.FileContext
-	gCtx     *core.GlobalContext
+	fCtx     core.FileContext
+	gCtx     core.GlobalContext
 }
 
 // EnrichMetadata 依据原始返回类型文本判定 primitive/array。

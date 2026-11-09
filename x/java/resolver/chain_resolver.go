@@ -14,8 +14,8 @@ import (
 // ChainResolver 沿拉平链逐段在符号库中推导目标符号。
 // 维护 currType 供下一段解析；断链时优雅回退 lastGood。
 type ChainResolver struct {
-	gc *core.GlobalContext
-	fc *core.FileContext
+	gc core.GlobalContext
+	fc core.FileContext
 
 	// 泛型元素类型传播：方法返回类型中提取 List<Order> -> Order。
 	genericElem map[string]string
@@ -27,7 +27,7 @@ type ChainResolver struct {
 }
 
 // NewChainResolver 创建链式解析器。
-func NewChainResolver(gc *core.GlobalContext, fc *core.FileContext) *ChainResolver {
+func NewChainResolver(gc core.GlobalContext, fc core.FileContext) *ChainResolver {
 	return &ChainResolver{gc: gc, fc: fc, genericElem: make(map[string]string)}
 }
 
@@ -416,7 +416,7 @@ func (cr *ChainResolver) resolveIdent(head ExpressionHead) *model.CodeElement {
 // resolveVarInScope 在作用域链中查找变量/字段。
 func (cr *ChainResolver) resolveVarInScope(node coreast.Node, symbol string) *model.CodeElement {
 	// 委托给 SymbolResolver 的 ResolveVar（通过 gc.Resolver）。
-	return cr.gc.Resolver.ResolveVar(cr.gc, cr.fc, node, "", symbol)
+	return cr.gc.Resolver().ResolveVar(cr.gc, cr.fc, node, "", symbol)
 }
 
 // isTypeKind 判断 ElementKind 是否为类型类（可作为类型解析结果）。
@@ -538,7 +538,7 @@ func (cr *ChainResolver) resolveTypeFromName(name string) *model.CodeElement {
 	if name == "" {
 		return nil
 	}
-	return cr.gc.Resolver.ResolveType(cr.gc, cr.fc, name, model.Class)
+	return cr.gc.Resolver().ResolveType(cr.gc, cr.fc, name, model.Class)
 }
 
 // resolveTypeFromNameAt 将类型名解析为类型元素，node 为引用点（D-1 消歧用）。
@@ -556,7 +556,7 @@ func (cr *ChainResolver) resolveTypeFromNameAt(node coreast.Node, name string) *
 			}
 		}
 	}
-	return cr.gc.Resolver.ResolveType(cr.gc, cr.fc, name, model.Class)
+	return cr.gc.Resolver().ResolveType(cr.gc, cr.fc, name, model.Class)
 }
 
 // hasExplicitReceiver 判断该标识符是否作为字段/方法访问的接收者目标（x.name / x.name()）。
@@ -685,7 +685,7 @@ func (cr *ChainResolver) propagateGenericElement(method *model.CodeElement) {
 
 // contextualQN 依据 import 表拼装外部符号 QN。
 func (cr *ChainResolver) contextualQN(symbol string) string {
-	if imps, ok := cr.fc.Imports[symbol]; ok && len(imps) > 0 {
+	if imps, ok := cr.fc.Imports()[symbol]; ok && len(imps) > 0 {
 		return imps[0].RawImportPath
 	}
 	return symbol

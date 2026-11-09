@@ -25,7 +25,7 @@ func NewDeSugar(resolver core.SymbolResolver) *DeSugar {
 }
 
 // addDef 便捷：以 DefinitionEntry 形态向文件上下文添加定义。
-func addDef(fCtx *core.FileContext, elem *model.CodeElement, parentQN string, node coreast.Node) {
+func addDef(fCtx core.FileContext, elem *model.CodeElement, parentQN string, node coreast.Node) {
 	fCtx.AddDefinition(&core.DefinitionEntry{Element: elem, ParentQN: parentQN, Node: node})
 }
 
@@ -34,7 +34,7 @@ func addDef(fCtx *core.FileContext, elem *model.CodeElement, parentQN string, no
 // =============================================================================
 
 // DesugarDefaultConstructor 为无构造器的类生成默认构造器。
-func (c *DeSugar) DesugarDefaultConstructor(elem *model.CodeElement, node coreast.Node, fCtx *core.FileContext) {
+func (c *DeSugar) DesugarDefaultConstructor(elem *model.CodeElement, node coreast.Node, fCtx core.FileContext) {
 	body := node.ChildByFieldName("body")
 	if body == nil {
 		return
@@ -58,7 +58,7 @@ func (c *DeSugar) DesugarDefaultConstructor(elem *model.CodeElement, node coreas
 			Kind:          model.Method,
 			Name:          consName,
 			QualifiedName: consQN,
-			Path:          fCtx.FilePath,
+			Path:          fCtx.FilePath(),
 			Location:      elem.Location,
 			Signature:     fmt.Sprintf("public %s()", consName),
 			Extra: &model.Extra{
@@ -75,11 +75,11 @@ func (c *DeSugar) DesugarDefaultConstructor(elem *model.CodeElement, node coreas
 }
 
 // DesugarEnumMethods 为枚举生成 values() 与 valueOf(String) 方法。
-func (c *DeSugar) DesugarEnumMethods(elem *model.CodeElement, node coreast.Node, fCtx *core.FileContext) {
+func (c *DeSugar) DesugarEnumMethods(elem *model.CodeElement, node coreast.Node, fCtx core.FileContext) {
 	vQN := c.resolver.BuildQualifiedName(elem.QualifiedName, "values()")
 	if _, ok := fCtx.FindByQualifiedName(vQN); !ok {
 		addDef(fCtx, &model.CodeElement{
-			Kind: model.Method, Name: "values", QualifiedName: vQN, Path: fCtx.FilePath, Location: elem.Location, IsFormSugar: true,
+			Kind: model.Method, Name: "values", QualifiedName: vQN, Path: fCtx.FilePath(), Location: elem.Location, IsFormSugar: true,
 			Signature: fmt.Sprintf("public static %s[] values()", elem.Name),
 			Extra: &model.Extra{
 				Modifiers:   make([]string, 0),
@@ -96,7 +96,7 @@ func (c *DeSugar) DesugarEnumMethods(elem *model.CodeElement, node coreast.Node,
 	voQN := c.resolver.BuildQualifiedName(elem.QualifiedName, "valueOf(String)")
 	if _, ok := fCtx.FindByQualifiedName(voQN); !ok {
 		addDef(fCtx, &model.CodeElement{
-			Kind: model.Method, Name: "valueOf", QualifiedName: voQN, Path: fCtx.FilePath, Location: elem.Location, IsFormSugar: true,
+			Kind: model.Method, Name: "valueOf", QualifiedName: voQN, Path: fCtx.FilePath(), Location: elem.Location, IsFormSugar: true,
 			Signature: fmt.Sprintf("public static %s valueOf(String name)", elem.Name),
 			Extra: &model.Extra{
 				Modifiers:   make([]string, 0),
@@ -113,7 +113,7 @@ func (c *DeSugar) DesugarEnumMethods(elem *model.CodeElement, node coreast.Node,
 }
 
 // DesugarRecordMembers 为 Record 生成组件字段与访问器方法、全参构造器。
-func (c *DeSugar) DesugarRecordMembers(elem *model.CodeElement, node coreast.Node, fCtx *core.FileContext) {
+func (c *DeSugar) DesugarRecordMembers(elem *model.CodeElement, node coreast.Node, fCtx core.FileContext) {
 	paramList := helper.FindNamedChildOfType(node, "formal_parameters")
 	if paramList == nil {
 		return
@@ -125,8 +125,8 @@ func (c *DeSugar) DesugarRecordMembers(elem *model.CodeElement, node coreast.Nod
 		child := paramList.NamedChild(i)
 		if child.Kind() == "formal_parameter" {
 			comps = append(comps, component{
-				name:  helper.GetNodeContent(child.ChildByFieldName("name"), *fCtx.SourceBytes),
-				vType: helper.GetNodeContent(child.ChildByFieldName("type"), *fCtx.SourceBytes),
+				name:  helper.GetNodeContent(child.ChildByFieldName("name"), *fCtx.SourceBytes()),
+				vType: helper.GetNodeContent(child.ChildByFieldName("type"), *fCtx.SourceBytes()),
 			})
 		}
 	}
@@ -151,7 +151,7 @@ func (c *DeSugar) DesugarRecordMembers(elem *model.CodeElement, node coreast.Nod
 		mQN := c.resolver.BuildQualifiedName(elem.QualifiedName, mIdentity)
 		if _, ok := fCtx.FindByQualifiedName(mQN); !ok {
 			addDef(fCtx, &model.CodeElement{
-				Kind: model.Method, Name: comp.name, QualifiedName: mQN, Path: fCtx.FilePath, Location: elem.Location, IsFormSugar: true,
+				Kind: model.Method, Name: comp.name, QualifiedName: mQN, Path: fCtx.FilePath(), Location: elem.Location, IsFormSugar: true,
 				Signature: fmt.Sprintf("public %s %s()", comp.vType, comp.name),
 				Extra: &model.Extra{
 					Modifiers:   make([]string, 0),
@@ -178,7 +178,7 @@ func (c *DeSugar) DesugarRecordMembers(elem *model.CodeElement, node coreast.Nod
 			pStrings = append(pStrings, comp.vType+" "+comp.name)
 		}
 		addDef(fCtx, &model.CodeElement{
-			Kind: model.Method, Name: elem.Name, QualifiedName: cQN, Path: fCtx.FilePath, Location: elem.Location, IsFormSugar: true,
+			Kind: model.Method, Name: elem.Name, QualifiedName: cQN, Path: fCtx.FilePath(), Location: elem.Location, IsFormSugar: true,
 			Signature: fmt.Sprintf("public %s(%s)", elem.Name, strings.Join(pStrings, ", ")),
 			Extra: &model.Extra{
 				Modifiers:   make([]string, 0),
@@ -219,7 +219,7 @@ func (c *DeSugar) DesugarRecordMembers(elem *model.CodeElement, node coreast.Nod
 			mores[constants.MethodParameters] = m.params
 		}
 		addDef(fCtx, &model.CodeElement{
-			Kind: model.Method, Name: m.name, QualifiedName: mQN, Path: fCtx.FilePath, Location: elem.Location, IsFormSugar: true,
+			Kind: model.Method, Name: m.name, QualifiedName: mQN, Path: fCtx.FilePath(), Location: elem.Location, IsFormSugar: true,
 			Signature: m.signature,
 			Extra: &model.Extra{
 				Modifiers:   make([]string, 0),
@@ -235,7 +235,7 @@ func (c *DeSugar) DesugarRecordMembers(elem *model.CodeElement, node coreast.Nod
 // =============================================================================
 
 // DesugarLombok 按类上的 Lombok 注解分发到具体生成器。
-func (c *DeSugar) DesugarLombok(elem *model.CodeElement, node coreast.Node, fCtx *core.FileContext) {
+func (c *DeSugar) DesugarLombok(elem *model.CodeElement, node coreast.Node, fCtx core.FileContext) {
 	if elem.Extra == nil || len(elem.Extra.Annotations) == 0 {
 		return
 	}
@@ -306,7 +306,7 @@ func (c *DeSugar) hasLombokConstructorAnnotation(elem *model.CodeElement) bool {
 }
 
 // lombokSlf4j 处理 @Slf4j：生成私有静态 final 的 Logger 字段 log。
-func (c *DeSugar) lombokSlf4j(elem *model.CodeElement, node coreast.Node, fCtx *core.FileContext) {
+func (c *DeSugar) lombokSlf4j(elem *model.CodeElement, node coreast.Node, fCtx core.FileContext) {
 	logFieldName := "log"
 	logFieldQN := c.resolver.BuildQualifiedName(elem.QualifiedName, logFieldName)
 
@@ -318,7 +318,7 @@ func (c *DeSugar) lombokSlf4j(elem *model.CodeElement, node coreast.Node, fCtx *
 		Kind:          model.Field,
 		Name:          logFieldName,
 		QualifiedName: logFieldQN,
-		Path:          fCtx.FilePath,
+		Path:          fCtx.FilePath(),
 		Location:      elem.Location,
 		Signature:     "private static final Logger log",
 		Extra: &model.Extra{
@@ -337,7 +337,7 @@ func (c *DeSugar) lombokSlf4j(elem *model.CodeElement, node coreast.Node, fCtx *
 }
 
 // lombokGetter 处理 @Getter：为每个非 static 字段生成 getter 方法。
-func (c *DeSugar) lombokGetter(elem *model.CodeElement, node coreast.Node, fCtx *core.FileContext) {
+func (c *DeSugar) lombokGetter(elem *model.CodeElement, node coreast.Node, fCtx core.FileContext) {
 	fields := c.extractClassFields(elem, fCtx)
 
 	for _, fieldEntry := range fields {
@@ -366,7 +366,7 @@ func (c *DeSugar) lombokGetter(elem *model.CodeElement, node coreast.Node, fCtx 
 			Kind:          model.Method,
 			Name:          getterName,
 			QualifiedName: getterQN,
-			Path:          fCtx.FilePath,
+			Path:          fCtx.FilePath(),
 			Location:      elem.Location,
 			Signature:     fmt.Sprintf("public %s %s()", fieldType, getterName),
 			Extra: &model.Extra{
@@ -385,7 +385,7 @@ func (c *DeSugar) lombokGetter(elem *model.CodeElement, node coreast.Node, fCtx 
 }
 
 // lombokSetter 处理 @Setter：为每个非 static 非 final 字段生成 setter 方法。
-func (c *DeSugar) lombokSetter(elem *model.CodeElement, node coreast.Node, fCtx *core.FileContext) {
+func (c *DeSugar) lombokSetter(elem *model.CodeElement, node coreast.Node, fCtx core.FileContext) {
 	fields := c.extractClassFields(elem, fCtx)
 
 	for _, fieldEntry := range fields {
@@ -414,7 +414,7 @@ func (c *DeSugar) lombokSetter(elem *model.CodeElement, node coreast.Node, fCtx 
 			Kind:          model.Method,
 			Name:          setterName,
 			QualifiedName: setterQN,
-			Path:          fCtx.FilePath,
+			Path:          fCtx.FilePath(),
 			Location:      elem.Location,
 			Signature:     fmt.Sprintf("public void %s(%s %s)", setterName, fieldType, fieldName),
 			Extra: &model.Extra{
@@ -433,7 +433,7 @@ func (c *DeSugar) lombokSetter(elem *model.CodeElement, node coreast.Node, fCtx 
 }
 
 // lombokToString 处理 @ToString：生成 toString() 方法。
-func (c *DeSugar) lombokToString(elem *model.CodeElement, node coreast.Node, fCtx *core.FileContext) {
+func (c *DeSugar) lombokToString(elem *model.CodeElement, node coreast.Node, fCtx core.FileContext) {
 	if c.checkMethodExists(elem.QualifiedName, "toString", "()", fCtx) {
 		return
 	}
@@ -444,7 +444,7 @@ func (c *DeSugar) lombokToString(elem *model.CodeElement, node coreast.Node, fCt
 		Kind:          model.Method,
 		Name:          "toString",
 		QualifiedName: toStringQN,
-		Path:          fCtx.FilePath,
+		Path:          fCtx.FilePath(),
 		Location:      elem.Location,
 		Signature:     "public String toString()",
 		Extra: &model.Extra{
@@ -462,14 +462,14 @@ func (c *DeSugar) lombokToString(elem *model.CodeElement, node coreast.Node, fCt
 }
 
 // lombokEqualsAndHashCode 处理 @EqualsAndHashCode：生成 equals/hashCode/canEqual。
-func (c *DeSugar) lombokEqualsAndHashCode(elem *model.CodeElement, node coreast.Node, fCtx *core.FileContext) {
+func (c *DeSugar) lombokEqualsAndHashCode(elem *model.CodeElement, node coreast.Node, fCtx core.FileContext) {
 	if !c.checkMethodExists(elem.QualifiedName, "equals", "(Object)", fCtx) {
 		equalsQN := c.resolver.BuildQualifiedName(elem.QualifiedName, "equals(Object)")
 		addDef(fCtx, &model.CodeElement{
 			Kind:          model.Method,
 			Name:          "equals",
 			QualifiedName: equalsQN,
-			Path:          fCtx.FilePath,
+			Path:          fCtx.FilePath(),
 			Location:      elem.Location,
 			Signature:     "public boolean equals(Object)",
 			Extra: &model.Extra{
@@ -493,7 +493,7 @@ func (c *DeSugar) lombokEqualsAndHashCode(elem *model.CodeElement, node coreast.
 			Kind:          model.Method,
 			Name:          "hashCode",
 			QualifiedName: hashCodeQN,
-			Path:          fCtx.FilePath,
+			Path:          fCtx.FilePath(),
 			Location:      elem.Location,
 			Signature:     "public int hashCode()",
 			Extra: &model.Extra{
@@ -516,7 +516,7 @@ func (c *DeSugar) lombokEqualsAndHashCode(elem *model.CodeElement, node coreast.
 			Kind:          model.Method,
 			Name:          "canEqual",
 			QualifiedName: canEqualQN,
-			Path:          fCtx.FilePath,
+			Path:          fCtx.FilePath(),
 			Location:      elem.Location,
 			Signature:     "protected boolean canEqual(Object)",
 			Extra: &model.Extra{
@@ -536,7 +536,7 @@ func (c *DeSugar) lombokEqualsAndHashCode(elem *model.CodeElement, node coreast.
 }
 
 // lombokNoArgsConstructor 处理 @NoArgsConstructor：生成无参构造器。
-func (c *DeSugar) lombokNoArgsConstructor(elem *model.CodeElement, node coreast.Node, fCtx *core.FileContext) {
+func (c *DeSugar) lombokNoArgsConstructor(elem *model.CodeElement, node coreast.Node, fCtx core.FileContext) {
 	if c.checkMethodExists(elem.QualifiedName, elem.Name, "()", fCtx) {
 		return
 	}
@@ -547,7 +547,7 @@ func (c *DeSugar) lombokNoArgsConstructor(elem *model.CodeElement, node coreast.
 		Kind:          model.Method,
 		Name:          elem.Name,
 		QualifiedName: consQN,
-		Path:          fCtx.FilePath,
+		Path:          fCtx.FilePath(),
 		Location:      elem.Location,
 		Signature:     fmt.Sprintf("public %s()", elem.Name),
 		Extra: &model.Extra{
@@ -564,7 +564,7 @@ func (c *DeSugar) lombokNoArgsConstructor(elem *model.CodeElement, node coreast.
 }
 
 // lombokAllArgsConstructor 处理 @AllArgsConstructor：生成全参构造器。
-func (c *DeSugar) lombokAllArgsConstructor(elem *model.CodeElement, node coreast.Node, fCtx *core.FileContext) {
+func (c *DeSugar) lombokAllArgsConstructor(elem *model.CodeElement, node coreast.Node, fCtx core.FileContext) {
 	fields := c.extractClassFields(elem, fCtx)
 
 	var nonStaticFields []*core.DefinitionEntry
@@ -601,7 +601,7 @@ func (c *DeSugar) lombokAllArgsConstructor(elem *model.CodeElement, node coreast
 		Kind:          model.Method,
 		Name:          elem.Name,
 		QualifiedName: consQN,
-		Path:          fCtx.FilePath,
+		Path:          fCtx.FilePath(),
 		Location:      elem.Location,
 		Signature:     fmt.Sprintf("public %s(%s)", elem.Name, strings.Join(paramStrings, ", ")),
 		Extra: &model.Extra{
@@ -619,7 +619,7 @@ func (c *DeSugar) lombokAllArgsConstructor(elem *model.CodeElement, node coreast
 }
 
 // lombokRequiredArgsConstructor 处理 @RequiredArgsConstructor：为 final 字段生成构造器。
-func (c *DeSugar) lombokRequiredArgsConstructor(elem *model.CodeElement, node coreast.Node, fCtx *core.FileContext) {
+func (c *DeSugar) lombokRequiredArgsConstructor(elem *model.CodeElement, node coreast.Node, fCtx core.FileContext) {
 	fields := c.extractClassFields(elem, fCtx)
 
 	var finalFields []*core.DefinitionEntry
@@ -659,7 +659,7 @@ func (c *DeSugar) lombokRequiredArgsConstructor(elem *model.CodeElement, node co
 		Kind:          model.Method,
 		Name:          elem.Name,
 		QualifiedName: consQN,
-		Path:          fCtx.FilePath,
+		Path:          fCtx.FilePath(),
 		Location:      elem.Location,
 		Signature:     fmt.Sprintf("public %s(%s)", elem.Name, strings.Join(paramStrings, ", ")),
 		Extra: &model.Extra{
@@ -677,7 +677,7 @@ func (c *DeSugar) lombokRequiredArgsConstructor(elem *model.CodeElement, node co
 }
 
 // lombokData 处理 @Data：Getter+Setter+ToString+EqualsAndHashCode+NoArgsConstructor。
-func (c *DeSugar) lombokData(elem *model.CodeElement, node coreast.Node, fCtx *core.FileContext) {
+func (c *DeSugar) lombokData(elem *model.CodeElement, node coreast.Node, fCtx core.FileContext) {
 	c.lombokGetter(elem, node, fCtx)
 	c.lombokSetter(elem, node, fCtx)
 	c.lombokToString(elem, node, fCtx)
@@ -686,7 +686,7 @@ func (c *DeSugar) lombokData(elem *model.CodeElement, node coreast.Node, fCtx *c
 }
 
 // lombokValue 处理 @Value：Getter+AllArgsConstructor+ToString+EqualsAndHashCode。
-func (c *DeSugar) lombokValue(elem *model.CodeElement, node coreast.Node, fCtx *core.FileContext) {
+func (c *DeSugar) lombokValue(elem *model.CodeElement, node coreast.Node, fCtx core.FileContext) {
 	c.lombokGetter(elem, node, fCtx)
 	c.lombokAllArgsConstructor(elem, node, fCtx)
 	c.lombokToString(elem, node, fCtx)
@@ -694,7 +694,7 @@ func (c *DeSugar) lombokValue(elem *model.CodeElement, node coreast.Node, fCtx *
 }
 
 // lombokBuilder 处理 @Builder：生成 Builder 内部类、builder()/链式 setter/build() 及私有构造器。
-func (c *DeSugar) lombokBuilder(elem *model.CodeElement, node coreast.Node, fCtx *core.FileContext) {
+func (c *DeSugar) lombokBuilder(elem *model.CodeElement, node coreast.Node, fCtx core.FileContext) {
 	fields := c.extractClassFields(elem, fCtx)
 
 	var nonStaticFields []*core.DefinitionEntry
@@ -713,7 +713,7 @@ func (c *DeSugar) lombokBuilder(elem *model.CodeElement, node coreast.Node, fCtx
 			Kind:          model.Class,
 			Name:          builderClassName,
 			QualifiedName: builderQN,
-			Path:          fCtx.FilePath,
+			Path:          fCtx.FilePath(),
 			Location:      elem.Location,
 			Signature:     "public static class Builder",
 			Extra: &model.Extra{
@@ -736,7 +736,7 @@ func (c *DeSugar) lombokBuilder(elem *model.CodeElement, node coreast.Node, fCtx
 			Kind:          model.Method,
 			Name:          builderMethodName,
 			QualifiedName: builderMethodQN,
-			Path:          fCtx.FilePath,
+			Path:          fCtx.FilePath(),
 			Location:      elem.Location,
 			Signature:     fmt.Sprintf("public static %s builder()", builderClassName),
 			Extra: &model.Extra{
@@ -763,7 +763,7 @@ func (c *DeSugar) lombokBuilder(elem *model.CodeElement, node coreast.Node, fCtx
 				Kind:          model.Method,
 				Name:          fieldName,
 				QualifiedName: setterQN,
-				Path:          fCtx.FilePath,
+				Path:          fCtx.FilePath(),
 				Location:      elem.Location,
 				Signature:     fmt.Sprintf("public %s %s(%s)", builderClassName, fieldName, fieldType),
 				Extra: &model.Extra{
@@ -788,7 +788,7 @@ func (c *DeSugar) lombokBuilder(elem *model.CodeElement, node coreast.Node, fCtx
 			Kind:          model.Method,
 			Name:          "build",
 			QualifiedName: buildQN,
-			Path:          fCtx.FilePath,
+			Path:          fCtx.FilePath(),
 			Location:      elem.Location,
 			Signature:     fmt.Sprintf("public %s build()", elem.Name),
 			Extra: &model.Extra{
@@ -812,7 +812,7 @@ func (c *DeSugar) lombokBuilder(elem *model.CodeElement, node coreast.Node, fCtx
 			Kind:          model.Method,
 			Name:          elem.Name,
 			QualifiedName: privateConstructorQN,
-			Path:          fCtx.FilePath,
+			Path:          fCtx.FilePath(),
 			Location:      elem.Location,
 			Signature:     fmt.Sprintf("private %s(%s %s)", elem.Name, builderClassName, builderParam),
 			Extra: &model.Extra{
@@ -837,8 +837,8 @@ func (c *DeSugar) lombokBuilder(elem *model.CodeElement, node coreast.Node, fCtx
 // fieldHasInitializer 判断字段是否有内联初始化器（如 private final Executor e = getBean(...)）。
 // Lombok @RequiredArgsConstructor 语义：带初始化器的 final 字段不进入构造器参数。
 // tree-sitter 中初始化器挂在 variable_declarator 的 value 字段上（field_declaration 本身无 value）。
-func fieldHasInitializer(field *core.DefinitionEntry, fCtx *core.FileContext) bool {
-	src := *fCtx.SourceBytes
+func fieldHasInitializer(field *core.DefinitionEntry, fCtx core.FileContext) bool {
+	src := *fCtx.SourceBytes()
 	for i := 0; i < field.Node.NamedChildCount(); i++ {
 		child := field.Node.NamedChild(i)
 		if child.Kind() != "variable_declarator" {
@@ -855,7 +855,7 @@ func fieldHasInitializer(field *core.DefinitionEntry, fCtx *core.FileContext) bo
 }
 
 // extractClassFields 提取类中的所有字段（不含语法糖生成的字段）。
-func (c *DeSugar) extractClassFields(elem *model.CodeElement, fCtx *core.FileContext) []*core.DefinitionEntry {
+func (c *DeSugar) extractClassFields(elem *model.CodeElement, fCtx core.FileContext) []*core.DefinitionEntry {
 	var fields []*core.DefinitionEntry
 
 	if defs, ok := fCtx.FindByKind(model.Field); ok {
@@ -870,7 +870,7 @@ func (c *DeSugar) extractClassFields(elem *model.CodeElement, fCtx *core.FileCon
 }
 
 // checkMethodExists 检查方法是否已存在（避免重复生成）。
-func (c *DeSugar) checkMethodExists(parentQN, methodName, paramTypes string, fCtx *core.FileContext) bool {
+func (c *DeSugar) checkMethodExists(parentQN, methodName, paramTypes string, fCtx core.FileContext) bool {
 	methodQN := c.resolver.BuildQualifiedName(parentQN, methodName+paramTypes)
 	if _, ok := fCtx.FindByQualifiedName(methodQN); ok {
 		return true

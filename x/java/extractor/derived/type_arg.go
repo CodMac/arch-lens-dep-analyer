@@ -17,7 +17,7 @@ type TypeArgExtractor struct{}
 func (e *TypeArgExtractor) Extract(ctx *Context) []*model.DependencyRelation {
 	var rels []*model.DependencyRelation
 
-	for _, entry := range ctx.FC.Definitions {
+	for _, entry := range ctx.FC.Definitions() {
 		elem := entry.Element
 		if elem.Extra == nil {
 			continue

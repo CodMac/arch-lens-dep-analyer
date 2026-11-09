@@ -13,12 +13,12 @@ import (
 
 // MethodEnricher 为方法/构造器生成签名、参数、返回类型、throws 与圈复杂度。
 type MethodEnricher struct {
-	fCtx *core.FileContext
+	fCtx core.FileContext
 }
 
 // EnrichMetadata 填充方法级 Mores 并构造 Signature。
 func (c *MethodEnricher) EnrichMetadata(elem *model.CodeElement, node coreast.Node) {
-	srcs := c.fCtx.SourceBytes
+	srcs := c.fCtx.SourceBytes()
 	extra := elem.Extra
 	mods := elem.Extra.Modifiers
 

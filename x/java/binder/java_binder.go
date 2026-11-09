@@ -27,9 +27,9 @@ func New() *Binder {
 
 // BindSymbols 遍历全局上下文中的全部定义，完成 raw 类型到 QN 的绑定。
 // 注意：GlobalContext 内部自加锁，此处通过快照遍历，不持有任何锁。
-func (b *Binder) BindSymbols(gc *core.GlobalContext) error {
+func (b *Binder) BindSymbols(gc core.GlobalContext) error {
 	for _, fCtx := range gc.FileContexts() {
-		for _, entry := range fCtx.Definitions {
+		for _, entry := range fCtx.Definitions() {
 			elem := entry.Element
 			if elem.Extra == nil {
 				continue
@@ -83,7 +83,7 @@ func (b *Binder) BindSymbols(gc *core.GlobalContext) error {
 }
 
 // resolveToQN 将 raw 类型字符串解析为 QN；基本类型原样返回。
-func (b *Binder) resolveToQN(gc *core.GlobalContext, fCtx *core.FileContext, rawType string) string {
+func (b *Binder) resolveToQN(gc core.GlobalContext, fCtx core.FileContext, rawType string) string {
 	return b.resolveToQNScoped(gc, fCtx, "", rawType)
 }
 
@@ -93,7 +93,7 @@ func (b *Binder) resolveToQN(gc *core.GlobalContext, fCtx *core.FileContext, raw
 // 算法：沿词法嵌套链逐级上溯（当前类 -> 外层类 -> 更外层），尝试 scope+shortName；
 // 例：Config.Builder 内方法返回 Builder -> Config.Builder；Config.builder() 返回 Builder
 // -> Config.Builder；BuilderComprehensive.builder() 返回 Builder -> BuilderComprehensive.Builder。
-func (b *Binder) resolveToQNScoped(gc *core.GlobalContext, fCtx *core.FileContext, ownerQN, rawType string) string {
+func (b *Binder) resolveToQNScoped(gc core.GlobalContext, fCtx core.FileContext, ownerQN, rawType string) string {
 	if b.resolver.IsPrimitive(rawType) {
 		return rawType
 	}
@@ -130,8 +130,8 @@ func (b *Binder) resolveToQNScoped(gc *core.GlobalContext, fCtx *core.FileContex
 
 // hasSingleTypeImport 判断文件是否存在指定短名的非通配符单类型导入。
 // 用于 resolveToQNScoped 的 JLS §7.5.1 优先级判断：单类型导入遮蔽同包类型。
-func hasSingleTypeImport(fCtx *core.FileContext, shortName string) bool {
-	imps, ok := fCtx.Imports[shortName]
+func hasSingleTypeImport(fCtx core.FileContext, shortName string) bool {
+	imps, ok := fCtx.Imports()[shortName]
 	if !ok {
 		return false
 	}
