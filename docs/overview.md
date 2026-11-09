@@ -63,12 +63,13 @@ docs/               设计文档（本目录）
 | [architecture.md](architecture.md) | 分层架构详述：各层职责、依赖方向、模块清单 |
 | [data-model.md](data-model.md) | 数据模型：CodeElement / DependencyRelation / Mores / Location |
 | [pipeline.md](pipeline.md) | 五阶段流水线：Collector → Binder → Extractor → Linker → NoiseFilter |
-| [action-resolution.md](action-resolution.md) | 三段式动作解析：Context → Segment → Chain |
+| [action-resolution.md](action-resolution.md) | 三段式动作解析：Context → Segment → Chain（Java） |
 | [language-extension.md](language-extension.md) | 语言扩展 SPI：注册表、接入新语言的步骤 |
 | [languages/java.md](languages/java.md) | Java 语言实现边界：能力清单、语法糖支持、已知限制 |
+| [languages/cpp.md](languages/cpp.md) | C/C++ 语言实现边界：元素/关系覆盖、声明-实现配对、条件编译、已知限制 |
 | [roadmap.md](roadmap.md) | 语言支持路标：现状矩阵、分阶段规划、范围边界 |
-| [testing.md](testing.md) | 测试体系：三层单测 + 黄金回归集 |
-| [qn-format.md](qn-format.md) | QN 格式规范：各元素 QN 形态、消歧规则、边界情况 |
+| [testing.md](testing.md) | 测试体系：三层单测 + 黄金回归集（Java / C/C++） |
+| [qn-format.md](qn-format.md) | QN 格式规范：各元素 QN 形态、消歧规则、边界情况（含 C/C++ `::` 章节） |
 
 ## 6. 核心概念速览
 
@@ -76,11 +77,15 @@ docs/               设计文档（本目录）
 - **DependencyRelation**：两个 CodeElement 之间的一条依赖（CALL/CREATE/USE/ASSIGN/EXTEND/...）。
 - **Mores**：语言特化的元数据字典，key 为字符串常量，按 `ele_` / `rel_` 分组集中定义。
 - **五阶段流水线**：Collector（并行收集）→ Binder（符号绑定）→ Extractor（并行提取）→ Linker（层级拓扑）→ NoiseFilter（三级降噪）。
-- **三段式动作解析**：NodeContextResolver（上下文提取）→ ExpressionSegmenter（分段）→ ChainResolver（符号推导）。
+- **三段式动作解析**（Java）：NodeContextResolver（上下文提取）→ ExpressionSegmenter（分段）→ ChainResolver（符号推导）。C/C++ 因无链式调用语法糖，改用「节点形态分类 + 作用域链/继承链查找」。
+- **上下文接口**：`FileContext` / `GlobalContext` 为接口，`Base*` 实现提供通用索引与锁；语言实现内嵌复用。
+- **声明/定义双元素**：`FUNCTION_DECL`/`METHOD_DECL` 与 `FUNCTION`/`METHOD` 同 QN 共存，`ImplLink` 连接（C/C++）。
 
 ## 7. 变更记录
 
 | 日期 | 变更 |
 |---|---|
+| 2026-11-09 | C/C++ 语言落地：新增 [languages/cpp.md](languages/cpp.md)；同步架构/流水线/语言扩展/数据模型/QN/测试/路标文档 |
+| 2026-11-06 | 上下文接口化：`FileContext`/`GlobalContext` 改为接口 + Base 实现；新增 `FunctionDecl`/`MethodDecl`；`qnIndex` 键加 `|Kind` |
 | 2026-10-20 | 文档体系完善：新增 Java 实现边界与语言路标 |
 | 2026-10-16 | 建立 docs/，完成架构、数据模型、流水线等设计文档 |

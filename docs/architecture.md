@@ -22,7 +22,7 @@
 | model/           数据模型（纯数据结构，零依赖）                 |
 |   CodeElement / DependencyRelation / Mores / Location / Kind   |
 +---------------------------------------------------------------+
-| x/{lang}/        语言实现（Java 已落地，Go 预留）               |
+| x/{lang}/        语言实现（Java / C / C++ 已落地，Go 预留）     |
 |   collector/binder/extractor/resolver/desugar/... 通过 SPI 注册 |
 +---------------------------------------------------------------+
 | output/          导出器（jsonl）                               |
@@ -34,7 +34,7 @@
 ```
 cmd → engine → core → model
                     ↕        （core 依赖 model；model 零依赖）
-          x/java → core + model（语言实现 core 的 SPI 接口）
+          x/{lang} → core + model（语言实现 core 的 SPI 接口）
           output → model
 ```
 
@@ -77,10 +77,51 @@ cmd → engine → core → model
 - 符号 SPI：`SymbolResolver` / `SymbolBuilder`。
 - `ast/`：AST 薄封装接口（`Node` / `SourceFile`）。
 - `parser_factory.go`：`ParserFactory` / `Parser` 接口。
+- `file_context.go` / `global_context.go`：**上下文接口 + Base 通用实现**（见 §3.3.1）。
 
 **关键约束**：
 - 所有接口签名只使用 `core`/`model` 定义的类型，**绝不出现** `*sitter.Node` 等 AST 库类型。
 - 接口是契约，语言实现负责把 AST 适配为 core 语义。
+
+#### 3.3.1 上下文接口化（2026-11-06）
+
+`FileContext` 与 `GlobalContext` 从具体结构体改为**接口 + Base 通用实现**，为多语言（尤其 C/C++ 的 namespace / 声明-定义分离）打基础：
+
+```go
+// core/file_context.go
+type FileContext interface {
+    FilePath() string;  SetFilePath(string)
+    PackageName() string; SetPackageName(string)
+    Namespaces() []string; SetNamespaces([]string)   // C++ 多 namespace（G1）
+    Root() ast.Node;  SetRoot(ast.Node)
+    SourceBytes() *[]byte; SetSourceBytes(*[]byte)
+    Definitions() []*DefinitionEntry; AddDefinition(*DefinitionEntry)
+    Imports() map[string][]*ImportInfo; AddImport(string, *ImportInfo)
+    FindByShortName(string) ([]*DefinitionEntry, bool)
+    FindByQualifiedName(string) (*DefinitionEntry, bool)
+    FindByKind(model.ElementKind) ([]*DefinitionEntry, bool)
+}
+
+// core/global_context.go
+type GlobalContext interface {
+    RegisterFileContext(FileContext)
+    FileContexts() map[string]FileContext
+    FileContext(relPath string) (FileContext, bool)
+    Definitions() []*DefinitionEntry
+    AddDefinition(*DefinitionEntry)
+    FindByQualifiedName(qn string) (*DefinitionEntry, bool)
+    FindMethodByNoParamsQN(noParamsQN string) ([]*DefinitionEntry, bool)
+    BuildQualifiedName(parentQN, name string) string
+    Resolver() SymbolResolver
+    Builder() SymbolBuilder
+}
+```
+
+- `BaseFileContext` / `BaseGlobalContext` 承载全部索引/锁/去重机制；语言实现内嵌复用（当前 Java 与 C/C++ 均直接使用 Base）。
+- **声明/定义共存（G2）**：`BaseGlobalContext` 全量索引键为 `QN + "|" + Kind`，使 `add(int,int)|FUNCTION_DECL` 与 `add(int,int)|FUNCTION` 共存；主索引 `qnPrimary` 保持「定义优先」，但纯声明（无定义）仍可命中。
+- **重载索引放宽（G3）**：`methodNoParamQN` 由仅 `Method` 放宽为 `Method || Function || MethodDecl || FunctionDecl`，C 自由函数可参与重载消解。
+- **`ImportInfo.IsSystem`（G5）**：C/C++ 用 `#include <...>` 与 `"..."` 区分系统/项目内头文件。
+- `FileContext.Namespaces` 为 C++ 多命名空间预留；Java/Go 置空。
 
 ### 3.4 model/（数据模型）
 
@@ -88,6 +129,8 @@ cmd → engine → core → model
 - `element.go`：`CodeElement` / `ElementKind` / `Extra` / `Location`。
 - `relation.go`：`DependencyRelation` / `DependencyType`。
 - `mores.go`：通用 Mores key 常量。
+
+**声明/定义成对 kind（2026-11-06）**：`FunctionDecl`（`FUNCTION_DECL`）与 `MethodDecl`（`METHOD_DECL`）用于 C/C++ 等声明/实现分离语言，与 `Function`/`Method` 成对，QN 相同、Kind 不同。
 
 **关键约束**：
 - 零依赖，可被任何层 import。
@@ -121,6 +164,25 @@ x/java/
 └── helper/                  # 通用解析辅助
 ```
 
+**结构**（C/C++，共用一套实现）：
+```
+x/cpp/
+├── init.go                  # init() 同时注册 LangC 与 LangCPP
+├── cpp_parser.go            # CppParserFactory（按扩展名选 c / cpp grammar）
+├── ast/                     # core/ast 接口适配
+├── collector/               # 五步收集 + 条件编译栈 + 匿名 struct 承载
+├── binder/                  # raw 类型 → QN（typedef 别名链展开）
+├── extractor/               # 结构 + 动作 + Capture 派生
+├── linker/                  # Contain 拓扑 + ImplLink 签名配对
+├── noise_filter/            # 复用 DefaultNoiseFilter，ImplLink 恒保留
+├── symbol_resolver/         # 节点形态分类 + 作用域链/继承链查找
+├── symbol_builder/          # QN 用 :: 拼接
+├── constants/               # cpp.* Mores key
+└── helper/                  # :: 切分、类型文本归一化、外部符号构造
+```
+
+> C/C++ 无独立的 `resolver/` 三段式包：C/C++ 表达式无 Java 的链式调用语法糖，`symbol_resolver` 内直接按节点形态分类解析。
+
 ### 3.6 output/（导出器）
 
 - **output/**：将结果导出为 JSONL（`element.jsonl` 与 `relation_{type}.jsonl`）。只依赖 `model`。
@@ -146,17 +208,20 @@ arch-lens-dep-analyer/
 │   ├── noise_filter.go
 │   ├── symbol_resolver.go
 │   ├── symbol_builder.go
-│   ├── global_context.go # GlobalContext（统一 RWMutex）
-│   └── file_context.go   # FileContext
+│   ├── global_context.go # GlobalContext 接口 + BaseGlobalContext（统一 RWMutex）
+│   └── file_context.go   # FileContext 接口 + BaseFileContext
 ├── model/
 │   ├── element.go
 │   ├── relation.go
 │   └── mores.go
 ├── x/java/
 │   ├── ...（见 §3.5）
+├── x/cpp/
+│   ├── ...（见 §3.5）
 ├── output/
 │   ├── exporter.go
 │   └── jsonl.go
 ├── docs/
-└── x/java/testdata/      # 黄金回归集
+├── x/java/testdata/      # Java 黄金回归集
+└── x/cpp/testdata/       # C/C++ 黄金回归集
 ```

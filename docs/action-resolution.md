@@ -1,6 +1,8 @@
-# 三段式动作解析设计
+# 三段式动作解析设计（Java）
 
 > 适用版本：当前主干
+>
+> 本文档描述 **Java** 的动作解析实现（`x/java/resolver/`）。C/C++ 不使用三段式：其表达式无链式调用语法糖，`x/cpp/symbol_resolver` 直接按节点形态（`call_expression` / `field_expression` / `qualified_identifier` / `new_expression` / `cast_expression`）分派，再沿词法作用域链与类型继承链查找，详见 [languages/cpp.md](languages/cpp.md) §6.2。
 
 ## 1. 概述
 
@@ -172,3 +174,4 @@ list.get(0).getTotal();
 - **第 2 层测试**（resolver）：`TestExpectation` + `runSymbolAsserts` 矩阵，`line:text:seq` 三元组断言目标符号。
 - 覆盖：Head 全类型（This/Super/New/Cast/Ident/ImplicitMethod）、链段全类型（Field/Method/Array/Class）、泛型传播、断链降级、重载消解、继承回溯。
 - e2e 黄金回归集（`x/java/testdata/e2e/baseline.golden.jsonl`）为整体行为的权威校准源。
+- C/C++ 的动作解析测试见 `x/cpp/test/resolver_test.go`（`TestResolverCall/Create/Use/Assign/Cast/FieldInitializer/Capture`）。

@@ -1,8 +1,10 @@
 # QN（QualifiedName）格式规范与边界
 
-> 适用范围：Java 语言实现（`x/java/`）· 与 [languages/java.md](languages/java.md) 互为补充
+> 适用范围：Java（`x/java/`）与 C/C++（`x/cpp/`）· 与 [languages/java.md](languages/java.md)、[languages/cpp.md](languages/cpp.md) 互为补充
 >
 > QN 是 arch-lens-dep-analyer 中代码实体的**全局唯一标识**，贯穿 Collector（定义）、Binder/Resolver（解析）、Extractor（关系 Source/Target）、Linker（Contain 拓扑）、Exporter（JSONL）全流程。本文档罗列各类 Element 提取出的 QN 格式、拼接规则与边界情况，作为行为契约与测试校准依据。
+>
+> §1–§7 以 Java 为主（点号分隔）；C/C++ 的差异集中在 §8（`::` 分隔、声明/定义双元素、namespace 层级）。
 
 ## 1. 拼接基础
 
@@ -50,12 +52,12 @@ com.example.base.ScopeTest.test().lambda$1.a
 
 ### 2.2 File（文件）
 
-**格式**：相对项目根的路径，**反斜杠分隔**（Windows）。
+**格式**：相对项目根的路径，**正斜杠 `/` 分隔**（跨平台一致，由 `engine/stage.go` 的 `normalizeFilePath` 统一 `filepath.ToSlash`）。
 
 | 场景 | 示例 |
 |---|---|
 | 常规文件 | `MyClass.java` |
-| 子目录文件 | `collector\\sugar\\RecordTest.java` |
+| 子目录文件 | `collector/sugar/RecordTest.java` |
 
 - `QualifiedName == Path`，即文件元素本身以文件路径为 QN。
 - `Kind=FILE`，`IsFormSource=true`。
@@ -342,28 +344,33 @@ void process(List<String> items)   →  Class.process(List)   // 不是 process(
   - `com.example.base.OuterClass.scopeTest().LocalClass.LocalClass()`
   - `com.example.base.OuterClass.scopeTest().LocalClass.action()`
 
-### 5.7 文件路径 QN 的反斜杠
+### 5.7 文件路径 QN 的分隔符
 
-文件元素与 `Path` 字段使用**平台分隔符**（Windows 下为 `\`）：`collector\\sugar\\RecordTest.java`。测试比较时需注意路径分隔符差异。
+文件元素与 `Path` 字段统一使用**正斜杠 `/`**（跨平台一致）：`collector/sugar/RecordTest.java`。引擎在 Collector 阶段之后调用 `normalizeFilePath` 做相对化 + `filepath.ToSlash`，语言 SPI 不感知项目根。
 
 ### 5.8 顶层元素判定（Linker）
 
 Linker 将 `ParentQN == ""` 或 `ParentQN == 包名` 的元素视为**顶层元素**，直接挂到文件下（Contain）：`File.java -> 包.类`。方法、内部类、变量等**不会**平铺在文件下（它们的 ParentQN 是类/方法）。
 
+C/C++ 的判定额外包含「父级是 Namespace 元素」：`ParentQN == ""` 或父元素 Kind 为 `NAMESPACE` 时视为顶层，挂到文件下（见 [languages/cpp.md](languages/cpp.md)）。
+
 ## 6. QN 索引与查找
 
-GlobalContext / FileContext 提供两类 QN 索引：
+GlobalContext / FileContext 提供两类 QN 索引（均为接口方法，实现在 `core.BaseFileContext` / `core.BaseGlobalContext`）：
 
 | 索引 | 键 | 说明 |
 |---|---|---|
 | `qualifiedNameMap`（文件内） | 精确 QN | 唯一映射 |
 | `shortNameMap`（文件内） | 短名（Name） | 可多个（重载/重名） |
-| `qnIndex`（全局） | 精确 QN | 唯一映射 |
-| `methodNoParamQN`（全局） | 去参 QN | 重载消解用（`类QN.方法名` → 多候选） |
+| `qnIndex`（全局） | **`QN + "|" + Kind`** | 声明/定义共存（C/C++ 的 `FUNCTION_DECL` 与 `FUNCTION` 同 QN 不互相吞并） |
+| `qnPrimary`（全局） | 裸 QN | 主索引，**定义优先**（声明不覆盖定义；纯声明仍可命中） |
+| `methodNoParamQN`（全局） | 去参 QN | 重载消解用（`类QN.方法名` → 多候选）；索引 kind 含 `Method/Function/MethodDecl/FunctionDecl` |
 
 查找策略（`PreciseResolve`）：
 1. 文件内短名 → 全局精确 QN → 包内 QN → 通配符导入 QN。
 2. 方法解析先用 `methodNoParamQN`（去参 QN）收集候选，再用参数数量/类型打分选最佳重载。
+
+> 索引键含 Kind 是 2026-11-06 上下文接口化改造的关键变更（G2），使 C/C++ 的声明与定义能同时注册并分别查找。
 
 ## 7. 测试校准
 
@@ -374,12 +381,82 @@ GlobalContext / FileContext 提供两类 QN 索引：
   - Target 比较最后一个点段简单名（去包/括号/泛型）。
   - `super`/`this` 与构造器调用特殊放行。
 
+## 8. C/C++ QN 格式（`::` 分隔）
+
+C/C++ 的 QN 分隔符为 **`::`**（`x/cpp/symbol_builder`），其余拼接语义与 Java 一致。完整的能力与边界见 [languages/cpp.md](languages/cpp.md)。
+
+### 8.1 各 Element 的 QN 格式
+
+| 元素 | 格式 | 示例 |
+|---|---|---|
+| File | `相对路径`（正斜杠） | `collector/base/basic.h` |
+| Namespace | `ns1` / `ns1::ns2` | `app`、`app::core`（逐级独立元素） |
+| Struct / Class | `ns::类型名` | `Node`、`app::core::Base`、`app::Box` |
+| Enum / EnumConstant | `ns::枚举名` / `ns::枚举名::常量` | `Color`、`Color::RED`、`app::Scoped::A` |
+| Function（定义） | `[ns::]名(参数类型列表)` | `add(int,int)`、`internal_helper(int)` |
+| FunctionDecl（声明） | 同上（Kind 不同） | `add(int,int)`（头文件原型） |
+| Method（定义） | `ns::类名::方法名(参数类型列表)` | `app::core::Base::helper()`、`app::Box::run(int)` |
+| MethodDecl（声明） | 同上（Kind 不同） | `Widget::draw()`、`app::core::Base::run(int)` |
+| Field | `类QN::字段名` | `Node::value`、`app::core::Base::m_val` |
+| Type（typedef/using） | `[ns::]别名` | `Point`、`ulong_t` |
+| Variable | `所在作用域QN::变量名` | `add(int,int)::local`、`caller()::p`、`global_counter`（全局无前缀） |
+| Macro | `宏名` | `MAX_SIZE`、`SQUARE` |
+| Lambda | `容器QN::lambda$N` | `capture_user(int)::lambda$1` |
+| ScopeBlock | `容器QN::block$N` | `total(...)::block$1` |
+
+### 8.2 参数签名规则
+
+- 仅类型不含名：`add(int a, int b)` → `add(int,int)`。
+- 保留指针/引用/const：`const char*`、`int&`。
+- 数组 → `[]`；函数指针参数 → `(*)`；可变参数 → `...`。
+- `f(void)` → `f()`。
+- **模板实参从 QN 剥离**：`app::Box<int>::run` → `app::Box::run(int)`；模板参数原文记 `cpp.template.params`。
+
+### 8.3 声明 / 定义双元素
+
+同一函数的声明与定义 **QN 完全相同**，仅 Kind 不同：
+
+```
+add(int,int)  | FUNCTION_DECL   ← basic.h 原型
+add(int,int)  | FUNCTION        ← basic.c 定义
+```
+
+- `FindByQualifiedName("add(int,int)")` 返回**定义**（`FUNCTION`）。
+- 声明需按 Kind 或按文件上下文查找。
+- 两者由 `ImplLink` 关系连接（Source=定义 → Target=声明）。
+
+### 8.4 匿名 struct / union 的字段归属
+
+匿名 struct/union 不产独立元素，字段挂承载实体：
+
+```
+typedef struct { int x; int y; } Point;   →  Point::x、Point::y
+struct Outer { struct { int a; } pair; }; →  Outer::pair::a
+```
+
+### 8.5 类外定义（out-of-line）
+
+`ns::Class::method` 形式的类外定义，相对限定名按当前命名空间补全前缀后作为 QN：
+
+```cpp
+namespace app {
+    void core::Base::helper() {}   // → app::core::Base::helper()
+}
+int app::Box<int>::twice(int x) {} // → app::Box::twice(int)
+```
+
+### 8.6 外部符号兜底
+
+- 基本类型（含 `auto`）→ `PRIMITIVE`，QN 保留原名。
+- 模板类型变量（单大写字母）→ 不产外部元素。
+- 其余 → 外部符号，`PackageName` 按 `::` 拆分取前缀，无 `::` 归 `<external>`；**不补 `std::` 等前缀**（`std::vector` 的 QN 保留原文）。
+
 ## 附：QN 快速速查表
 
 | 元素 | 格式 | 示例 |
 |---|---|---|
 | Package | `包` | `com.example.base` |
-| File | `相对路径` | `collector\\sugar\\RecordTest.java` |
+| File | `相对路径` | `collector/sugar/RecordTest.java` |
 | Class/Interface/Enum/Annotation | `包.名` | `com.example.base.OuterClass` |
 | Method | `包.类.方法(参数)` | `com.example.Main.main(String[])` |
 | Constructor | `包.类.类(参数)` | `com.example.app.MyClass.MyClass(String)` |
@@ -392,5 +469,18 @@ GlobalContext / FileContext 提供两类 QN 索引：
 | StaticBlock | `类QN.$static$N` | `...OuterClass.$static$1` |
 | InstanceBlock | `类QN.$instance$N` | `...OuterClass.$instance$1` |
 | MethodRef | `容器QN.method_ref$N` | `...testAllMethodReferences().method_ref$1` |
+
+**C/C++（`::` 分隔）**：
+
+| 元素 | 格式 | 示例 |
+|---|---|---|
+| Namespace | `ns::ns` | `app::core` |
+| Struct/Class | `ns::名` | `app::core::Base` |
+| Function/Method | `[ns::][类::]名(参数)` | `add(int,int)`、`app::Box::run(int)` |
+| FunctionDecl/MethodDecl | 同 Function/Method（Kind 不同） | `add(int,int)`、`Widget::draw()` |
+| Field | `类::字段` | `Node::value` |
+| Variable | `作用域::变量` | `add(int,int)::local` |
+| Macro | `宏名` | `MAX_SIZE` |
+| Lambda / ScopeBlock | `容器::lambda$N` / `容器::block$N` | `capture_user(int)::lambda$1` |
 
 

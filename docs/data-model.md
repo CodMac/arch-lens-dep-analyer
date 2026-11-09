@@ -35,8 +35,20 @@ type CodeElement struct {
 | 基本结构体 | FILE / PACKAGE / MODULE / NAMESPACE |
 | 面向对象/复合类型 | CLASS / INTERFACE / ENUM / ANONYMOUS_CLASS / ANONYMOUS_STRUCT / STRUCT / TRAIT / ANNOTATION |
 | 可执行体 | METHOD / FUNCTION / LAMBDA / METHOD_REF / SCOPE_BLOCK / MACRO |
+| 声明（无实现体，与定义成对） | FUNCTION_DECL / METHOD_DECL |
 | 存储和声明 | FIELD / VARIABLE / CONSTANT / ENUM_CONSTANT / TYPE |
 | 其他 | UNKNOWN |
+
+**声明/定义成对 kind（2026-11-06 新增）**：
+
+| 声明 kind | 对应定义 kind | 用途 |
+|---|---|---|
+| `FUNCTION_DECL` | `FUNCTION` | C/C++ 头文件函数原型（无函数体） |
+| `METHOD_DECL` | `METHOD` | C++ 类成员声明（无函数体） |
+
+- 声明与定义 **QN 相同、Kind 不同**，在 `BaseGlobalContext` 中按 `QN|Kind` 共存。
+- `FindByQualifiedName` 定义优先；`ImplLink` 关系从定义指向声明。
+- 其他声明形态（`extern` 变量、struct 前向声明）不独立成 kind，归 `VARIABLE`/`STRUCT` 并记 `cpp.is_declaration=true`。
 
 ### Extra 元数据
 
@@ -84,6 +96,8 @@ type DependencyRelation struct {
 | 数据流与状态 | USE / ASSIGN / CAPTURE |
 | 跨语言/特殊 | IMPL_LINK / MIXIN |
 
+> `IMPL_LINK` 当前由 C/C++ Linker 产出（定义 → 声明，见 [languages/cpp.md](languages/cpp.md) §4）。`OVERRIDE` / `EXPORT` / `MIXIN` 常量已定义但尚无语言实现产出。
+
 ## 4. Mores 字典与 Key 常量
 
 Mores 是 `map[string]interface{}`，key 按语言无关 / 语言特化分层定义：
@@ -92,6 +106,7 @@ Mores 是 `map[string]interface{}`，key 按语言无关 / 语言特化分层定
 |---|---|---|---|
 | `model/mores.go` | `ele.` / `rel.` | 语言无关通用 key | `ele.raw_name`、`rel.raw_text`、`rel.node_ast_kind` |
 | `x/java/constants/` | `java.*` | Java 语言特化 key | `java.class.superclass`、`java.method.return_type`、`java.rel.call.receiver` |
+| `x/cpp/constants/` | `cpp.*` | C/C++ 语言特化 key | `cpp.function.return_type`、`cpp.class.superclass`、`cpp.condition`、`cpp.rel.impl_link.signature` |
 
 **示例（Java 语言特化）**：
 ```go
@@ -112,6 +127,32 @@ const (
     RelCallReceiver  = "java.rel.call.receiver"        // 调用接收者
     RelAssignIsCapture = "java.rel.assign.is_capture"  // 跨作用域捕获赋值
     RelTypeArgDepth  = "java.rel.type_arg.depth"       // 泛型嵌套深度
+)
+```
+
+**示例（C/C++ 语言特化）**：
+```go
+// x/cpp/constants/cpp_constants.go
+const (
+    FunctionReturnType   = "cpp.function.return_type"       // 返回类型原始文本
+    FunctionParameters   = "cpp.function.parameters"        // 参数列表（类型+名称）
+    FunctionIsDeclaration = "cpp.function.is_declaration"   // 是否为声明（无函数体）
+    FunctionIsPureVirtual = "cpp.function.is_pure_virtual"  // 纯虚函数（= 0）
+    VariableRawType      = "cpp.variable.raw_type"          // 变量类型文本
+    VariableIsGlobal     = "cpp.variable.is_global"         // 全局变量
+    VariableLambdaQN     = "cpp.variable.lambda_qn"         // 变量持有的 Lambda QN
+    FieldRawType         = "cpp.field.raw_type"             // 字段类型文本
+    ClassSuperClass      = "cpp.class.superclass"           // 基类列表
+    TypeUnderlying       = "cpp.type.underlying"            // typedef/using 底层类型
+    MacroBody            = "cpp.macro.body"                 // 宏体原文
+    Condition            = "cpp.condition"                  // 条件编译分支标签
+    Visibility           = "cpp.visibility"                 // public/private/protected
+    IsDeclaration        = "cpp.is_declaration"             // 通用声明标记
+
+    RelRawText           = "cpp.rel.raw_text"               // 关系原始文本
+    RelAstKind           = "cpp.rel.ast_kind"               // 触发关系的 AST 节点类型
+    RelIncludeIsSystem   = "cpp.rel.include.is_system"      // 系统头文件
+    RelImplLinkSignature = "cpp.rel.impl_link.signature"    // ImplLink 配对签名
 )
 ```
 

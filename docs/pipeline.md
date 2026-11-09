@@ -37,11 +37,13 @@ type Stage interface {
 // engine/context.go
 type EngineContext struct {
     Config      engine.Config      // Lang / RootPath / FilePaths / Concurrency / FilterLevel
-    GC          *core.GlobalContext // 全局符号上下文（统一 RWMutex 保护）
+    Impl        *core.LanguageImpl // 从注册表获取的语言实现（缓存）
+    GC          core.GlobalContext // 全局符号上下文（接口；Base 实现内含 RWMutex）
     Relations   []*model.DependencyRelation // 已提取的关系集合
-    // ...
 }
 ```
+
+> 上下文接口化（2026-11-06）：`GC` 与各 SPI 签名中的上下文均为**接口**，通用索引/锁机制由 `core.BaseGlobalContext` / `core.BaseFileContext` 提供，语言实现内嵌复用。详见 [architecture.md](architecture.md) §3.3.1。
 
 **生命周期**：
 1. **创建**：engine 初始化时构造（含 GC 创建、Resolver/Builder 注入）。
@@ -57,7 +59,7 @@ type EngineContext struct {
 **SPI**：`core.Collector`
 ```go
 type Collector interface {
-    CollectDefinitions(source *core.ast.SourceFile) (*core.FileContext, error)
+    CollectDefinitions(src ast.SourceFile) (FileContext, error)
 }
 ```
 
@@ -78,7 +80,7 @@ type Collector interface {
 **SPI**：`core.Binder`
 ```go
 type Binder interface {
-    BindSymbols(ctx *core.GlobalContext) error
+    BindSymbols(ctx GlobalContext) error
 }
 ```
 
@@ -93,7 +95,7 @@ type Binder interface {
 **SPI**：`core.Extractor`
 ```go
 type Extractor interface {
-    Extract(relPath string, ctx *core.GlobalContext) ([]*model.DependencyRelation, error)
+    Extract(relPath string, ctx GlobalContext) ([]*model.DependencyRelation, error)
 }
 ```
 
@@ -109,14 +111,22 @@ type Extractor interface {
    - 组装 Relation
    - enricher 填 Mores、派生 Capture/TypeArg
 
+**C/C++ 实现**（x/cpp/extractor/cpp_extractor.go）：
+1. `extractHierarchy`：Import（`#include`）/ Contain。
+2. `extractStructural`：Extend / Parameter / Return / TypeArg。
+3. `extractActions`：AST 遍历直接按节点形态分派（`call_expression` / `new_expression` / `cast_expression` / `assignment_expression` / `init_declarator` / `field_initializer` / `throw_statement` / `identifier` / `field_expression` / `qualified_identifier`），不经 tree-sitter query。
+4. `deriveCaptures`：从 Lambda 的 USE/ASSIGN 推导 Capture。
+
 ### 阶段 4：Linker（层级拓扑）
 
 **目标**：补齐层级关系（Contain / Extend / Implement），构建全局符号树。
 
+**C/C++ 额外职责**：`ImplLink` 声明-实现链接（函数级签名配对，定义 → 声明）。详见 [languages/cpp.md](languages/cpp.md) §4。
+
 **SPI**：`core.Linker`
 ```go
 type Linker interface {
-    LinkHierarchy(ctx *core.GlobalContext) []*model.DependencyRelation
+    LinkHierarchy(ctx GlobalContext) []*model.DependencyRelation
 }
 ```
 
@@ -139,8 +149,10 @@ type NoiseFilter interface {
 | 等级 | 语义 |
 |---|---|
 | `LevelRaw` | 直通，不过滤 |
-| `LevelBalanced` | 保留源码/语法糖/Contain；外部符号的 Extend/Implement/Annotation/Parameter/Return/TypeArg/Call/Create/Cast/Use/Assign 为噪音 |
+| `LevelBalanced` | 保留源码/语法糖/Contain/ImplLink；外部符号的 Extend/Implement/Annotation/Parameter/Return/TypeArg/Call/Create/Cast/Use/Assign 为噪音 |
 | `LevelPure` | 仅保留源码符号相关关系 |
+
+> `ImplLink`（C/C++ 声明-实现链接）与 `Contain` 同语义，**恒保留**，不受等级影响。
 
 ## 5. 并发调度器
 

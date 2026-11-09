@@ -21,6 +21,8 @@ type Language string
 const (
     LangJava Language = "java"  // 已实现
     LangGo   Language = "go"    // 已声明，尚未实现（见 roadmap.md）
+    LangC    Language = "c"     // 已实现（x/cpp 共用实现）
+    LangCPP  Language = "cpp"   // 已实现（x/cpp 共用实现）
 )
 
 // 全局注册表（各语言 init() 调用）
@@ -49,13 +51,15 @@ type LanguageImpl struct {
 |---|---|---|
 | `ParserFactory` | `NewParser() Parser` | 创建语言解析器 |
 | `Parser` | `ParseFile(path) (ast.SourceFile, error)` + `Close()` | 解析源文件为 AST |
-| `Collector` | `CollectDefinitions(src ast.SourceFile) (*FileContext, error)` | 收集符号定义 |
-| `Binder` | `BindSymbols(ctx *GlobalContext) error` | 符号绑定 |
-| `Extractor` | `Extract(relPath string, ctx *GlobalContext) ([]*model.DependencyRelation, error)` | 提取关系 |
-| `Linker` | `LinkHierarchy(ctx *GlobalContext) []*model.DependencyRelation` | 层级拓扑 |
+| `Collector` | `CollectDefinitions(src ast.SourceFile) (FileContext, error)` | 收集符号定义 |
+| `Binder` | `BindSymbols(ctx GlobalContext) error` | 符号绑定 |
+| `Extractor` | `Extract(relPath string, ctx GlobalContext) ([]*model.DependencyRelation, error)` | 提取关系 |
+| `Linker` | `LinkHierarchy(ctx GlobalContext) []*model.DependencyRelation` | 层级拓扑 |
 | `NoiseFilter` | `SetLevel(FilterLevel)` + `IsNoise(rel) bool` | 降噪 |
 | `SymbolResolver` | `BuildQualifiedName` + `RegisterPackage` + `IsPrimitive` + `ResolveType` + `ResolveFunc` + `ResolveVar` + `ResolveAction` | 符号解析 |
 | `SymbolBuilder` | `BuildQualifiedName(parentQN, name) string` + `IsPrimitive(typeName) bool` | QN 构建 |
+
+> **上下文接口化（2026-11-06）**：`FileContext` / `GlobalContext` 均为**接口**，SPI 签名只使用接口类型。通用索引/锁由 `core.BaseFileContext` / `core.BaseGlobalContext` 提供，语言实现内嵌复用。详见 [architecture.md](architecture.md) §3.3.1。
 
 ## 4. 注册流程（以 Java 为例）
 
@@ -78,6 +82,30 @@ func init() {
 ```
 
 **接入方式**：任意入口只需 `import _ "github.com/CodMac/arch-lens-dep-analyer/x/java"`，init() 自动完成注册。
+
+### 4.1 一次注册多种语言（C/C++ 模式）
+
+`x/cpp/init.go` 用同一套 SPI 实例注册两个 `Language`：
+
+```go
+func init() {
+    resolver := symbol_resolver.New()
+    builder := symbol_builder.New()
+    impl := func(lang core.Language) *core.LanguageImpl {
+        return &core.LanguageImpl{
+            Language: lang, Parser: &CppParserFactory{},
+            Collector: collector.New(resolver), Binder: binder.New(resolver),
+            Extractor: extractor.New(resolver), Linker: linker.New(),
+            NoiseFilter: noise_filter.New(core.LevelBalanced),
+            SymbolResolver: resolver, SymbolBuilder: builder,
+        }
+    }
+    core.Register(impl(core.LangC))
+    core.Register(impl(core.LangCPP))
+}
+```
+
+适用前提：两种语言的 AST 与语义足够接近（C 是 C++ 子集），差异仅在 Parser 层（按扩展名选 grammar）。若语义差异大（如 Go 的隐式接口实现），应各自独立实现。
 
 ## 5. AST 抽象（core/ast）
 
@@ -102,7 +130,9 @@ type SourceFile interface {
 }
 ```
 
-**实现方**：`x/{lang}/ast/` 提供 `sitterNode` 适配器（包装 `*sitter.Node`），把具体节点映射到接口。
+**实现方**：`x/{lang}/ast/` 提供 `Node` 适配器（包装 `*sitter.Node`），把具体节点映射到接口（`x/java/ast/node.go`、`x/cpp/ast/node.go`）。
+
+> 注意：tree-sitter 节点是含 C 指针的 struct，**不能用 `==` 比较**；`Equal` 必须比较节点 `Id()`（见 `x/cpp/ast/node.go`）。
 
 **好处**：
 - core/engine/model 完全不感知 tree-sitter。
@@ -117,7 +147,7 @@ type SourceFile interface {
 4. **注册**：`x/go/init.go` 调 `core.Register`。
 5. **测试**：建 testdata/go/，沿用三层测试模式。
 
-> 语言实现边界与能力要求，见 [languages/java.md](languages/java.md)；多语言推进优先级见 [roadmap.md](roadmap.md)。
+> 语言实现边界与能力要求，见 [languages/java.md](languages/java.md) 与 [languages/cpp.md](languages/cpp.md)；多语言推进优先级见 [roadmap.md](roadmap.md)。
 
 ## 7. 设计权衡
 
