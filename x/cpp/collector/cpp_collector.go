@@ -1,0 +1,1218 @@
+// Package collector 实现 C/C++ 语言 core.Collector 接口：
+// 将单个源文件解析为 FileContext（含全部代码元素定义与索引）。
+//
+// C/C++ 与 Java 的关键差异：
+//   - QN 分隔符为 ::（namespace/类/方法层级）
+//   - 声明与定义分离（FUNCTION_DECL/METHOD_DECL 与 FUNCTION/METHOD 成对）
+//   - 条件编译分支全保留，元素记 cpp.condition
+//   - 匿名 struct 不产独立元素，字段挂承载实体
+package collector
+
+import (
+	"fmt"
+	"path/filepath"
+	"strings"
+	"sync"
+
+	"github.com/CodMac/arch-lens-dep-analyer/core"
+	coreast "github.com/CodMac/arch-lens-dep-analyer/core/ast"
+	"github.com/CodMac/arch-lens-dep-analyer/model"
+	"github.com/CodMac/arch-lens-dep-analyer/x/cpp/constants"
+	"github.com/CodMac/arch-lens-dep-analyer/x/cpp/helper"
+)
+
+// Collector 实现 core.Collector。
+type Collector struct {
+	resolver core.SymbolResolver
+
+	// condStacks 条件编译分支栈：文件路径 -> (条件节点起始字节 -> 条件标签)。
+	// 引擎按文件并行调用 CollectDefinitions，故需加锁保护。
+	mu         sync.Mutex
+	condStacks map[string]map[int]string
+}
+
+// New 创建 C/C++ Collector。
+func New(resolver core.SymbolResolver) *Collector {
+	return &Collector{
+		resolver:   resolver,
+		condStacks: make(map[string]map[int]string),
+	}
+}
+
+// identified 描述一个待注册的元素及其声明器节点（QN 计算用）。
+type identified struct {
+	elem     *model.CodeElement
+	declNode coreast.Node // 声明器节点（函数/变量/字段），可为 nil
+	sig      string       // 函数参数签名 "(int,char*)"，非函数为空
+	parentQN string       // 计算后的父级 QN（assignQN 填充）
+}
+
+// =============================================================================
+// core.Collector 接口实现
+// =============================================================================
+
+// CollectDefinitions 从源文件收集符号定义并产出 FileContext。
+func (c *Collector) CollectDefinitions(src coreast.SourceFile) (core.FileContext, error) {
+	if src == nil || src.Root() == nil {
+		return nil, fmt.Errorf("empty source file")
+	}
+	root := src.Root()
+	content := src.Content()
+	path := src.Path()
+
+	fCtx := core.NewFileContext(path, "", root, &content)
+
+	// Step 0: 文件自身元素
+	c.initFileElem(fCtx)
+
+	// Step 1: 顶层声明（#include）
+	c.processTopLevelDeclarations(fCtx)
+
+	// Step 2: 递归收集定义
+	nameOccurrence := make(map[string]int)
+	c.collectBasicDefinitions(root, fCtx, "", "", nameOccurrence)
+
+	// Step 3: 元数据增强
+	c.enrichMetadata(fCtx)
+
+	// Step 4: 汇总命名空间列表（C++ 多 namespace）
+	c.collectNamespaces(fCtx)
+
+	c.releaseCondStack(fCtx.FilePath())
+	return fCtx, nil
+}
+
+// =============================================================================
+// 核心生命周期
+// =============================================================================
+
+func (c *Collector) initFileElem(fCtx core.FileContext) {
+	filePath := fCtx.FilePath()
+	fileElem := &model.CodeElement{
+		Kind:          model.File,
+		Name:          filepath.Base(filePath),
+		QualifiedName: filePath,
+		Path:          filePath,
+		IsFormSource:  true,
+	}
+	fCtx.AddDefinition(&core.DefinitionEntry{Element: fileElem, ParentQN: "", Node: fCtx.Root()})
+}
+
+// processTopLevelDeclarations 收集 #include 声明（可出现在条件编译分支内）。
+func (c *Collector) processTopLevelDeclarations(fCtx core.FileContext) {
+	c.walkIncludes(fCtx.Root(), fCtx)
+}
+
+func (c *Collector) walkIncludes(node coreast.Node, fCtx core.FileContext) {
+	if node == nil {
+		return
+	}
+	if node.Kind() == "preproc_include" {
+		c.handleInclude(node, fCtx)
+		return
+	}
+	for i := 0; i < node.ChildCount(); i++ {
+		c.walkIncludes(node.Child(i), fCtx)
+	}
+}
+
+// handleInclude 将 #include 登记为文件级导入。
+// 项目内 "foo.h" → File 元素；系统 <stdio.h> → 外部符号（IsSystem=true）。
+func (c *Collector) handleInclude(node coreast.Node, fCtx core.FileContext) {
+	pathNode := node.ChildByFieldName("path")
+	if pathNode == nil {
+		return
+	}
+	raw := helper.GetNodeContent(pathNode, *fCtx.SourceBytes())
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimPrefix(raw, "<")
+	raw = strings.TrimSuffix(raw, ">")
+	raw = strings.TrimPrefix(raw, "\"")
+	raw = strings.TrimSuffix(raw, "\"")
+	if raw == "" {
+		return
+	}
+	isSystem := pathNode.Kind() == "system_lib_string"
+	alias := raw
+	if i := strings.LastIndexAny(raw, "/\\"); i >= 0 {
+		alias = raw[i+1:]
+	}
+	fCtx.AddImport(alias, &core.ImportInfo{
+		Kind:          model.File,
+		Alias:         alias,
+		RawImportPath: raw,
+		IsSystem:      isSystem,
+		Location:      helper.ExtractLocation(node, fCtx.FilePath()),
+	})
+}
+
+// collectBasicDefinitions 递归收集定义。
+// currentQN 为当前作用域 QN；tmplParams 为模板参数原文。
+func (c *Collector) collectBasicDefinitions(node coreast.Node, fCtx core.FileContext, currentQN, tmplParams string, occurrences map[string]int) {
+	if node == nil {
+		return
+	}
+	src := *fCtx.SourceBytes()
+
+	// 条件编译：进入分支时压栈（#elif/#else 作为 alternative 子节点自然内层优先）。
+	if cond := conditionFor(node, src); cond != "" {
+		c.pushCond(fCtx.FilePath(), node.StartByte(), cond)
+		defer c.popCond(fCtx.FilePath(), node.StartByte())
+	}
+
+	// 模板声明：记录参数文本，传递给内部类型/函数。
+	if node.Kind() == "template_declaration" {
+		params := ""
+		if p := node.ChildByFieldName("parameters"); p != nil {
+			params = helper.GetNodeContent(p, src)
+		}
+		childOcc := make(map[string]int)
+		for i := 0; i < node.ChildCount(); i++ {
+			c.collectBasicDefinitions(node.Child(i), fCtx, currentQN, params, childOcc)
+		}
+		return
+	}
+
+	if node.IsNamed() {
+		items, kind := c.identifyElements(node, fCtx, tmplParams)
+		if len(items) > 0 {
+			cond := c.activeCondition(fCtx.FilePath(), node)
+			for i := range items {
+				it := &items[i]
+				c.assignQN(it, currentQN, occurrences, src)
+				it.elem.Path = fCtx.FilePath()
+				it.elem.Location = helper.ExtractLocation(node, fCtx.FilePath())
+				if cond != "" {
+					it.elem.GetMores()[constants.Condition] = cond
+				}
+				fCtx.AddDefinition(&core.DefinitionEntry{
+					Element:  it.elem,
+					ParentQN: it.parentQN,
+					Node:     node,
+				})
+			}
+
+			if helper.IsScopeContainer(kind) {
+				scopeQN := items[0].elem.QualifiedName
+				childOcc := make(map[string]int)
+				for i := 0; i < node.ChildCount(); i++ {
+					c.collectBasicDefinitions(node.Child(i), fCtx, scopeQN, tmplParams, childOcc)
+				}
+				return
+			}
+
+			// 匿名 struct/union 承载实体（决策 #2）：字段挂 typedef 名 / 变量名。
+			if carrier := anonymousStructCarrier(node, items, src); carrier != "" {
+				childOcc := make(map[string]int)
+				for i := 0; i < node.ChildCount(); i++ {
+					c.collectBasicDefinitions(node.Child(i), fCtx, carrier, tmplParams, childOcc)
+				}
+				return
+			}
+		}
+	}
+
+	for i := 0; i < node.ChildCount(); i++ {
+		c.collectBasicDefinitions(node.Child(i), fCtx, currentQN, tmplParams, occurrences)
+	}
+}
+
+// anonymousStructCarrier 判定节点是否为「匿名 struct/union 的承载声明」，
+// 若是则返回承载实体的 QN（typedef 名 / 变量名 / 字段名），供其成员字段挂载。
+// 覆盖形态：typedef struct {...} Point; / struct {...} obj; / struct {...} inner;
+func anonymousStructCarrier(node coreast.Node, items []identified, src []byte) string {
+	if len(items) == 0 {
+		return ""
+	}
+	switch node.Kind() {
+	case "type_definition", "declaration", "field_declaration":
+	default:
+		return ""
+	}
+	t := node.ChildByFieldName("type")
+	if t == nil {
+		return ""
+	}
+	if t.Kind() != "struct_specifier" && t.Kind() != "union_specifier" {
+		return ""
+	}
+	if t.ChildByFieldName("name") != nil {
+		return ""
+	}
+	return items[0].elem.QualifiedName
+}
+
+// resolveRelativeQN 将类外定义的相对限定名按当前命名空间补全前缀。
+// 例：namespace app 内的 core::Base::helper -> app::core::Base::helper；
+// 已含当前前缀（app::core::Base::helper）时不重复补全。
+func resolveRelativeQN(full, currentQN string) string {
+	if currentQN == "" {
+		return full
+	}
+	if strings.HasPrefix(full, currentQN+helper.QNSep) {
+		return full
+	}
+	return helper.BuildQN(currentQN, full)
+}
+
+// =============================================================================
+// 条件编译栈
+// =============================================================================
+
+func (c *Collector) pushCond(path string, start int, cond string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	s, ok := c.condStacks[path]
+	if !ok {
+		s = make(map[int]string)
+		c.condStacks[path] = s
+	}
+	s[start] = cond
+}
+
+func (c *Collector) popCond(path string, start int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if s, ok := c.condStacks[path]; ok {
+		delete(s, start)
+	}
+}
+
+func (c *Collector) releaseCondStack(path string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.condStacks, path)
+}
+
+// activeCondition 返回节点所在的最内层条件编译分支标签。
+func (c *Collector) activeCondition(path string, node coreast.Node) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	s, ok := c.condStacks[path]
+	if !ok {
+		return ""
+	}
+	best := ""
+	bestStart := -1
+	for start, cond := range s {
+		if start <= node.StartByte() && start > bestStart {
+			bestStart, best = start, cond
+		}
+	}
+	return best
+}
+
+// conditionFor 返回条件编译节点的标签（#ifdef X / #ifndef Y / #if C / #elif C / #else）。
+func conditionFor(node coreast.Node, src []byte) string {
+	switch node.Kind() {
+	case "preproc_ifdef":
+		kind := "#ifdef"
+		if node.Child(0) != nil && node.Child(0).Kind() == "#ifndef" {
+			kind = "#ifndef"
+		}
+		name := ""
+		if n := node.ChildByFieldName("name"); n != nil {
+			name = helper.GetNodeContent(n, src)
+		}
+		return kind + " " + name
+	case "preproc_if":
+		cond := ""
+		if n := node.ChildByFieldName("condition"); n != nil {
+			cond = helper.GetNodeContent(n, src)
+		}
+		return "#if " + cond
+	case "preproc_elif":
+		cond := ""
+		if n := node.ChildByFieldName("condition"); n != nil {
+			cond = helper.GetNodeContent(n, src)
+		}
+		return "#elif " + cond
+	case "preproc_else":
+		return "#else"
+	}
+	return ""
+}
+
+// =============================================================================
+// 元素识别
+// =============================================================================
+
+func (c *Collector) identifyElements(node coreast.Node, fCtx core.FileContext, tmplParams string) ([]identified, model.ElementKind) {
+	src := *fCtx.SourceBytes()
+	switch node.Kind() {
+	case "function_definition":
+		decl := node.ChildByFieldName("declarator")
+		name, _ := declaratorFullName(decl, src)
+		kind := model.Function
+		if isMethodContext(node, decl, src) {
+			kind = model.Method
+		}
+		elem := newElem(kind, name, tmplParams)
+		// `= default` / `= delete`：无函数体，但仍是类内定义（编译器生成/删除），
+		// 记 is_declaration 便于区分，kind 保持定义语义。
+		if node.ChildByFieldName("body") == nil {
+			elem.GetMores()[constants.IsDeclaration] = true
+		}
+		return []identified{{elem: elem, declNode: decl, sig: paramSignature(decl, src)}}, kind
+
+	case "declaration":
+		return c.identifyDeclaration(node, fCtx, tmplParams)
+
+	case "field_declaration":
+		decl := node.ChildByFieldName("declarator")
+		if isFunc, _ := classifyDeclarator(decl, src); isFunc {
+			name, _ := declaratorFullName(decl, src)
+			elem := newElem(model.MethodDecl, name, tmplParams)
+			elem.GetMores()[constants.FunctionIsDeclaration] = true
+			return []identified{{elem: elem, declNode: decl, sig: paramSignature(decl, src)}}, model.MethodDecl
+		}
+		var out []identified
+		for _, d := range collectDeclarators(node) {
+			name, _ := declaratorFullName(d, src)
+			if name == "" {
+				continue
+			}
+			out = append(out, identified{elem: newElem(model.Field, name, tmplParams), declNode: d})
+		}
+		if len(out) == 0 {
+			return nil, ""
+		}
+		return out, model.Field
+
+	case "struct_specifier", "union_specifier":
+		if node.ChildByFieldName("name") == nil {
+			// 匿名 struct：不产独立元素，字段挂承载实体（决策 #2）。
+			return nil, ""
+		}
+		if isTypeReference(node) {
+			// 局部/字段声明中的类型引用（struct Node n;）不是定义。
+			return nil, ""
+		}
+		name := helper.GetNodeContent(node.ChildByFieldName("name"), src)
+		return []identified{{elem: newElem(model.Struct, name, tmplParams)}}, model.Struct
+
+	case "class_specifier":
+		if node.ChildByFieldName("name") == nil {
+			return nil, ""
+		}
+		if isTypeReference(node) {
+			return nil, ""
+		}
+		name := helper.GetNodeContent(node.ChildByFieldName("name"), src)
+		return []identified{{elem: newElem(model.Class, name, tmplParams)}}, model.Class
+
+	case "enum_specifier":
+		if node.ChildByFieldName("name") == nil {
+			return nil, ""
+		}
+		if isTypeReference(node) {
+			return nil, ""
+		}
+		name := helper.GetNodeContent(node.ChildByFieldName("name"), src)
+		return []identified{{elem: newElem(model.Enum, name, tmplParams)}}, model.Enum
+
+	case "enumerator":
+		nameNode := node.ChildByFieldName("name")
+		if nameNode == nil {
+			return nil, ""
+		}
+		name := helper.GetNodeContent(nameNode, src)
+		return []identified{{elem: newElem(model.EnumConstant, name, tmplParams)}}, model.EnumConstant
+
+	case "type_definition":
+		decl := node.ChildByFieldName("declarator")
+		name, _ := declaratorFullName(decl, src)
+		if name == "" {
+			return nil, ""
+		}
+		return []identified{{elem: newElem(model.Type, name, tmplParams)}}, model.Type
+
+	case "alias_declaration":
+		nameNode := node.ChildByFieldName("name")
+		if nameNode == nil {
+			return nil, ""
+		}
+		name := helper.GetNodeContent(nameNode, src)
+		return []identified{{elem: newElem(model.Type, name, tmplParams)}}, model.Type
+
+	case "namespace_definition":
+		nameNode := node.ChildByFieldName("name")
+		name := "$anon"
+		if nameNode != nil {
+			name = helper.GetNodeContent(nameNode, src)
+		}
+		return []identified{{elem: newElem(model.Namespace, name, tmplParams)}}, model.Namespace
+
+	case "preproc_def", "preproc_function_def":
+		nameNode := node.ChildByFieldName("name")
+		if nameNode == nil {
+			return nil, ""
+		}
+		name := helper.GetNodeContent(nameNode, src)
+		elem := newElem(model.Macro, name, tmplParams)
+		elem.GetMores()[constants.MacroName] = name
+		if v := node.ChildByFieldName("value"); v != nil {
+			elem.GetMores()[constants.MacroBody] = helper.GetNodeContent(v, src)
+		}
+		elem.GetMores()[constants.MacroIsFunctionLike] = node.Kind() == "preproc_function_def"
+		return []identified{{elem: elem}}, model.Macro
+
+	case "parameter_declaration":
+		name := paramName(node, src)
+		if name == "" {
+			return nil, ""
+		}
+		return []identified{{elem: newElem(model.Variable, name, tmplParams)}}, model.Variable
+
+	case "lambda_expression":
+		return []identified{{elem: newElem(model.Lambda, "lambda", tmplParams)}}, model.Lambda
+
+	case "compound_statement":
+		if !isBlockScope(node) {
+			return nil, ""
+		}
+		return []identified{{elem: newElem(model.ScopeBlock, "block", tmplParams)}}, model.ScopeBlock
+	}
+	return nil, ""
+}
+
+// identifyDeclaration 处理 declaration：函数原型 → *Decl；否则 → Variable（可多个声明器）。
+func (c *Collector) identifyDeclaration(node coreast.Node, fCtx core.FileContext, tmplParams string) ([]identified, model.ElementKind) {
+	src := *fCtx.SourceBytes()
+	decls := collectDeclarators(node)
+	if len(decls) == 0 {
+		return nil, ""
+	}
+
+	// 函数原型判定：任一声明器为函数形态（非函数指针变量）。
+	for _, d := range decls {
+		if isFunc, _ := classifyDeclarator(d, src); isFunc {
+			name, _ := declaratorFullName(d, src)
+			kind := model.FunctionDecl
+			if isMethodContext(node, d, src) {
+				kind = model.MethodDecl
+			}
+			elem := newElem(kind, name, tmplParams)
+			elem.GetMores()[constants.FunctionIsDeclaration] = true
+			return []identified{{elem: elem, declNode: d, sig: paramSignature(d, src)}}, kind
+		}
+	}
+
+	var out []identified
+	for _, d := range decls {
+		name, _ := declaratorFullName(d, src)
+		if name == "" {
+			continue
+		}
+		out = append(out, identified{elem: newElem(model.Variable, name, tmplParams), declNode: d})
+	}
+	if len(out) == 0 {
+		return nil, ""
+	}
+	return out, model.Variable
+}
+
+// newElem 构造一个源码元素（Location/Path 由调用方填充）。
+func newElem(kind model.ElementKind, name, tmplParams string) *model.CodeElement {
+	elem := &model.CodeElement{
+		Kind:         kind,
+		Name:         name,
+		IsFormSource: true,
+	}
+	if tmplParams != "" {
+		elem.GetMores()[constants.TemplateParams] = tmplParams
+	}
+	return elem
+}
+
+// =============================================================================
+// QN 计算
+// =============================================================================
+
+// assignQN 计算元素 QualifiedName（含声明器限定名与函数签名）。
+func (c *Collector) assignQN(it *identified, currentQN string, occurrences map[string]int, src []byte) {
+	elem := it.elem
+
+	// 限定声明器（out-of-line 定义/类外变量）：相对限定名按当前命名空间补全前缀。
+	if it.declNode != nil {
+		if full, ok := declaratorFullName(it.declNode, src); ok && strings.Contains(full, helper.QNSep) {
+			resolved := resolveRelativeQN(full, currentQN)
+			elem.QualifiedName = resolved + it.sig
+			it.parentQN = helper.PkgOf(resolved)
+			return
+		}
+	}
+	it.parentQN = currentQN
+
+	identity := elem.Name
+	if isFunctionKind(elem.Kind) {
+		identity += it.sig
+	}
+
+	switch elem.Kind {
+	case model.Lambda, model.ScopeBlock:
+		occurrences[elem.Name]++
+		identity = fmt.Sprintf("%s$%d", elem.Name, occurrences[elem.Name])
+	default:
+		occurrences[identity]++
+		if occurrences[identity] > 1 {
+			identity = fmt.Sprintf("%s$%d", identity, occurrences[identity])
+		}
+	}
+	elem.QualifiedName = c.resolver.BuildQualifiedName(currentQN, identity)
+}
+
+func isFunctionKind(k model.ElementKind) bool {
+	switch k {
+	case model.Function, model.Method, model.FunctionDecl, model.MethodDecl:
+		return true
+	}
+	return false
+}
+
+// =============================================================================
+// 声明器工具
+// =============================================================================
+
+// collectDeclarators 返回声明节点中的全部声明器（跳过类型/存储类/限定符）。
+func collectDeclarators(node coreast.Node) []coreast.Node {
+	typeNode := node.ChildByFieldName("type")
+	var out []coreast.Node
+	for i := 0; i < node.NamedChildCount(); i++ {
+		ch := node.NamedChild(i)
+		if ch == nil {
+			continue
+		}
+		if typeNode != nil && ch.Equal(typeNode) {
+			continue
+		}
+		switch ch.Kind() {
+		case "storage_class_specifier", "type_qualifier", "attribute_declaration",
+			"attribute_specifier", "virtual_specifier", "alignas_qualifier", "ms_declspec_modifier":
+			continue
+		}
+		out = append(out, ch)
+	}
+	return out
+}
+
+// classifyDeclarator 判定声明器是否为函数形态。
+// 函数指针变量（int (*fp)(int)）的 function_declarator 内层为 parenthesized_declarator，
+// 不视为函数声明。
+func classifyDeclarator(decl coreast.Node, src []byte) (bool, string) {
+	if decl == nil {
+		return false, ""
+	}
+	switch decl.Kind() {
+	case "function_declarator":
+		inner := decl.ChildByFieldName("declarator")
+		if inner != nil && inner.Kind() == "parenthesized_declarator" {
+			return false, ""
+		}
+		name, _ := declaratorFullName(inner, src)
+		return true, name
+	case "pointer_declarator", "reference_declarator", "init_declarator", "array_declarator":
+		return classifyDeclarator(decl.ChildByFieldName("declarator"), src)
+	case "parenthesized_declarator":
+		return false, ""
+	}
+	return false, ""
+}
+
+// declaratorFullName 提取声明器的名称（剥指针/引用/数组/函数外层）。
+// 第二个返回值为 true 表示名称为限定名（含 ::）。
+func declaratorFullName(decl coreast.Node, src []byte) (string, bool) {
+	if decl == nil {
+		return "", false
+	}
+	switch decl.Kind() {
+	case "pointer_declarator", "reference_declarator", "init_declarator",
+		"array_declarator", "attributed_declarator":
+		return declaratorFullName(decl.ChildByFieldName("declarator"), src)
+	case "function_declarator":
+		return declaratorFullName(decl.ChildByFieldName("declarator"), src)
+	case "parenthesized_declarator":
+		for i := 0; i < decl.NamedChildCount(); i++ {
+			if n, ok := declaratorFullName(decl.NamedChild(i), src); n != "" {
+				return n, ok
+			}
+		}
+		return "", false
+	case "qualified_identifier":
+		return normalizeQualified(decl.Utf8Text(src)), true
+	case "destructor_name", "operator_name", "field_identifier", "identifier", "type_identifier":
+		return strings.TrimSpace(decl.Utf8Text(src)), false
+	}
+	return "", false
+}
+
+// normalizeQualified 归一化限定名文本：去掉空白与各段的模板实参。
+// 例：app::Box<int>::run -> app::Box::run
+func normalizeQualified(s string) string {
+	s = strings.ReplaceAll(s, " ", "")
+	s = strings.ReplaceAll(s, "\t", "")
+	s = strings.ReplaceAll(s, "\n", "")
+	parts := strings.Split(s, helper.QNSep)
+	for i, p := range parts {
+		parts[i] = helper.StripTemplateArgs(p)
+	}
+	return strings.Join(parts, helper.QNSep)
+}
+
+// isMethodContext 判定函数是否属于类/结构体方法。
+func isMethodContext(node, decl coreast.Node, src []byte) bool {
+	if decl != nil {
+		if full, ok := declaratorFullName(decl, src); ok && strings.Contains(full, helper.QNSep) {
+			return true
+		}
+	}
+	for curr := node.Parent(); curr != nil; curr = curr.Parent() {
+		switch curr.Kind() {
+		case "field_declaration_list":
+			p := curr.Parent()
+			if p != nil && (p.Kind() == "class_specifier" || p.Kind() == "struct_specifier" || p.Kind() == "union_specifier") {
+				return true
+			}
+		case "function_definition", "translation_unit":
+			return false
+		}
+	}
+	return false
+}
+
+// isTypeReference 判定 struct/class/enum 说明符是否为「类型引用」而非定义。
+// 无 body 且父节点为声明/字段/参数/typedef 时是引用（struct Node n; / struct Fwd; 除外）。
+func isTypeReference(node coreast.Node) bool {
+	if node.ChildByFieldName("body") != nil {
+		return false
+	}
+	p := node.Parent()
+	if p == nil {
+		return false
+	}
+	switch p.Kind() {
+	case "translation_unit", "declaration_list":
+		// 顶层/命名空间内的前向声明：保留为元素（记 is_declaration）。
+		return false
+	}
+	return true
+}
+
+// isBlockScope 判定 compound_statement 是否应作为独立作用域块。
+// 函数体/Lambda 体的块由函数/Lambda 自身承载，不重复建块。
+func isBlockScope(node coreast.Node) bool {
+	p := node.Parent()
+	if p == nil {
+		return false
+	}
+	switch p.Kind() {
+	case "function_definition", "lambda_expression", "field_declaration_list",
+		"declaration_list", "translation_unit":
+		return false
+	}
+	return true
+}
+
+// paramSignature 返回函数参数类型签名 "(int,char*)"。
+func paramSignature(decl coreast.Node, src []byte) string {
+	fd := findFunctionDeclarator(decl)
+	if fd == nil {
+		return "()"
+	}
+	pNode := fd.ChildByFieldName("parameters")
+	if pNode == nil {
+		return "()"
+	}
+	var types []string
+	for i := 0; i < pNode.NamedChildCount(); i++ {
+		t := paramTypeText(pNode.NamedChild(i), src)
+		if t == "" {
+			continue
+		}
+		types = append(types, t)
+	}
+	// f(void) 等价于无参。
+	if len(types) == 1 && types[0] == "void" {
+		types = nil
+	}
+	return "(" + strings.Join(types, ",") + ")"
+}
+
+// findFunctionDeclarator 沿声明器链找到 function_declarator。
+func findFunctionDeclarator(decl coreast.Node) coreast.Node {
+	for decl != nil {
+		switch decl.Kind() {
+		case "function_declarator":
+			return decl
+		case "pointer_declarator", "reference_declarator", "init_declarator", "array_declarator":
+			decl = decl.ChildByFieldName("declarator")
+		case "parenthesized_declarator":
+			return nil
+		default:
+			return nil
+		}
+	}
+	return nil
+}
+
+// paramTypeText 提取参数的类型文本（含 const/指针/引用/数组语义）。
+func paramTypeText(p coreast.Node, src []byte) string {
+	if p == nil {
+		return ""
+	}
+	if p.Kind() == "variadic_parameter" {
+		return "..."
+	}
+	if p.Kind() != "parameter_declaration" {
+		return normalizeTypeText(helper.GetNodeContent(p, src))
+	}
+	var parts []string
+	for i := 0; i < p.ChildCount(); i++ {
+		ch := p.Child(i)
+		if ch.Kind() == "type_qualifier" {
+			parts = append(parts, helper.GetNodeContent(ch, src))
+		}
+	}
+	if t := p.ChildByFieldName("type"); t != nil {
+		parts = append(parts, helper.GetNodeContent(t, src))
+	}
+	decl := p.ChildByFieldName("declarator")
+	if decl != nil {
+		if findFunctionDeclarator(decl) != nil {
+			parts = append(parts, "(*)")
+		} else {
+			parts = append(parts, declaratorTypeSuffix(decl))
+		}
+	}
+	return normalizeTypeText(strings.Join(parts, " "))
+}
+
+// declaratorTypeSuffix 返回声明器上的指针/引用/数组标记。
+func declaratorTypeSuffix(decl coreast.Node) string {
+	var sb strings.Builder
+	for decl != nil {
+		switch decl.Kind() {
+		case "pointer_declarator":
+			sb.WriteString("*")
+			decl = decl.ChildByFieldName("declarator")
+		case "reference_declarator":
+			sb.WriteString("&")
+			decl = decl.ChildByFieldName("declarator")
+		case "array_declarator":
+			sb.WriteString("[]")
+			decl = decl.ChildByFieldName("declarator")
+		default:
+			return sb.String()
+		}
+	}
+	return sb.String()
+}
+
+// normalizeTypeText 归一化类型文本：去掉 * & 前空格。
+func normalizeTypeText(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.ReplaceAll(s, " *", "*")
+	s = strings.ReplaceAll(s, " &", "&")
+	s = strings.Join(strings.Fields(s), " ")
+	return s
+}
+
+// paramName 提取参数名。
+func paramName(p coreast.Node, src []byte) string {
+	if p == nil || p.Kind() != "parameter_declaration" {
+		return ""
+	}
+	name, _ := declaratorFullName(p.ChildByFieldName("declarator"), src)
+	return name
+}
+
+// =============================================================================
+// 元数据增强
+// =============================================================================
+
+func (c *Collector) enrichMetadata(fCtx core.FileContext) {
+	src := *fCtx.SourceBytes()
+	for _, entry := range fCtx.Definitions() {
+		elem, node := entry.Element, entry.Node
+		if node == nil {
+			continue
+		}
+		mores := elem.GetMores()
+
+		// 通用：命名空间 / 可见性
+		// （条件编译分支在 collectBasicDefinitions 注册时记录，此时条件栈已全部弹出）
+		if elem.Kind != model.File {
+			mores[constants.NamespaceName] = helper.PkgOf(elem.QualifiedName)
+		}
+		if vis := visibilityOf(node, src); vis != "" {
+			mores[constants.Visibility] = vis
+		}
+
+		switch elem.Kind {
+		case model.File:
+			mores[constants.FileRawLOC] = len(strings.Split(string(src), "\n"))
+			mores[constants.FileLOC] = countEffectiveLOC(src)
+		case model.Function, model.Method, model.FunctionDecl, model.MethodDecl:
+			c.enrichFunction(elem, node, src)
+		case model.Variable:
+			c.enrichVariable(elem, node, src)
+			c.linkLambdaInitializer(elem, entry, fCtx, src)
+		case model.Field:
+			c.enrichField(elem, node, src)
+		case model.Struct:
+			c.enrichStruct(elem, node)
+		case model.Class:
+			c.enrichClass(elem, node, src)
+		case model.Enum:
+			c.enrichEnum(elem, node, src)
+		case model.Type:
+			c.enrichType(elem, node, src)
+		}
+	}
+}
+
+func (c *Collector) enrichFunction(elem *model.CodeElement, node coreast.Node, src []byte) {
+	mores := elem.GetMores()
+	decl := node.ChildByFieldName("declarator")
+
+	// 返回类型
+	if t := node.ChildByFieldName("type"); t != nil {
+		mores[constants.FunctionReturnType] = normalizeTypeText(helper.GetNodeContent(t, src))
+	}
+
+	// 参数列表
+	fd := findFunctionDeclarator(decl)
+	if fd != nil {
+		if pNode := fd.ChildByFieldName("parameters"); pNode != nil {
+			var params []string
+			variadic := false
+			for i := 0; i < pNode.NamedChildCount(); i++ {
+				p := pNode.NamedChild(i)
+				if p.Kind() == "variadic_parameter" {
+					variadic = true
+					params = append(params, "...")
+					continue
+				}
+				t := paramTypeText(p, src)
+				if t == "" {
+					continue
+				}
+				if n := paramName(p, src); n != "" {
+					params = append(params, t+" "+n)
+				} else {
+					params = append(params, t)
+				}
+			}
+			if !(len(params) == 1 && params[0] == "void") {
+				mores[constants.FunctionParameters] = params
+			}
+			if variadic {
+				mores[constants.FunctionIsVariadic] = true
+			}
+		}
+	}
+
+	// 修饰符：storage_class_specifier / type_qualifier / virtual
+	var mods []string
+	isVirtual := false
+	scanModifiers(node, src, &mods, &isVirtual)
+	if fd != nil {
+		scanModifiers(fd, src, &mods, &isVirtual)
+	}
+	if len(mods) > 0 {
+		if elem.Extra == nil {
+			elem.Extra = &model.Extra{}
+		}
+		elem.Extra.Modifiers = mods
+	}
+	if isVirtual {
+		mores[constants.FunctionIsVirtual] = true
+	}
+
+	// 纯虚函数：field_declaration 的 default_value 为 0
+	if node.Kind() == "field_declaration" {
+		if dv := node.ChildByFieldName("default_value"); dv != nil {
+			if strings.TrimSpace(dv.Utf8Text(src)) == "0" {
+				mores[constants.FunctionIsPureVirtual] = true
+			}
+		}
+	}
+
+	// 名称语义
+	name := elem.Name
+	if strings.HasPrefix(name, "operator") {
+		mores[constants.FunctionIsOperator] = true
+	}
+	if strings.HasPrefix(name, "~") {
+		mores[constants.FunctionIsDestructor] = true
+	}
+	if node.ChildByFieldName("type") == nil && !strings.HasPrefix(name, "~") && !strings.HasPrefix(name, "operator") {
+		mores[constants.FunctionIsConstructor] = true
+	}
+}
+
+func scanModifiers(node coreast.Node, src []byte, mods *[]string, isVirtual *bool) {
+	if node == nil {
+		return
+	}
+	for i := 0; i < node.ChildCount(); i++ {
+		ch := node.Child(i)
+		switch ch.Kind() {
+		case "storage_class_specifier", "type_qualifier", "virtual_specifier":
+			*mods = append(*mods, helper.GetNodeContent(ch, src))
+		case "virtual":
+			*isVirtual = true
+			*mods = append(*mods, "virtual")
+		}
+	}
+}
+
+func (c *Collector) enrichVariable(elem *model.CodeElement, node coreast.Node, src []byte) {
+	mores := elem.GetMores()
+	if t := node.ChildByFieldName("type"); t != nil {
+		mores[constants.VariableRawType] = normalizeTypeText(helper.GetNodeContent(t, src))
+	}
+	static, extern, isConst := scanStorage(node, src)
+	if static {
+		mores[constants.VariableIsStatic] = true
+	}
+	if extern {
+		mores[constants.VariableIsExtern] = true
+		mores[constants.IsDeclaration] = true
+	}
+	if isConst {
+		mores[constants.VariableIsConst] = true
+	}
+	if isGlobalDeclaration(node) {
+		mores[constants.VariableIsGlobal] = true
+	}
+}
+
+func (c *Collector) enrichField(elem *model.CodeElement, node coreast.Node, src []byte) {
+	mores := elem.GetMores()
+	if t := node.ChildByFieldName("type"); t != nil {
+		mores[constants.FieldRawType] = normalizeTypeText(helper.GetNodeContent(t, src))
+	}
+	static, _, isConst := scanStorage(node, src)
+	if static {
+		mores[constants.FieldIsStatic] = true
+	}
+	if isConst {
+		mores[constants.FieldIsConst] = true
+	}
+}
+
+func (c *Collector) enrichStruct(elem *model.CodeElement, node coreast.Node) {
+	mores := elem.GetMores()
+	if node.Kind() == "union_specifier" {
+		mores[constants.StructIsUnion] = true
+	}
+	if node.ChildByFieldName("body") == nil {
+		mores[constants.StructIsDeclaration] = true
+		mores[constants.IsDeclaration] = true
+	}
+}
+
+func (c *Collector) enrichClass(elem *model.CodeElement, node coreast.Node, src []byte) {
+	mores := elem.GetMores()
+	if node.ChildByFieldName("body") == nil {
+		mores[constants.ClassIsDeclaration] = true
+		mores[constants.IsDeclaration] = true
+	}
+	// 基类名保留原文（可能相对当前命名空间），由 Extractor 结合全局上下文解析。
+	var supers []string
+	for i := 0; i < node.NamedChildCount(); i++ {
+		ch := node.NamedChild(i)
+		if ch.Kind() != "base_class_clause" {
+			continue
+		}
+		for j := 0; j < ch.NamedChildCount(); j++ {
+			b := ch.NamedChild(j)
+			switch b.Kind() {
+			case "access_specifier", "virtual":
+				continue
+			case "qualified_identifier", "type_identifier", "template_type":
+				supers = append(supers, normalizeTypeText(helper.GetNodeContent(b, src)))
+			}
+		}
+	}
+	if len(supers) > 0 {
+		mores[constants.ClassSuperClass] = supers
+	}
+}
+
+// linkLambdaInitializer 记录「变量初始化为 lambda」的关联 Lambda QN，
+// 使 `auto f = [](){...}; f();` 的调用能解析到 Lambda 元素。
+func (c *Collector) linkLambdaInitializer(elem *model.CodeElement, entry *core.DefinitionEntry, fCtx core.FileContext, src []byte) {
+	node := entry.Node
+	if node == nil || node.Kind() != "declaration" {
+		return
+	}
+	// 定位该变量对应的声明器，取其 value 是否为 lambda_expression。
+	for _, d := range collectDeclarators(node) {
+		name, _ := declaratorFullName(d, src)
+		if name != elem.Name {
+			continue
+		}
+		if d.Kind() != "init_declarator" {
+			return
+		}
+		v := d.ChildByFieldName("value")
+		if v == nil || v.Kind() != "lambda_expression" {
+			return
+		}
+		// 在已收集定义中找位置匹配的 Lambda 元素。
+		for _, def := range fCtx.Definitions() {
+			if def.Element.Kind != model.Lambda || def.Node == nil {
+				continue
+			}
+			if def.Node.StartByte() == v.StartByte() && def.Node.EndByte() == v.EndByte() {
+				elem.GetMores()[constants.VariableLambdaQN] = def.Element.QualifiedName
+				return
+			}
+		}
+		return
+	}
+}
+
+// enrichType 记录 typedef/using 别名的底层类型（供 Binder 解析别名链）。
+func (c *Collector) enrichType(elem *model.CodeElement, node coreast.Node, src []byte) {
+	mores := elem.GetMores()
+	switch node.Kind() {
+	case "type_definition":
+		if t := node.ChildByFieldName("type"); t != nil {
+			mores[constants.TypeUnderlying] = normalizeTypeText(helper.GetNodeContent(t, src))
+		}
+	case "alias_declaration":
+		if t := node.ChildByFieldName("type"); t != nil {
+			raw := helper.GetNodeContent(t, src)
+			// type_descriptor 的文本含内部类型，直接使用即可。
+			mores[constants.TypeUnderlying] = normalizeTypeText(raw)
+		}
+	}
+}
+
+func (c *Collector) enrichEnum(elem *model.CodeElement, node coreast.Node, src []byte) {
+	text := node.Utf8Text(src)
+	if strings.Contains(text, "enum class") || strings.Contains(text, "enum struct") {
+		elem.GetMores()[constants.EnumIsScoped] = true
+	}
+}
+
+// countEffectiveLOC 计算有效代码行数（排除空行与纯注释行）。
+// 简化处理：不处理块注释内的代码行，与 Java 版语义对齐（Java 版移除块注释后再统计）。
+func countEffectiveLOC(src []byte) int {
+	text := string(src)
+	// 移除块注释。
+	for {
+		start := strings.Index(text, "/*")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(text[start+2:], "*/")
+		if end < 0 {
+			text = text[:start]
+			break
+		}
+		text = text[:start] + text[start+2+end+2:]
+	}
+	loc := 0
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && !strings.HasPrefix(trimmed, "//") {
+			loc++
+		}
+	}
+	return loc
+}
+
+// scanStorage 提取 static/extern/const 标记。
+func scanStorage(node coreast.Node, src []byte) (static, extern, isConst bool) {
+	if node == nil {
+		return
+	}
+	for i := 0; i < node.ChildCount(); i++ {
+		ch := node.Child(i)
+		switch ch.Kind() {
+		case "storage_class_specifier":
+			switch strings.TrimSpace(ch.Utf8Text(src)) {
+			case "static":
+				static = true
+			case "extern":
+				extern = true
+			}
+		case "type_qualifier":
+			if strings.TrimSpace(ch.Utf8Text(src)) == "const" {
+				isConst = true
+			}
+		}
+	}
+	return
+}
+
+// isGlobalDeclaration 判定 declaration 是否为全局变量（顶层或 namespace 内）。
+func isGlobalDeclaration(node coreast.Node) bool {
+	curr := node.Parent()
+	for curr != nil {
+		switch curr.Kind() {
+		case "translation_unit":
+			return true
+		case "declaration_list":
+			p := curr.Parent()
+			if p != nil && p.Kind() == "namespace_definition" {
+				return true
+			}
+			return false
+		case "linkage_specification":
+			curr = curr.Parent()
+			continue
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+// visibilityOf 返回成员所在的访问级别（最近的前置 access_specifier）。
+func visibilityOf(node coreast.Node, src []byte) string {
+	p := node.Parent()
+	if p == nil || p.Kind() != "field_declaration_list" {
+		return ""
+	}
+	vis := ""
+	for i := 0; i < p.ChildCount(); i++ {
+		ch := p.Child(i)
+		if ch.Kind() == "access_specifier" {
+			vis = strings.TrimSpace(ch.Utf8Text(src))
+			continue
+		}
+		if ch.Equal(node) {
+			return vis
+		}
+	}
+	return vis
+}
+
+// collectNamespaces 汇总文件内出现的命名空间（含嵌套前缀）。
+func (c *Collector) collectNamespaces(fCtx core.FileContext) {
+	seen := make(map[string]bool)
+	var out []string
+	for _, entry := range fCtx.Definitions() {
+		if entry.Element.Kind != model.Namespace {
+			continue
+		}
+		parts := helper.SplitQN(entry.Element.QualifiedName)
+		var cur []string
+		for _, p := range parts {
+			cur = append(cur, p)
+			full := strings.Join(cur, helper.QNSep)
+			if !seen[full] {
+				seen[full] = true
+				out = append(out, full)
+			}
+		}
+	}
+	if len(out) > 0 {
+		fCtx.SetNamespaces(out)
+	}
+}
