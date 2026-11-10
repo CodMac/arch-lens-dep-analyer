@@ -108,7 +108,25 @@ C/C++ 不使用 Java 的「源码注释期望块」模式，改用**显式断言
 | `TestCollectorCParam` | 具名/无名指针/多级指针/数组/函数指针/const/struct+enum 关键字 |
 | `TestCollectorCConditional` | `#ifdef`/`#ifndef`/`#if`/`#elif`/`#else`/嵌套分支标注（`cpp.condition`） |
 | `TestCollectorCEdge` | 类型引用负例/块内重名/重载式命名/无名指针参数/嵌套结构体 |
-| `TestCollectorCpp` | namespace/class/继承/模板/纯虚/访问级别/enum class/类外定义 |
+| `TestCollectorCpp` | namespace/class/继承/模板/纯虚/访问级别/enum class/类外定义（基础样例 `collector/base`） |
+| `TestCollectorCppBase` | 基准元素：16 种 ElementKind 冒烟（`collector/cpp/base`） |
+| `TestCollectorCppNamespace` | 嵌套 namespace / C++17 `a::b` / inline / 匿名 `$anon` / alias / using |
+| `TestCollectorCppDeclDef` | 同文件声明+定义、头文件原型、前向声明覆盖、类外定义、extern 声明+定义、只声明不定义 |
+| `TestCollectorCppClass` | 访问级别、嵌套 class/struct/enum、friend、static/const/mutable 成员、final、抽象类 |
+| `TestCollectorCppCtorDtor` | 默认/带参/explicit/拷贝/移动/双参构造、析构、`= default`/`= delete`、委托构造、成员初始化列表 |
+| `TestCollectorCppOperator` | 算术/比较/赋值/下标/调用/自增自减/转换运算符/内存分配/逻辑位运算、成员与非成员 |
+| `TestCollectorCppTemplate` | 类/函数模板、可变参数、默认模板参数、全特化/偏特化（QN 剥离实参）、别名模板、concept |
+| `TestCollectorCppInherit` | 单/多继承、virtual 继承、菱形、private/protected 继承、override/final |
+| `TestCollectorCppEnum` | 普通 enum / enum class / 指定底层类型 / 前向声明 / 匿名 enum / 显式值 |
+| `TestCollectorCppTypedefUsing` | typedef 基础/指针/引用/数组/函数指针/多声明器/链式、using、别名模板、匿名 struct 承载 |
+| `TestCollectorCppVariable` | 全局/static/const/constexpr/thread_local/extern/alignas、auto、引用/右值引用、指针、数组、结构化绑定、多声明器 |
+| `TestCollectorCppFunction` | 自由函数、可变参数、noexcept、constexpr、尾置返回、默认实参、重载组、static/inline、extern "C" |
+| `TestCollectorCppParam` | 值/指针/多级指针/左值引用/右值引用/const/数组/函数指针/默认值/可变参数/无名参数 |
+| `TestCollectorCppLambda` | 无捕获/值捕获/引用捕获/全捕获、generic、mutable、嵌套、作字段/实参/返回值 |
+| `TestCollectorCppScope` | 裸 block / if / else / for / range-for / while / do / switch case / try-catch / 嵌套 block / 块内重名 / 局部类型 |
+| `TestCollectorCppMacro` | 对象宏/函数式宏/可变参数宏/多行宏/空宏/字符串化/连接/条件分支同名宏/#undef |
+| `TestCollectorCppConditional` | `#if`/`#ifdef`/`#ifndef`/`#elif`/`#else`/嵌套取最内层/`#pragma` |
+| `TestCollectorCppEdge` | 重名消歧、匿名 struct/union 承载、类型引用负例、前向声明、空 struct/函数、无名参数 |
 | `TestCollectorConditional` | 条件编译分支标注（`collector/cond` 基础样例） |
 | `TestExtractorStructural` | Import/Contain/Extend/Parameter/Return/TypeArg |
 | `TestExtractorActions` | Call/Assign/Use/Cast |
@@ -135,6 +153,9 @@ x/cpp/testdata/
 ├── collector/cond/  # 条件编译样例（cond.c）
 ├── collector/c/     # C 全场景元素提取样例（11 组：base/func/decl_def/struct/
 │                    #   enum/typedef/macro/variable/param/cond/edge）
+├── collector/cpp/   # C++ 全场景元素提取样例（18 组：base/namespace/decl_def/class/
+│                    #   ctor_dtor/operator/template/inherit/enum/typedef_using/
+│                    #   variable/function/param/lambda/scope/macro/cond/edge）
 ├── resolver/        # 解析样例（calls.cpp / chain.cpp）
 └── e2e/             # 端到端黄金基线（baseline.golden.jsonl）
 ```

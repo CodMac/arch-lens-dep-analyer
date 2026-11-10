@@ -3,7 +3,7 @@
 > 适用范围：`x/cpp/` · 与 [qn-format.md](../qn-format.md)（QN 契约）、[language-extension.md](../language-extension.md)（SPI 契约）互为补充
 >
 > 本文档回答「C/C++ 支持到什么程度」：元素/关系覆盖清单、声明-实现配对模型、条件编译策略、实现边界与已知限制。
-> 行为契约由 `x/cpp/testdata/e2e/baseline.golden.jsonl`（867 行 = 319 元素 + 548 关系，LevelBalanced）锚定。
+> 行为契约由 `x/cpp/testdata/e2e/baseline.golden.jsonl`（2286 行 = 868 元素 + 1418 关系，LevelBalanced）锚定。
 
 ## 1. 总体状态
 
@@ -253,9 +253,9 @@ type expr struct {
 ## 9. 测试现状
 
 - 三层测试 + e2e 黄金回归集，全部位于 `x/cpp/test/`。
-- e2e 基线：`x/cpp/testdata/e2e/baseline.golden.jsonl`（319 元素 + 548 关系，LevelBalanced）。
-- 元素覆盖（基线实测）：FILE 20 / NAMESPACE 3 / CLASS 4 / STRUCT 21 / ENUM 6 / ENUM_CONSTANT 14 / TYPE 14 / MACRO 14 / FIELD 48 / FUNCTION 33 / FUNCTION_DECL 8 / METHOD 13 / METHOD_DECL 6 / VARIABLE 109 / SCOPE_BLOCK 5 / LAMBDA 1。
-- 关系覆盖（基线实测）：CONTAIN 341 / USE 89 / ASSIGN 34 / TYPE_ARG 28 / CALL 27 / IMPORT 9 / RETURN 7 / IMPL_LINK 4 / PARAMETER 4 / CAST 2 / CAPTURE 1 / CREATE 1 / EXTEND 1。
+- e2e 基线：`x/cpp/testdata/e2e/baseline.golden.jsonl`（868 元素 + 1418 关系，LevelBalanced）。
+- 元素覆盖（基线实测）：FILE 41 / NAMESPACE 12 / CLASS 19 / STRUCT 53 / ENUM 16 / ENUM_CONSTANT 36 / TYPE 27 / MACRO 28 / FIELD 105 / FUNCTION 78 / FUNCTION_DECL 17 / METHOD 35 / METHOD_DECL 54 / VARIABLE 308 / SCOPE_BLOCK 23 / LAMBDA 16。
+- 关系覆盖（基线实测）：CONTAIN 941 / USE 176 / ASSIGN 92 / TYPE_ARG 60 / CALL 39 / PARAMETER 30 / RETURN 25 / IMPL_LINK 14 / EXTEND 14 / IMPORT 13 / CAPTURE 11 / CAST 2 / CREATE 1。
 - 基线（LevelBalanced）中 PARAMETER/RETURN 大幅减少，是因为当前样例的参数/返回类型多为基本类型（`int`/`void`），被外部符号降噪过滤；CONTAIN/USE/ASSIGN 等指向源码符号的关系不受影响。
 - 测试用例：
   | 测试 | 覆盖 |
@@ -273,6 +273,24 @@ type expr struct {
   | `TestCollectorCConditional` | `#ifdef`/`#ifndef`/`#if`/`#elif`/`#else`/嵌套分支标注 |
   | `TestCollectorCEdge` | 类型引用负例/块内重名/重载式命名/无名指针参数/嵌套结构体 |
   | `TestCollectorCpp` | namespace/class/继承/模板/纯虚/访问级别/enum class/类外定义 |
+  | `TestCollectorCppBase` | 基准元素：16 种 ElementKind 冒烟（File/Namespace/Class/Struct/Enum/EnumConstant/Function/FunctionDecl/Method/MethodDecl/Field/Type/Variable/Macro/Lambda/ScopeBlock） |
+  | `TestCollectorCppNamespace` | 嵌套 namespace / C++17 `a::b` / inline / 匿名 `$anon` / alias / using |
+  | `TestCollectorCppDeclDef` | 同文件声明+定义、头文件原型、前向声明覆盖、类外定义、extern 声明+定义、只声明不定义 |
+  | `TestCollectorCppClass` | 访问级别、嵌套 class/struct/enum、friend、static/const/mutable 成员、final、抽象类 |
+  | `TestCollectorCppCtorDtor` | 默认/带参/explicit/拷贝/移动/双参构造、析构、`= default`/`= delete`、委托构造、成员初始化列表 |
+  | `TestCollectorCppOperator` | 算术/比较/赋值/下标/调用/自增自减/转换运算符/内存分配/逻辑位运算、成员与非成员 |
+  | `TestCollectorCppTemplate` | 类/函数模板、可变参数、默认模板参数、全特化/偏特化（QN 剥离实参）、别名模板、concept |
+  | `TestCollectorCppInherit` | 单/多继承、virtual 继承、菱形、private/protected 继承、override/final |
+  | `TestCollectorCppEnum` | 普通 enum / enum class / 指定底层类型 / 前向声明 / 匿名 enum / 显式值 |
+  | `TestCollectorCppTypedefUsing` | typedef 基础/指针/引用/数组/函数指针/多声明器/链式、using、别名模板、匿名 struct 承载 |
+  | `TestCollectorCppVariable` | 全局/static/const/constexpr/thread_local/extern/alignas、auto、引用/右值引用、指针、数组、结构化绑定、多声明器 |
+  | `TestCollectorCppFunction` | 自由函数、可变参数、noexcept、constexpr、尾置返回、默认实参、重载组、static/inline、extern "C" |
+  | `TestCollectorCppParam` | 值/指针/多级指针/左值引用/右值引用/const/数组/函数指针/默认值/可变参数/无名参数 |
+  | `TestCollectorCppLambda` | 无捕获/值捕获/引用捕获/全捕获、generic、mutable、嵌套、作字段/实参/返回值 |
+  | `TestCollectorCppScope` | 裸 block / if / else / for / range-for / while / do / switch case / try-catch / 嵌套 block / 块内重名 / 局部类型 |
+  | `TestCollectorCppMacro` | 对象宏/函数式宏/可变参数宏/多行宏/空宏/字符串化/连接/条件分支同名宏/#undef |
+  | `TestCollectorCppConditional` | `#if`/`#ifdef`/`#ifndef`/`#elif`/`#else`/嵌套取最内层/`#pragma` |
+  | `TestCollectorCppEdge` | 重名消歧、匿名 struct/union 承载、类型引用负例、前向声明、空 struct/函数、无名参数 |
   | `TestCollectorConditional` | 条件编译分支标注 |
   | `TestExtractorStructural` | Import/Contain/Extend/Parameter/Return/TypeArg |
   | `TestExtractorActions` | Call/Assign/Use/Cast |

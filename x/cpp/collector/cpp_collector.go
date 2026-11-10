@@ -163,7 +163,15 @@ func (c *Collector) collectBasicDefinitions(node coreast.Node, fCtx core.FileCon
 		defer c.popCond(fCtx.FilePath(), node.StartByte())
 	}
 
+	// friend 声明（friend void f(); / friend class X;）不是成员定义/声明，
+	// 不产元素；其内部 declaration 也不应挂到当前类下。
+	if node.Kind() == "friend_declaration" {
+		return
+	}
+
 	// 模板声明：记录参数文本，传递给内部类型/函数。
+	// 模板参数列表只作为文本记录，其内部 parameter_declaration（如 `Small T`）
+	// 不是变量元素，不能下钻收集。
 	if node.Kind() == "template_declaration" {
 		params := ""
 		if p := node.ChildByFieldName("parameters"); p != nil {
@@ -171,7 +179,11 @@ func (c *Collector) collectBasicDefinitions(node coreast.Node, fCtx core.FileCon
 		}
 		childOcc := make(map[string]int)
 		for i := 0; i < node.ChildCount(); i++ {
-			c.collectBasicDefinitions(node.Child(i), fCtx, currentQN, params, childOcc)
+			ch := node.Child(i)
+			if ch.Kind() == "template_parameter_list" {
+				continue
+			}
+			c.collectBasicDefinitions(ch, fCtx, currentQN, params, childOcc)
 		}
 		return
 	}
@@ -406,7 +418,7 @@ func (c *Collector) identifyElements(node coreast.Node, fCtx core.FileContext, t
 			// 局部/字段声明中的类型引用（struct Node n;）不是定义。
 			return nil, ""
 		}
-		name := helper.GetNodeContent(node.ChildByFieldName("name"), src)
+		name := normalizeDeclaredTypeName(node.ChildByFieldName("name"), src)
 		return []identified{{
 			elem:   newElem(model.Struct, name, tmplParams),
 			isDecl: node.ChildByFieldName("body") == nil,
@@ -419,7 +431,7 @@ func (c *Collector) identifyElements(node coreast.Node, fCtx core.FileContext, t
 		if isTypeReference(node) {
 			return nil, ""
 		}
-		name := helper.GetNodeContent(node.ChildByFieldName("name"), src)
+		name := normalizeDeclaredTypeName(node.ChildByFieldName("name"), src)
 		return []identified{{
 			elem:   newElem(model.Class, name, tmplParams),
 			isDecl: node.ChildByFieldName("body") == nil,
@@ -432,7 +444,7 @@ func (c *Collector) identifyElements(node coreast.Node, fCtx core.FileContext, t
 		if isTypeReference(node) {
 			return nil, ""
 		}
-		name := helper.GetNodeContent(node.ChildByFieldName("name"), src)
+		name := normalizeDeclaredTypeName(node.ChildByFieldName("name"), src)
 		return []identified{{
 			elem:   newElem(model.Enum, name, tmplParams),
 			isDecl: node.ChildByFieldName("body") == nil,
@@ -498,6 +510,15 @@ func (c *Collector) identifyElements(node coreast.Node, fCtx core.FileContext, t
 		}
 		return []identified{{elem: newElem(model.Variable, name, tmplParams)}}, model.Variable
 
+	case "for_range_loop":
+		// range-for 的循环变量不在 declaration 节点内（type/declarator 直接挂 for_range_loop）。
+		decl := node.ChildByFieldName("declarator")
+		name, _ := declaratorFullName(decl, src)
+		if name == "" {
+			return nil, ""
+		}
+		return []identified{{elem: newElem(model.Variable, name, tmplParams), declNode: decl}}, model.Variable
+
 	case "lambda_expression":
 		return []identified{{elem: newElem(model.Lambda, "lambda", tmplParams)}}, model.Lambda
 
@@ -523,6 +544,16 @@ func (c *Collector) identifyDeclaration(node coreast.Node, fCtx core.FileContext
 	var out []identified
 	kind := model.ElementKind("")
 	for _, d := range decls {
+		// 结构化绑定（auto [a, b] = ...）：每个绑定名各产一个变量元素。
+		if bindings := structuredBindingNames(d, src); len(bindings) > 0 {
+			for _, b := range bindings {
+				out = append(out, identified{elem: newElem(model.Variable, b, tmplParams), declNode: d})
+			}
+			if kind == "" {
+				kind = model.Variable
+			}
+			continue
+		}
 		name, _ := declaratorFullName(d, src)
 		if name == "" {
 			continue
@@ -549,6 +580,26 @@ func (c *Collector) identifyDeclaration(node coreast.Node, fCtx core.FileContext
 		return nil, ""
 	}
 	return out, kind
+}
+
+// structuredBindingNames 返回结构化绑定声明器中的各绑定名。
+// 形态：init_declarator -> structured_binding_declarator [ identifier, identifier, ... ]
+func structuredBindingNames(decl coreast.Node, src []byte) []string {
+	d := decl
+	if d != nil && d.Kind() == "init_declarator" {
+		d = innerDeclarator(d)
+	}
+	if d == nil || d.Kind() != "structured_binding_declarator" {
+		return nil
+	}
+	var out []string
+	for i := 0; i < d.NamedChildCount(); i++ {
+		ch := d.NamedChild(i)
+		if ch.Kind() == "identifier" {
+			out = append(out, strings.TrimSpace(ch.Utf8Text(src)))
+		}
+	}
+	return out
 }
 
 // newElem 构造一个源码元素（Location/Path 由调用方填充）。
@@ -578,6 +629,11 @@ func (c *Collector) assignQN(it *identified, currentQN string, occurrences map[s
 			resolved := resolveRelativeQN(full, currentQN)
 			elem.QualifiedName = resolved + it.sig
 			it.parentQN = helper.PkgOf(resolved)
+			// Name 只取最后一段（类外定义 Widget::~Widget 的 Name 应为 ~Widget），
+			// 否则构造/析构/运算符等按名称判定的语义会失效。
+			if parts := helper.SplitQN(resolved); len(parts) > 0 {
+				elem.Name = parts[len(parts)-1]
+			}
 			return
 		}
 	}
@@ -662,15 +718,42 @@ func classifyDeclarator(decl coreast.Node, src []byte) (bool, string) {
 		name, _ := declaratorFullName(inner, src)
 		return true, name
 	case "pointer_declarator", "reference_declarator", "init_declarator", "array_declarator":
-		return classifyDeclarator(decl.ChildByFieldName("declarator"), src)
+		return classifyDeclarator(innerDeclarator(decl), src)
 	case "parenthesized_declarator":
 		if findFunctionDeclaratorInParens(decl) == nil {
 			return false, ""
 		}
 		name, _ := declaratorFullName(decl, src)
 		return true, name
+	case "operator_cast":
+		// 转换运算符（operator bool / operator int）本身即函数形态。
+		name, _ := declaratorFullName(decl, src)
+		return true, name
 	}
 	return false, ""
+}
+
+// innerDeclarator 返回声明器的内层声明器。
+// tree-sitter-cpp 中 pointer_declarator/init_declarator/array_declarator 用 declarator 字段，
+// 但 reference_declarator（`D& f()` / `operator=`）没有该字段，内层声明器直接作为命名子节点。
+func innerDeclarator(decl coreast.Node) coreast.Node {
+	if decl == nil {
+		return nil
+	}
+	if d := decl.ChildByFieldName("declarator"); d != nil {
+		return d
+	}
+	for i := 0; i < decl.NamedChildCount(); i++ {
+		ch := decl.NamedChild(i)
+		switch ch.Kind() {
+		case "function_declarator", "pointer_declarator", "reference_declarator",
+			"array_declarator", "parenthesized_declarator", "qualified_identifier",
+			"identifier", "type_identifier", "field_identifier", "operator_name",
+			"destructor_name", "template_function", "attributed_declarator":
+			return ch
+		}
+	}
+	return nil
 }
 
 // declaratorFullName 提取声明器的名称（剥指针/引用/数组/函数外层）。
@@ -682,9 +765,9 @@ func declaratorFullName(decl coreast.Node, src []byte) (string, bool) {
 	switch decl.Kind() {
 	case "pointer_declarator", "reference_declarator", "init_declarator",
 		"array_declarator", "attributed_declarator":
-		return declaratorFullName(decl.ChildByFieldName("declarator"), src)
+		return declaratorFullName(innerDeclarator(decl), src)
 	case "function_declarator":
-		return declaratorFullName(decl.ChildByFieldName("declarator"), src)
+		return declaratorFullName(innerDeclarator(decl), src)
 	case "parenthesized_declarator":
 		for i := 0; i < decl.NamedChildCount(); i++ {
 			if n, ok := declaratorFullName(decl.NamedChild(i), src); n != "" {
@@ -692,12 +775,41 @@ func declaratorFullName(decl coreast.Node, src []byte) (string, bool) {
 			}
 		}
 		return "", false
+	case "structured_binding_declarator":
+		// 结构化绑定（auto [a, b] = ...）：无单一名称，由 identifyDeclaration 展开。
+		return "", false
 	case "qualified_identifier":
 		return normalizeQualified(decl.Utf8Text(src)), true
+	case "template_function":
+		// 函数模板显式特化（template <> void f<int>(...)）的名称节点：
+		// 取 name 字段（f），剥离模板实参。
+		return declaratorFullName(decl.ChildByFieldName("name"), src)
+	case "operator_cast":
+		// 转换运算符（operator bool / operator int）：名称由 operator + 目标类型组成。
+		t := ""
+		if tn := decl.ChildByFieldName("type"); tn != nil {
+			t = normalizeTypeText(helper.GetNodeContent(tn, src))
+		}
+		return normalizeTypeText("operator " + t), false
 	case "destructor_name", "operator_name", "field_identifier", "identifier", "type_identifier":
 		return strings.TrimSpace(decl.Utf8Text(src)), false
 	}
 	return "", false
+}
+
+// normalizeDeclaredTypeName 归一化类型定义的名称节点：剥离模板实参。
+// 模板特化（template <> struct Box<int>）的 name 是 template_type，其文本含实参；
+// QN 契约要求剥离（Box<int> → Box），与类外定义 Box<int>::run 的归一化一致。
+func normalizeDeclaredTypeName(nameNode coreast.Node, src []byte) string {
+	if nameNode == nil {
+		return ""
+	}
+	if nameNode.Kind() == "template_type" {
+		if n := nameNode.ChildByFieldName("name"); n != nil {
+			return helper.GetNodeContent(n, src)
+		}
+	}
+	return helper.StripTemplateArgs(helper.GetNodeContent(nameNode, src))
 }
 
 // normalizeQualified 归一化限定名文本：去掉空白与各段的模板实参。
@@ -807,7 +919,7 @@ func findFunctionDeclarator(decl coreast.Node) coreast.Node {
 			}
 			return decl
 		case "pointer_declarator", "reference_declarator", "init_declarator", "array_declarator":
-			decl = decl.ChildByFieldName("declarator")
+			decl = innerDeclarator(decl)
 		case "parenthesized_declarator":
 			return findFunctionDeclaratorInParens(decl)
 		default:
@@ -838,7 +950,9 @@ func paramTypeText(p coreast.Node, src []byte) string {
 	if p.Kind() == "variadic_parameter" {
 		return "..."
 	}
-	if p.Kind() != "parameter_declaration" {
+	// optional_parameter_declaration 是带默认实参的形参（int b = 2），
+	// 与 parameter_declaration 结构一致，但默认值不能进入 QN 签名。
+	if p.Kind() != "parameter_declaration" && p.Kind() != "optional_parameter_declaration" {
 		return normalizeTypeText(helper.GetNodeContent(p, src))
 	}
 	var parts []string
@@ -871,16 +985,46 @@ func declaratorTypeSuffix(decl coreast.Node) string {
 			sb.WriteString("*")
 			decl = decl.ChildByFieldName("declarator")
 		case "reference_declarator", "abstract_reference_declarator":
-			sb.WriteString("&")
-			decl = decl.ChildByFieldName("declarator")
+			// 右值引用（int&&）与左值引用（int&）在 QN 中必须区分。
+			if countChildToken(decl, "&&") > 0 {
+				sb.WriteString("&&")
+			} else {
+				sb.WriteString("&")
+			}
+			decl = innerDeclarator(decl)
 		case "array_declarator", "abstract_array_declarator":
 			sb.WriteString("[]")
-			decl = decl.ChildByFieldName("declarator")
+			decl = innerDeclarator(decl)
 		default:
 			return sb.String()
 		}
 	}
 	return sb.String()
+}
+
+// hasVariadicToken 判断参数列表中是否出现 `...`。
+// tree-sitter-cpp 把可变参数的 `...` 作为匿名 token 子节点（不是 variadic_parameter）。
+func hasVariadicToken(params coreast.Node) bool {
+	if params == nil {
+		return false
+	}
+	for i := 0; i < params.ChildCount(); i++ {
+		if params.Child(i).Kind() == "..." {
+			return true
+		}
+	}
+	return false
+}
+
+// countChildToken 统计声明器直接子节点中指定运算符 token 的出现次数。
+func countChildToken(decl coreast.Node, token string) int {
+	n := 0
+	for i := 0; i < decl.ChildCount(); i++ {
+		if decl.Child(i).Kind() == token {
+			n++
+		}
+	}
+	return n
 }
 
 // normalizeTypeText 归一化类型文本：去掉 * & 前空格。
@@ -895,7 +1039,7 @@ func normalizeTypeText(s string) string {
 
 // paramName 提取参数名。
 func paramName(p coreast.Node, src []byte) string {
-	if p == nil || p.Kind() != "parameter_declaration" {
+	if p == nil || (p.Kind() != "parameter_declaration" && p.Kind() != "optional_parameter_declaration") {
 		return ""
 	}
 	name, _ := declaratorFullName(p.ChildByFieldName("declarator"), src)
@@ -936,7 +1080,7 @@ func (c *Collector) enrichMetadata(fCtx core.FileContext) {
 		case model.Field:
 			c.enrichField(elem, node, src)
 		case model.Struct:
-			c.enrichStruct(elem, node)
+			c.enrichStruct(elem, node, src)
 		case model.Class:
 			c.enrichClass(elem, node, src)
 		case model.Enum:
@@ -961,10 +1105,11 @@ func (c *Collector) enrichFunction(elem *model.CodeElement, node coreast.Node, s
 	if fd != nil {
 		if pNode := fd.ChildByFieldName("parameters"); pNode != nil {
 			var params []string
-			variadic := false
+			variadic := hasVariadicToken(pNode)
 			for i := 0; i < pNode.NamedChildCount(); i++ {
 				p := pNode.NamedChild(i)
 				if p.Kind() == "variadic_parameter" {
+					// C grammar 用 variadic_parameter 节点，C++ grammar 用匿名 `...` token。
 					variadic = true
 					params = append(params, "...")
 					continue
@@ -978,6 +1123,9 @@ func (c *Collector) enrichFunction(elem *model.CodeElement, node coreast.Node, s
 				} else {
 					params = append(params, t)
 				}
+			}
+			if variadic && (len(params) == 0 || params[len(params)-1] != "...") {
+				params = append(params, "...")
 			}
 			if !(len(params) == 1 && params[0] == "void") {
 				mores[constants.FunctionParameters] = params
@@ -1078,7 +1226,7 @@ func (c *Collector) enrichField(elem *model.CodeElement, node coreast.Node, src 
 	}
 }
 
-func (c *Collector) enrichStruct(elem *model.CodeElement, node coreast.Node) {
+func (c *Collector) enrichStruct(elem *model.CodeElement, node coreast.Node, src []byte) {
 	mores := elem.GetMores()
 	if node.Kind() == "union_specifier" {
 		mores[constants.StructIsUnion] = true
@@ -1086,6 +1234,10 @@ func (c *Collector) enrichStruct(elem *model.CodeElement, node coreast.Node) {
 	if node.ChildByFieldName("body") == nil {
 		mores[constants.StructIsDeclaration] = true
 		mores[constants.IsDeclaration] = true
+	}
+	// struct 同样可继承（struct D : public B），基类记录规则与 class 一致。
+	if supers := collectBaseClasses(node, src); len(supers) > 0 {
+		mores[constants.ClassSuperClass] = supers
 	}
 }
 
@@ -1095,7 +1247,14 @@ func (c *Collector) enrichClass(elem *model.CodeElement, node coreast.Node, src 
 		mores[constants.ClassIsDeclaration] = true
 		mores[constants.IsDeclaration] = true
 	}
-	// 基类名保留原文（可能相对当前命名空间），由 Extractor 结合全局上下文解析。
+	if supers := collectBaseClasses(node, src); len(supers) > 0 {
+		mores[constants.ClassSuperClass] = supers
+	}
+}
+
+// collectBaseClasses 提取 base_class_clause 中的基类名原文。
+// 基类名保留原文（可能相对当前命名空间），由 Extractor 结合全局上下文解析。
+func collectBaseClasses(node coreast.Node, src []byte) []string {
 	var supers []string
 	for i := 0; i < node.NamedChildCount(); i++ {
 		ch := node.NamedChild(i)
@@ -1112,9 +1271,7 @@ func (c *Collector) enrichClass(elem *model.CodeElement, node coreast.Node, src 
 			}
 		}
 	}
-	if len(supers) > 0 {
-		mores[constants.ClassSuperClass] = supers
-	}
+	return supers
 }
 
 // linkLambdaInitializer 记录「变量初始化为 lambda」的关联 Lambda QN，
