@@ -66,17 +66,19 @@ type LanguageImpl struct {
 ```go
 // x/{lang}/context/file_context.go
 type FileContext struct{ *core.BaseFileContext }
-func NewFileContext(path, pkg string, root ast.Node, src *[]byte) *FileContext
+func NewFileContext(...) *FileContext
+// 单包语义（Java）额外实现 core.PackageAwareFileContext；
+// 多命名空间语义（C++）额外实现本包的 NamespaceAware。
 
 // x/{lang}/context/global_context.go
 type GlobalContext struct{ *core.BaseGlobalContext }
 func NewGlobalContext(r core.SymbolResolver, b core.SymbolBuilder) core.GlobalContext
-func (gc *GlobalContext) RegisterPackage(packageName string)        // 语言语义
-func (gc *GlobalContext) RegisterFileContext(fc core.FileContext)   // 先注册包再委托 Base
+func (gc *GlobalContext) RegisterFileContext(fc core.FileContext)   // 先注册包/ns 再委托 Base
 ```
 
-- 一文件多命名空间的语言（C++）额外实现 `core.NamespaceAwareFileContext`。
+- 语言专属能力用**可选能力接口**表达（`core.PackageAwareFileContext` / `cppctx.NamespaceAware`），core 接口不含语言概念。
 - 重载索引 kind 通过 `core.GlobalContextRules{OverloadKinds: ...}` 注入。
+- 语言专属导入属性写入 `ImportInfo.Attrs`（key 带语言前缀）。
 - 在 `LanguageImpl.NewGlobalContext` 中挂载工厂；引擎经该字段创建上下文。
 
 ## 4. 注册流程（以 Java 为例）

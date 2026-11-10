@@ -26,12 +26,14 @@ func NewGlobalContext(resolver core.SymbolResolver, builder core.SymbolBuilder) 
 
 // RegisterFileContext 先注册包层级，再登记文件内定义。
 func (gc *GlobalContext) RegisterFileContext(fc core.FileContext) {
-	gc.RegisterPackage(fc.PackageName())
+	if pfc, ok := fc.(core.PackageAwareFileContext); ok {
+		gc.registerPackage(pfc.PackageName())
+	}
 	gc.BaseGlobalContext.RegisterFileContext(fc)
 }
 
-// RegisterPackage 将点号包名拆分为逐级 PACKAGE 元素。
-func (gc *GlobalContext) RegisterPackage(packageName string) {
+// registerPackage 将点号包名拆分为逐级 PACKAGE 元素（Java 专属语义）。
+func (gc *GlobalContext) registerPackage(packageName string) {
 	parts := strings.Split(packageName, ".")
 	var current []string
 	for _, part := range parts {

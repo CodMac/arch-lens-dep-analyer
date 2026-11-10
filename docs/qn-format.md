@@ -47,7 +47,7 @@ com.example.base.ScopeTest.test().lambda$1.a
 | 顶层包 | `com` |
 | 嵌套包 | `com.example`、`com.example.base` |
 
-- 由语言上下文 `x/java/context.GlobalContext.RegisterPackage` 将点号包名**逐级拆分为包元素**（`com`、`com.example`、`com.example.base` 各是一个独立元素）。C/C++ 对应 `x/cpp/context` 按 `::` 拆分为 NAMESPACE。
+- 由语言上下文 `x/java/context.GlobalContext.RegisterFileContext` 将点号包名**逐级拆分为包元素**（`com`、`com.example`、`com.example.base` 各是一个独立元素）。C/C++ 对应 `x/cpp/context` 按 `::` 拆分为 NAMESPACE。
 - `IsFormSource=true`，`Path=""`。
 
 ### 2.2 File（文件）
@@ -363,13 +363,13 @@ GlobalContext / FileContext 提供两类 QN 索引（均为接口方法，实现
 | `qualifiedNameMap`（文件内） | 精确 QN | 唯一映射 |
 | `shortNameMap`（文件内） | 短名（Name） | 可多个（重载/重名） |
 | `qnIndex`（全局） | **`QN + "|" + Kind`** | 声明/定义共存（C/C++ 的 `FUNCTION_DECL` 与 `FUNCTION` 同 QN 不互相吞并） |
-| `qnPrimary`（全局） | 裸 QN | 主索引，**定义优先**（声明不覆盖定义；纯声明仍可命中） |
-| `defIndex`（文件内） | **`QN + "|" + Kind`** | 同文件「声明 → 定义」原地替换（`DefinitionEntry.IsDeclaration` 标记），避免前向声明遮蔽后续定义 |
-| `methodNoParamQN`（全局） | 去参 QN | 重载消解用（`类QN.方法名` → 多候选）；参与 kind 由 `GlobalContextRules.OverloadKinds` 注入（Java=`Method`；C/C++=`Method/Function/MethodDecl/FunctionDecl`） |
+| `primaryIndex`（全局） | 裸 QN | 主索引，**定义优先**（声明不覆盖定义；纯声明仍可命中） |
+| `declDefIndex`（文件内） | **`QN + "|" + Kind`** | 同文件「声明 → 定义」原地替换（`DefinitionEntry.IsDeclaration` 标记），避免前向声明遮蔽后续定义 |
+| `overloadIndex`（全局） | 去参 QN | 重载消解用（`类QN.方法名` → 多候选）；参与 kind 由 `GlobalContextRules.OverloadKinds` 注入（Java=`Method`；C/C++=`Method/Function/MethodDecl/FunctionDecl`） |
 
 查找策略（`PreciseResolve`）：
 1. 文件内短名 → 全局精确 QN → 包内 QN → 通配符导入 QN。
-2. 方法解析先用 `methodNoParamQN`（去参 QN）收集候选，再用参数数量/类型打分选最佳重载。
+2. 方法解析先用 `overloadIndex`（去参 QN）收集候选，再用参数数量/类型打分选最佳重载。
 
 > 索引键含 Kind 是 2026-11-06 上下文接口化改造的关键变更（G2），使 C/C++ 的声明与定义能同时注册并分别查找。
 

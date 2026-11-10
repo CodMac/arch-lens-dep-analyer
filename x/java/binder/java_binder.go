@@ -136,7 +136,7 @@ func hasSingleTypeImport(fCtx core.FileContext, shortName string) bool {
 		return false
 	}
 	for _, imp := range imps {
-		if !imp.IsWildcard {
+		if !imp.BoolAttr(constants.ImportAttrIsWildcard) {
 			return true
 		}
 	}

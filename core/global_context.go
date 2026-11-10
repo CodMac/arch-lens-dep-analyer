@@ -23,16 +23,13 @@ type DefinitionEntry struct {
 
 // GlobalContext 描述整个分析会话的全局符号上下文。
 //
-// 接口化设计（2026-11-06）：core 只保留契约，通用索引/锁机制由 BaseGlobalContext 提供，
-// 语言实现内嵌 Base 复用（如 C++ 用 :: 拼接 QN、按 ns 注册）。
+// 分层设计：core 只保留语言无关契约，通用索引/锁机制由 BaseGlobalContext 提供；
+// 语言专属语义（包/命名空间注册、重载候选 kind）由 x/{lang}/context 实现。
 // 注意：实现内部自带锁，调用方不得持锁再调用（避免嵌套锁死锁）。
 type GlobalContext interface {
 	// RegisterFileContext 注册一个文件上下文（Collector 阶段产出）。
+	// 语言实现可覆盖此方法，在委托 Base 前完成包/命名空间注册等语言专属逻辑。
 	RegisterFileContext(fc FileContext)
-
-	// RegisterPackage 注册包/命名空间层级（语言专属语义由实现决定）。
-	// Java 拆点号包名；C++ 拆 :: 命名空间；C 空实现。
-	RegisterPackage(packageName string)
 
 	// FileContexts 返回全部文件上下文（只读快照）。
 	FileContexts() map[string]FileContext
@@ -48,11 +45,12 @@ type GlobalContext interface {
 
 	// FindByQualifiedName 按限定名查找定义。
 	// 声明/定义分离语言（C/C++）中同一 QN 可能存在声明+定义两个元素，
-	// 此方法返回「定义优先」：优先非声明 kind（FUNCTION/METHOD），否则按注册序。
+	// 此方法返回「定义优先」：优先非声明条目（由 DefinitionEntry.IsDeclaration 判定）。
 	FindByQualifiedName(qn string) (*DefinitionEntry, bool)
 
-	// FindMethodByNoParamsQN 按不含参数的方法 QN 查找候选重载。
-	FindMethodByNoParamsQN(noParamsQN string) ([]*DefinitionEntry, bool)
+	// FindOverloadCandidates 按不含参数的 QN 查找可重载候选（Method/Function 族）。
+	// 参与 kind 由 GlobalContextRules.OverloadKinds 注入。
+	FindOverloadCandidates(noParamsQN string) ([]*DefinitionEntry, bool)
 
 	// BuildQualifiedName 委托 Builder 拼接 QN。
 	BuildQualifiedName(parentQN, name string) string
@@ -74,8 +72,8 @@ type GlobalContextRules struct {
 // BaseGlobalContext 是 GlobalContext 的通用实现：提供索引/锁/去重等语言无关机制。
 // 语言实现内嵌本结构复用基础能力，可按需覆盖方法。
 type BaseGlobalContext struct {
-	Resolver_ SymbolResolver
-	Builder_  SymbolBuilder
+	resolver SymbolResolver
+	builder  SymbolBuilder
 
 	rules GlobalContextRules
 
@@ -86,29 +84,30 @@ type BaseGlobalContext struct {
 	// qnIndex 全量索引：key = QN + "|" + Kind。声明/定义共存（G2）。
 	qnIndex map[string]*DefinitionEntry
 
-	// qnPrimary 主索引：key = 裸 QN，指向「定义优先」的元素（O(1) 查找）。
-	// 声明 kind（FUNCTION_DECL/METHOD_DECL）不覆盖 qnPrimary，故 FindByQualifiedName 定义优先。
-	qnPrimary map[string]*DefinitionEntry
+	// primaryIndex 主索引：key = 裸 QN，指向「定义优先」的元素（O(1) 查找）。
+	// 声明条目不覆盖已有定义，故 FindByQualifiedName 定义优先。
+	primaryIndex map[string]*DefinitionEntry
 
-	methodNoParamQN map[string][]*DefinitionEntry // key: 不含方法参数的 qn
+	// overloadIndex 重载候选索引：key = 不含参数的 QN，value = 候选定义。
+	overloadIndex map[string][]*DefinitionEntry
 }
 
 // NewBaseGlobalContext 创建全局上下文 Base 实现。
 func NewBaseGlobalContext(resolver SymbolResolver, builder SymbolBuilder, rules GlobalContextRules) *BaseGlobalContext {
 	return &BaseGlobalContext{
-		Resolver_:       resolver,
-		Builder_:        builder,
-		rules:           rules,
-		fileContexts:    make(map[string]FileContext),
-		definitions:     make([]*DefinitionEntry, 0),
-		qnIndex:         make(map[string]*DefinitionEntry),
-		qnPrimary:       make(map[string]*DefinitionEntry),
-		methodNoParamQN: make(map[string][]*DefinitionEntry),
+		resolver:      resolver,
+		builder:       builder,
+		rules:         rules,
+		fileContexts:  make(map[string]FileContext),
+		definitions:   make([]*DefinitionEntry, 0),
+		qnIndex:       make(map[string]*DefinitionEntry),
+		primaryIndex:  make(map[string]*DefinitionEntry),
+		overloadIndex: make(map[string][]*DefinitionEntry),
 	}
 }
 
 // RegisterFileContext 登记文件内全部定义（同一把写锁下批量完成）。
-// 包/命名空间注册属于语言策略：语言上下文覆盖本方法，先调用自身 RegisterPackage 再委托本实现。
+// 包/命名空间注册属于语言策略：语言上下文覆盖本方法，先完成自身注册再委托本实现。
 func (gc *BaseGlobalContext) RegisterFileContext(fc FileContext) {
 	gc.mu.Lock()
 	defer gc.mu.Unlock()
@@ -165,7 +164,7 @@ func (gc *BaseGlobalContext) addDefinitionLocked(def *DefinitionEntry) {
 		if existing.IsDeclaration && !def.IsDeclaration {
 			gc.replaceDefinitionLocked(existing, def)
 			gc.qnIndex[key] = def
-			gc.qnPrimary[def.Element.QualifiedName] = def
+			gc.primaryIndex[def.Element.QualifiedName] = def
 		}
 		return
 	}
@@ -175,15 +174,15 @@ func (gc *BaseGlobalContext) addDefinitionLocked(def *DefinitionEntry) {
 	// 主索引：定义优先。声明不覆盖已有定义（定义优先语义），
 	// 但纯声明符号（无对应定义）仍需可查找（如 C++ 头文件成员声明），故不存在时填入；
 	// 若先注册的是声明、后注册定义，则定义覆盖声明。
-	if existing, exists := gc.qnPrimary[def.Element.QualifiedName]; !exists {
-		gc.qnPrimary[def.Element.QualifiedName] = def
+	if existing, exists := gc.primaryIndex[def.Element.QualifiedName]; !exists {
+		gc.primaryIndex[def.Element.QualifiedName] = def
 	} else if existing.IsDeclaration && !def.IsDeclaration {
-		gc.qnPrimary[def.Element.QualifiedName] = def
+		gc.primaryIndex[def.Element.QualifiedName] = def
 	}
 
 	if gc.isOverloadKind(def.Element.Kind) {
-		key := gc.Builder_.BuildQualifiedName(def.ParentQN, def.Element.Name)
-		gc.methodNoParamQN[key] = append(gc.methodNoParamQN[key], def)
+		key := gc.builder.BuildQualifiedName(def.ParentQN, def.Element.Name)
+		gc.overloadIndex[key] = append(gc.overloadIndex[key], def)
 	}
 }
 
@@ -202,8 +201,8 @@ func (gc *BaseGlobalContext) replaceDefinitionLocked(old, def *DefinitionEntry) 
 		}
 	}
 	if gc.isOverloadKind(def.Element.Kind) {
-		key := gc.Builder_.BuildQualifiedName(def.ParentQN, def.Element.Name)
-		entries := gc.methodNoParamQN[key]
+		key := gc.builder.BuildQualifiedName(def.ParentQN, def.Element.Name)
+		entries := gc.overloadIndex[key]
 		for i, d := range entries {
 			if d == old {
 				entries[i] = def
@@ -214,34 +213,30 @@ func (gc *BaseGlobalContext) replaceDefinitionLocked(old, def *DefinitionEntry) 
 }
 
 // FindByQualifiedName 按限定名查找定义（O(1)）。
-// 声明 kind 不进入 qnPrimary，故天然「定义优先」；纯声明符号（无定义）也能命中
-// （声明注册时 qnPrimary 无该 QN，会填入声明本身）。
+// 声明条目不覆盖已有定义，故天然「定义优先」；纯声明符号（无定义）也能命中
+// （声明注册时 primaryIndex 无该 QN，会填入声明本身）。
 func (gc *BaseGlobalContext) FindByQualifiedName(qn string) (*DefinitionEntry, bool) {
 	gc.mu.RLock()
 	defer gc.mu.RUnlock()
-	e, ok := gc.qnPrimary[qn]
+	e, ok := gc.primaryIndex[qn]
 	return e, ok
 }
 
-// FindMethodByNoParamsQN 按不含参数的方法 QN 查找候选重载。
-func (gc *BaseGlobalContext) FindMethodByNoParamsQN(noParamsQN string) ([]*DefinitionEntry, bool) {
+// FindOverloadCandidates 按不含参数的 QN 查找可重载候选。
+func (gc *BaseGlobalContext) FindOverloadCandidates(noParamsQN string) ([]*DefinitionEntry, bool) {
 	gc.mu.RLock()
 	defer gc.mu.RUnlock()
-	entries, ok := gc.methodNoParamQN[noParamsQN]
+	entries, ok := gc.overloadIndex[noParamsQN]
 	return entries, ok
 }
 
-// RegisterPackage 默认空实现（无包/命名空间语义的语言直接复用）。
-// 语言实现内嵌 Base 后覆盖此方法即可获得包层级注册能力。
-func (gc *BaseGlobalContext) RegisterPackage(packageName string) {}
-
 // BuildQualifiedName 委托 Builder 拼接 QN。
 func (gc *BaseGlobalContext) BuildQualifiedName(parentQN, name string) string {
-	return gc.Builder_.BuildQualifiedName(parentQN, name)
+	return gc.builder.BuildQualifiedName(parentQN, name)
 }
 
 // Resolver 返回语言符号解析器。
-func (gc *BaseGlobalContext) Resolver() SymbolResolver { return gc.Resolver_ }
+func (gc *BaseGlobalContext) Resolver() SymbolResolver { return gc.resolver }
 
 // Builder 返回语言符号构建器。
-func (gc *BaseGlobalContext) Builder() SymbolBuilder { return gc.Builder_ }
+func (gc *BaseGlobalContext) Builder() SymbolBuilder { return gc.builder }

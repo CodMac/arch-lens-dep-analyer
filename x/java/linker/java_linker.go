@@ -8,6 +8,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
 )
 
 // Linker 实现 core.Linker。
@@ -29,13 +30,14 @@ func (l *Linker) LinkHierarchy(gc core.GlobalContext) []*model.DependencyRelatio
 
 	for _, fCtx := range gc.FileContexts() {
 		// --- 1. 处理 Package 层级 ---
-		if fCtx.PackageName() != "" {
+		pkgName := helper.PackageNameOf(fCtx)
+		if pkgName != "" {
 			// A. Package -> File
-			l.addRel(relMap, model.Package, fCtx.PackageName(), model.File, fCtx.FilePath())
+			l.addRel(relMap, model.Package, pkgName, model.File, fCtx.FilePath())
 
 			// B. Package -> SubPackage (递归拆解包名)
 			// 如 "com.example.util" -> "com", "com.example", "com.example.util"
-			parts := strings.Split(fCtx.PackageName(), ".")
+			parts := strings.Split(pkgName, ".")
 			for i := len(parts) - 1; i > 0; i-- {
 				parentPkg := strings.Join(parts[:i], ".")
 				subPkg := strings.Join(parts[:i+1], ".")
@@ -48,7 +50,7 @@ func (l *Linker) LinkHierarchy(gc core.GlobalContext) []*model.DependencyRelatio
 		for _, entry := range fCtx.Definitions() {
 			// 逻辑：只有当一个元素的父级是包（或者是空的顶级元素）时，它才直接挂在文件节点下
 			// 这样可以避免方法、内部类也平铺在文件下
-			isTopLevel := entry.ParentQN == "" || entry.ParentQN == fCtx.PackageName()
+			isTopLevel := entry.ParentQN == "" || entry.ParentQN == pkgName
 
 			if isTopLevel {
 				l.addRel(relMap, model.File, fCtx.FilePath(), entry.Element.Kind, entry.Element.QualifiedName)

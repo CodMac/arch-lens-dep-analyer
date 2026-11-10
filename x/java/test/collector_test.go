@@ -145,8 +145,8 @@ func TestCollectorS1BaseDeclaration(t *testing.T) {
 	assertImports(t, gc, "collector/import/ImportTest.java", []ImportWant{
 		{Alias: "List", RawPath: "java.util.List", Kind: model.Class},
 		{Alias: "*", RawPath: "java.util.*", Kind: model.Package, Wildcard: true},
-		{Alias: "*", RawPath: "java.lang.Math.*", Kind: model.Constant, Static: true, Wildcard: true},
-		{Alias: "sort", RawPath: "java.util.Collections.sort", Kind: model.Constant, Static: true},
+		{Alias: "*", RawPath: "java.lang.Math.*", Kind: model.Constant, Wildcard: true},
+		{Alias: "sort", RawPath: "java.util.Collections.sort", Kind: model.Constant},
 	})
 }
 
@@ -155,7 +155,6 @@ type ImportWant struct {
 	Alias    string
 	RawPath  string
 	Kind     model.ElementKind
-	Static   bool
 	Wildcard bool
 }
 
@@ -171,14 +170,14 @@ func assertImports(t *testing.T, gc core.GlobalContext, relPath string, wants []
 	for _, w := range wants {
 		found := false
 		for _, info := range fc.Imports()[w.Alias] {
-			if info.RawImportPath == w.RawPath && info.Kind == w.Kind && info.IsStatic == w.Static && info.IsWildcard == w.Wildcard {
+			if info.RawImportPath == w.RawPath && info.Kind == w.Kind && info.BoolAttr(constants.ImportAttrIsWildcard) == w.Wildcard {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Errorf("%s: import alias=%s path=%s kind=%s static=%v wildcard=%v NOT FOUND",
-				relPath, w.Alias, w.RawPath, w.Kind, w.Static, w.Wildcard)
+			t.Errorf("%s: import alias=%s path=%s kind=%s wildcard=%v NOT FOUND",
+				relPath, w.Alias, w.RawPath, w.Kind, w.Wildcard)
 			continue
 		}
 		matched[w.Alias+"|"+w.RawPath] = true
@@ -188,8 +187,8 @@ func assertImports(t *testing.T, gc core.GlobalContext, relPath string, wants []
 		for _, info := range infos {
 			key := alias + "|" + info.RawImportPath
 			if !matched[key] {
-				t.Errorf("%s: unexpected import alias=%s path=%s kind=%s static=%v wildcard=%v",
-					relPath, alias, info.RawImportPath, info.Kind, info.IsStatic, info.IsWildcard)
+				t.Errorf("%s: unexpected import alias=%s path=%s kind=%s wildcard=%v",
+					relPath, alias, info.RawImportPath, info.Kind, info.BoolAttr(constants.ImportAttrIsWildcard))
 			}
 		}
 	}

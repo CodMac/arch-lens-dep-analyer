@@ -86,7 +86,7 @@ docs/               设计文档（本目录）
 | 日期 | 变更 |
 |---|---|
 | 2026-11-09 | C/C++ 语言落地：新增 [languages/cpp.md](languages/cpp.md)；同步架构/流水线/语言扩展/数据模型/QN/测试/路标文档 |
-| 2026-11-09 | 上下文分层：语言专属 `FileContext`/`GlobalContext` 下沉 `x/{lang}/context`；`RegisterPackage` 迁入 GlobalContext；重载 kind 与 `Namespaces` 改为策略/可选接口 |
+| 2026-11-09 | 上下文分层：语言专属 `FileContext`/`GlobalContext` 下沉 `x/{lang}/context`；包注册迁入语言 GlobalContext；重载 kind 改为策略注入；`PackageName`/`Namespaces` 与导入属性改为可选接口/Attrs |
 | 2026-11-06 | 上下文接口化：`FileContext`/`GlobalContext` 改为接口 + Base 实现；新增 `FunctionDecl`/`MethodDecl`；`qnIndex` 键加 `|Kind` |
 | 2026-10-20 | 文档体系完善：新增 Java 实现边界与语言路标 |
 | 2026-10-16 | 建立 docs/，完成架构、数据模型、流水线等设计文档 |

@@ -91,7 +91,6 @@ cmd → engine → core → model
 // core/file_context.go —— 只保留语言无关契约
 type FileContext interface {
     FilePath() string;  SetFilePath(string)
-    PackageName() string; SetPackageName(string)
     Root() ast.Node;  SetRoot(ast.Node)
     SourceBytes() *[]byte; SetSourceBytes(*[]byte)
     Definitions() []*DefinitionEntry; AddDefinition(*DefinitionEntry)
@@ -101,22 +100,30 @@ type FileContext interface {
     FindByKind(model.ElementKind) ([]*DefinitionEntry, bool)
 }
 
-// 可选能力接口：一文件多命名空间的语言（C++）实现
-type NamespaceAwareFileContext interface {
+// 可选能力接口：单包语义的语言（Java）实现
+type PackageAwareFileContext interface {
     FileContext
-    Namespaces() []string; SetNamespaces([]string)
+    PackageName() string; SetPackageName(string)
+}
+
+// 通用导入信息：语言专属属性走 Attrs（core 不解释语义）
+type ImportInfo struct {
+    RawImportPath string
+    Alias         string
+    Kind          model.ElementKind
+    Location      *model.Location
+    Attrs         map[string]any   // "java.import.is_wildcard" / "cpp.include.is_system"
 }
 
 // core/global_context.go
 type GlobalContext interface {
-    RegisterFileContext(FileContext)
-    RegisterPackage(packageName string)   // 包/命名空间注册（语言语义）
+    RegisterFileContext(FileContext)   // 语言实现可覆盖，先注册包/ns 再委托 Base
     FileContexts() map[string]FileContext
     FileContext(relPath string) (FileContext, bool)
     Definitions() []*DefinitionEntry
     AddDefinition(*DefinitionEntry)
     FindByQualifiedName(qn string) (*DefinitionEntry, bool)
-    FindMethodByNoParamsQN(noParamsQN string) ([]*DefinitionEntry, bool)
+    FindOverloadCandidates(noParamsQN string) ([]*DefinitionEntry, bool)
     BuildQualifiedName(parentQN, name string) string
     Resolver() SymbolResolver
     Builder() SymbolBuilder
@@ -132,24 +139,25 @@ type GlobalContextRules struct {
 
 | 层 | 位置 | 内容 |
 |---|---|---|
-| 契约 | `core/*_context.go` | 接口 + `GlobalContextRules` |
+| 契约 | `core/*_context.go` | `FileContext` / `GlobalContext` 接口、`GlobalContextRules`、`ImportInfo` |
 | 通用底座 | `core.BaseFileContext` / `core.BaseGlobalContext` | 索引/锁/去重/声明-定义替换 |
-| 语言实现 | `x/java/context`、`x/cpp/context` | 内嵌 Base + 覆盖 `RegisterPackage` / `RegisterFileContext`；C++ 额外实现 `NamespaceAwareFileContext` |
+| 语言实现 | `x/java/context`、`x/cpp/context` | 内嵌 Base + 覆盖 `RegisterFileContext`；Java 实现 `PackageAwareFileContext`；C++ 实现 `NamespaceAware` |
 | 编排 | `engine` | 只面向 core 接口；经 `LanguageImpl.NewGlobalContext` 取得语言实现 |
 
 **语言差异收敛点**
 
 | 差异 | Java | C/C++ |
 |---|---|---|
-| 包/命名空间注册 | `RegisterPackage` 按 `.` 拆分为 PACKAGE | 按 `::` 拆分为 NAMESPACE |
+| 上下文可选能力 | `PackageAwareFileContext`（单包） | `cppctx.NamespaceAware`（多 namespace） |
+| 包/命名空间注册 | `RegisterFileContext` 内按 `.` 拆 PACKAGE | NAMESPACE 由 Collector 建元素，无需注册 |
 | 重载索引 kind | `{Method}` | `{Method, Function, MethodDecl, FunctionDecl}` |
-| 命名空间列表 | 不实现 `NamespaceAwareFileContext` | 实现（`Namespaces()`） |
+| 导入属性 | `Attrs["java.import.is_wildcard"]` | `Attrs["cpp.include.is_system"]` |
 
 **通用机制（core 内，语言无关）**
 
-- **声明/定义共存（G2）**：`BaseGlobalContext` 全量索引键为 `QN + "|" + Kind`，使 `add(int,int)|FUNCTION_DECL` 与 `add(int,int)|FUNCTION` 共存；主索引 `qnPrimary` 保持「定义优先」，但纯声明（无定义）仍可命中。
+- **声明/定义共存（G2）**：`BaseGlobalContext` 全量索引键为 `QN + "|" + Kind`，使 `add(int,int)|FUNCTION_DECL` 与 `add(int,int)|FUNCTION` 共存；主索引 `primaryIndex` 保持「定义优先」，但纯声明（无定义）仍可命中。
 - **声明 → 定义原地替换（G2 补强）**：`DefinitionEntry.IsDeclaration` 标记声明条目；同一 `QN + Kind` 下（如 `struct Fwd;` 后接 `struct Fwd {};`、`extern int x;` 后接 `int x;`），后到的定义原地替换先到的声明，FileContext 与 GlobalContext 的索引同步更新，避免前向声明遮蔽真实定义。该判定只看 `IsDeclaration` 字段，与语言 kind 无关。
-- **`ImportInfo.IsSystem`（G5）**：C/C++ 用 `#include <...>` 与 `"..."` 区分系统/项目内头文件。
+- **导入属性泛化（G5）**：`ImportInfo` 只保留通用字段，语言专属属性写入 `Attrs`（key 带语言前缀），core 不解释其语义。
 
 > 工厂函数 `core.NewFileContext` / `core.NewGlobalContext` 已删除：新语言**必须**提供 `x/{lang}/context` 并在 `LanguageImpl.NewGlobalContext` 中注册，避免误用通用实现。
 

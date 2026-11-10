@@ -111,3 +111,12 @@ const (
 	// RelImplLinkSignature ImplLink 配对签名 -> string
 	RelImplLinkSignature = "cpp.rel.impl_link.signature"
 )
+
+// =============================================================================
+// ImportInfo.Attrs 语言专属键
+// =============================================================================
+
+const (
+	// ImportAttrIsSystem 是否为系统/三方头文件 (#include <...>) -> bool
+	ImportAttrIsSystem = "cpp.include.is_system"
+)

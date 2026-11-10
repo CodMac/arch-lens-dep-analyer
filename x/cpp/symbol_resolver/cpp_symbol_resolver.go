@@ -13,6 +13,7 @@ import (
 	coreast "github.com/CodMac/arch-lens-dep-analyer/core/ast"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/cpp/constants"
+	cppctx "github.com/CodMac/arch-lens-dep-analyer/x/cpp/context"
 	"github.com/CodMac/arch-lens-dep-analyer/x/cpp/helper"
 )
 
@@ -297,7 +298,7 @@ func (r *SymbolResolver) lookupType(gc core.GlobalContext, fc core.FileContext, 
 	// 相对限定名：namespace app 内的 core::Base 实为 app::core::Base。
 	if strings.Contains(name, helper.QNSep) {
 		var namespaces []string
-		if nfc, ok := fc.(core.NamespaceAwareFileContext); ok {
+		if nfc, ok := fc.(cppctx.NamespaceAware); ok {
 			namespaces = nfc.Namespaces()
 		}
 		for _, ns := range namespaces {
@@ -343,7 +344,7 @@ func (r *SymbolResolver) lookupMember(gc core.GlobalContext, fc core.FileContext
 func (r *SymbolResolver) lookupMemberFunc(gc core.GlobalContext, fc core.FileContext, owner *model.CodeElement, name string, argCount int) *model.CodeElement {
 	for _, o := range r.typeChain(gc, fc, owner, 0) {
 		qn := helper.BuildQN(o.QualifiedName, name)
-		if entries, ok := gc.FindMethodByNoParamsQN(qn); ok {
+		if entries, ok := gc.FindOverloadCandidates(qn); ok {
 			if e := pickOverload(entries, argCount); e != nil {
 				return e.Element
 			}
@@ -513,7 +514,7 @@ func (r *SymbolResolver) lookupScopedSymbol(gc core.GlobalContext, fc core.FileC
 func (r *SymbolResolver) lookupScopedFunc(gc core.GlobalContext, fc core.FileContext, node coreast.Node, name string, argCount int) *model.CodeElement {
 	for _, scope := range r.scopeChain(fc, node) {
 		qn := helper.BuildQN(scope, name)
-		if entries, ok := gc.FindMethodByNoParamsQN(qn); ok {
+		if entries, ok := gc.FindOverloadCandidates(qn); ok {
 			if e := pickOverload(entries, argCount); e != nil {
 				return e.Element
 			}

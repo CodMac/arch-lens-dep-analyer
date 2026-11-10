@@ -198,8 +198,8 @@ tree-sitter **不做宏展开**，条件编译各分支在 AST 中全部保留�
 | NoiseFilter | `x/cpp/noise_filter/` | 复用 `core.DefaultNoiseFilter` 三态；ImplLink 恒保留 |
 | SymbolResolver | `x/cpp/symbol_resolver/` | 节点形态分类 + 作用域链/继承链查找 |
 | SymbolBuilder | `x/cpp/symbol_builder/` | QN 用 `::` 拼接 |
-| FileContext | `x/cpp/context/` | 内嵌 `core.BaseFileContext` + 实现 `core.NamespaceAwareFileContext`（`Namespaces()`） |
-| GlobalContext | `x/cpp/context/` | 内嵌 `core.BaseGlobalContext`；`RegisterPackage` 按 `::` 注册 NAMESPACE；重载索引收 Function 族 |
+| FileContext | `x/cpp/context/` | 内嵌 `core.BaseFileContext` + 实现 `cppctx.NamespaceAware`（`Namespaces()`） |
+| GlobalContext | `x/cpp/context/` | 内嵌 `core.BaseGlobalContext`；NAMESPACE 由 Collector 建元素；重载索引收 Function 族 |
 
 ## 9. 测试现状
 

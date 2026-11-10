@@ -11,6 +11,7 @@ import (
 	coreast "github.com/CodMac/arch-lens-dep-analyer/core/ast"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/collector/desugar"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	javactx "github.com/CodMac/arch-lens-dep-analyer/x/java/context"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/enricher/ele"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
@@ -55,7 +56,7 @@ func (c *Collector) CollectDefinitions(src coreast.SourceFile) (core.FileContext
 
 	// Step 2: 递归收集定义 (Building Tree)
 	nameOccurrence := make(map[string]int)
-	c.collectBasicDefinitions(root, fCtx, fCtx.PackageName(), nameOccurrence)
+	c.collectBasicDefinitions(root, fCtx, helper.PackageNameOf(fCtx), nameOccurrence)
 
 	// Step 3: 变量特殊作用域修正
 	c.refineVariableScopes(fCtx)
@@ -97,13 +98,20 @@ func (c *Collector) processTopLevelDeclarations(fCtx core.FileContext) {
 		switch child.Kind() {
 		case "package_declaration":
 			if ident := helper.FindNamedChildOfType(child, "scoped_identifier"); ident != nil {
-				fCtx.SetPackageName(helper.GetNodeContent(ident, *fCtx.SourceBytes()))
+				setPackageName(fCtx, helper.GetNodeContent(ident, *fCtx.SourceBytes()))
 			} else if nameNode := child.ChildByFieldName("name"); nameNode != nil {
-				fCtx.SetPackageName(helper.GetNodeContent(nameNode, *fCtx.SourceBytes()))
+				setPackageName(fCtx, helper.GetNodeContent(nameNode, *fCtx.SourceBytes()))
 			}
 		case "import_declaration":
 			c.handleImport(child, fCtx)
 		}
+	}
+}
+
+// setPackageName 设置 Java 文件上下文的包名（Java 专属能力，经可选接口访问）。
+func setPackageName(fCtx core.FileContext, name string) {
+	if pfc, ok := fCtx.(core.PackageAwareFileContext); ok {
+		pfc.SetPackageName(name)
 	}
 }
 
@@ -261,14 +269,14 @@ func (c *Collector) handleImport(node coreast.Node, fCtx core.FileContext) {
 		entryKind = model.Package
 	}
 
-	fCtx.AddImport(alias, &core.ImportInfo{
+	info := &core.ImportInfo{
 		Kind:          entryKind,
 		Alias:         alias,
 		RawImportPath: fullPath,
-		IsWildcard:    isWildcard,
-		IsStatic:      isStatic,
 		Location:      helper.ExtractLocation(node, fCtx.FilePath()),
-	})
+	}
+	info.SetAttr(constants.ImportAttrIsWildcard, isWildcard)
+	fCtx.AddImport(alias, info)
 }
 
 func (c *Collector) identifyElements(node coreast.Node, fCtx core.FileContext, parentQN string) ([]*model.CodeElement, model.ElementKind) {

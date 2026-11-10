@@ -99,7 +99,7 @@ func (e *Extractor) extractHierarchy(fCtx core.FileContext, gc core.GlobalContex
 					Location: imp.Location,
 					Mores: map[string]interface{}{
 						constants.RelRawText:         imp.RawImportPath,
-						constants.RelIncludeIsSystem: imp.IsSystem,
+						constants.RelIncludeIsSystem: imp.BoolAttr(constants.ImportAttrIsSystem),
 					},
 				})
 			}
@@ -130,7 +130,7 @@ func (e *Extractor) extractHierarchy(fCtx core.FileContext, gc core.GlobalContex
 
 // resolveInclude 解析 #include 目标：项目内头文件 → File 元素；系统头 → 外部符号。
 func (e *Extractor) resolveInclude(gc core.GlobalContext, fCtx core.FileContext, imp *core.ImportInfo) *model.CodeElement {
-	if !imp.IsSystem {
+	if !imp.BoolAttr(constants.ImportAttrIsSystem) {
 		// 项目内头文件：按路径后缀匹配已收集的 File 元素（相对项目根）。
 		if target := e.findFileByInclude(gc, imp.RawImportPath); target != nil {
 			return target

@@ -62,7 +62,7 @@ func (c *Collector) CollectDefinitions(src coreast.SourceFile) (core.FileContext
 	content := src.Content()
 	path := src.Path()
 
-	fCtx := cppctx.NewFileContext(path, "", root, &content)
+	fCtx := cppctx.NewFileContext(path, root, &content)
 
 	// Step 0: 文件自身元素
 	c.initFileElem(fCtx)
@@ -119,7 +119,7 @@ func (c *Collector) walkIncludes(node coreast.Node, fCtx core.FileContext) {
 }
 
 // handleInclude 将 #include 登记为文件级导入。
-// 项目内 "foo.h" → File 元素；系统 <stdio.h> → 外部符号（IsSystem=true）。
+// 项目内 "foo.h" → File 元素；系统 <stdio.h> → 外部符号（cpp.include.is_system=true）。
 func (c *Collector) handleInclude(node coreast.Node, fCtx core.FileContext) {
 	pathNode := node.ChildByFieldName("path")
 	if pathNode == nil {
@@ -139,13 +139,14 @@ func (c *Collector) handleInclude(node coreast.Node, fCtx core.FileContext) {
 	if i := strings.LastIndexAny(raw, "/\\"); i >= 0 {
 		alias = raw[i+1:]
 	}
-	fCtx.AddImport(alias, &core.ImportInfo{
+	info := &core.ImportInfo{
 		Kind:          model.File,
 		Alias:         alias,
 		RawImportPath: raw,
-		IsSystem:      isSystem,
 		Location:      helper.ExtractLocation(node, fCtx.FilePath()),
-	})
+	}
+	info.SetAttr(constants.ImportAttrIsSystem, isSystem)
+	fCtx.AddImport(alias, info)
 }
 
 // collectBasicDefinitions 递归收集定义。
@@ -1302,7 +1303,7 @@ func (c *Collector) collectNamespaces(fCtx core.FileContext) {
 		}
 	}
 	if len(out) > 0 {
-		if nfc, ok := fCtx.(core.NamespaceAwareFileContext); ok {
+		if nfc, ok := fCtx.(cppctx.NamespaceAware); ok {
 			nfc.SetNamespaces(out)
 		}
 	}

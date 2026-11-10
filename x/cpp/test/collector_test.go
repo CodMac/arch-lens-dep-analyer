@@ -6,6 +6,7 @@ import (
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/cpp/constants"
+	cppctx "github.com/CodMac/arch-lens-dep-analyer/x/cpp/context"
 )
 
 // coreGlobalContext 是 core.GlobalContext 的别名（测试辅助签名用）。
@@ -194,9 +195,9 @@ func TestCollectorCpp(t *testing.T) {
 	if !ok {
 		t.Fatalf("file context not found")
 	}
-	nfc, ok := fc.(core.NamespaceAwareFileContext)
+	nfc, ok := fc.(cppctx.NamespaceAware)
 	if !ok {
-		t.Fatalf("file context should implement NamespaceAwareFileContext")
+		t.Fatalf("file context should implement cppctx.NamespaceAware")
 	}
 	ns := nfc.Namespaces()
 	if len(ns) != 2 || ns[0] != "app" || ns[1] != "app::core" {

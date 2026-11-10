@@ -50,7 +50,7 @@ func (mr *MemberResolver) collectMethodCandidates(container *model.CodeElement, 
 
 		// 在当前容器查找同名方法。
 		prefix := mr.gc.BuildQualifiedName(elem.QualifiedName, symbol)
-		if entries, ok := mr.gc.FindMethodByNoParamsQN(prefix); ok {
+		if entries, ok := mr.gc.FindOverloadCandidates(prefix); ok {
 			for _, e := range entries {
 				if e.Element.Kind != model.Method {
 					continue
@@ -266,7 +266,7 @@ func (mr *MemberResolver) checkVisibility(container *model.CodeElement, target *
 
 	// 同包。
 	targetPkg := helper.GetRealPackage(mr.gc, target.Element)
-	if targetPkg == mr.fc.PackageName() {
+	if targetPkg == helper.PackageNameOf(mr.fc) {
 		return true
 	}
 

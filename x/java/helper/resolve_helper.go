@@ -8,6 +8,7 @@ import (
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	coreast "github.com/CodMac/arch-lens-dep-analyer/core/ast"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 )
 
 // IsScopeContainer 是否容器 kind。
@@ -36,7 +37,7 @@ func PreciseResolve(gc core.GlobalContext, fc core.FileContext, symbol string) [
 	if imps, ok := fc.Imports()[symbol]; ok {
 		found := false
 		for _, imp := range imps {
-			if imp.IsWildcard {
+			if imp.BoolAttr(constants.ImportAttrIsWildcard) {
 				continue
 			}
 			found = true
@@ -50,7 +51,7 @@ func PreciseResolve(gc core.GlobalContext, fc core.FileContext, symbol string) [
 	}
 
 	// 短符号，包内查找
-	pkgQN := gc.BuildQualifiedName(fc.PackageName(), symbol)
+	pkgQN := gc.BuildQualifiedName(PackageNameOf(fc), symbol)
 	if def, ok := gc.FindByQualifiedName(pkgQN); ok {
 		return []*core.DefinitionEntry{def}
 	}
@@ -58,7 +59,7 @@ func PreciseResolve(gc core.GlobalContext, fc core.FileContext, symbol string) [
 	// 短符号，升级为匹配式 QN，全局查找（通配符导入）
 	for _, imps := range fc.Imports() {
 		for _, imp := range imps {
-			if imp.IsWildcard {
+			if imp.BoolAttr(constants.ImportAttrIsWildcard) {
 				basePath := strings.TrimSuffix(imp.RawImportPath, "*")
 				if def, ok := gc.FindByQualifiedName(basePath + symbol); ok {
 					return []*core.DefinitionEntry{def}

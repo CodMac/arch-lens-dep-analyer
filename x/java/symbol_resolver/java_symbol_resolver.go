@@ -339,7 +339,7 @@ func (r *SymbolResolver) checkVisibility(gc core.GlobalContext, fc core.FileCont
 	}
 
 	targetPkg := helper.GetRealPackage(gc, target.Element)
-	if targetPkg == fc.PackageName() {
+	if targetPkg == helper.PackageNameOf(fc) {
 		return true
 	}
 

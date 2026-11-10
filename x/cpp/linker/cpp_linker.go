@@ -9,6 +9,7 @@ import (
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/cpp/constants"
+	cppctx "github.com/CodMac/arch-lens-dep-analyer/x/cpp/context"
 	"github.com/CodMac/arch-lens-dep-analyer/x/cpp/helper"
 )
 
@@ -78,7 +79,7 @@ func (l *Linker) linkNamespaces(gc core.GlobalContext, relMap map[string]*model.
 
 	// Namespace → File（文件内出现该 namespace 即建边）。
 	for _, fCtx := range gc.FileContexts() {
-		nfc, ok := fCtx.(core.NamespaceAwareFileContext)
+		nfc, ok := fCtx.(cppctx.NamespaceAware)
 		if !ok {
 			continue
 		}

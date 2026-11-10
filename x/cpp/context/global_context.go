@@ -1,14 +1,14 @@
 package context
 
 import (
-	"strings"
-
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
-	"github.com/CodMac/arch-lens-dep-analyer/x/cpp/helper"
 )
 
 // GlobalContext 是 C/C++ 的全局符号上下文。
+//
+// C/C++ 没有「包声明」：NAMESPACE 元素由 Collector 在遍历 namespace_definition 时创建，
+// 故 RegisterFileContext 直接委托 Base，无需额外注册步骤。
 type GlobalContext struct {
 	*core.BaseGlobalContext
 }
@@ -25,34 +25,5 @@ func NewGlobalContext(resolver core.SymbolResolver, builder core.SymbolBuilder) 
 				model.FunctionDecl: {},
 			},
 		}),
-	}
-}
-
-// RegisterFileContext 先注册命名空间层级，再登记文件内定义。
-func (gc *GlobalContext) RegisterFileContext(fc core.FileContext) {
-	gc.RegisterPackage(fc.PackageName())
-	gc.BaseGlobalContext.RegisterFileContext(fc)
-}
-
-// RegisterPackage 将 :: 分隔的命名空间逐级注册为 NAMESPACE 元素。
-func (gc *GlobalContext) RegisterPackage(packageName string) {
-	if packageName == "" {
-		return
-	}
-	parts := helper.SplitQN(packageName)
-	var cur []string
-	for _, p := range parts {
-		if p == "" || p == "$anon" {
-			continue
-		}
-		cur = append(cur, p)
-		qn := strings.Join(cur, helper.QNSep)
-		if _, ok := gc.FindByQualifiedName(qn); !ok {
-			gc.AddDefinition(&core.DefinitionEntry{
-				Element: &model.CodeElement{
-					Kind: model.Namespace, Name: p, QualifiedName: qn, IsFormSource: true,
-				},
-			})
-		}
 	}
 }

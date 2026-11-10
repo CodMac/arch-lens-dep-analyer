@@ -4,6 +4,7 @@ package helper
 import (
 	"strings"
 
+	"github.com/CodMac/arch-lens-dep-analyer/core"
 	coreast "github.com/CodMac/arch-lens-dep-analyer/core/ast"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 )
@@ -129,6 +130,15 @@ func IsTypeVariable(s string) bool {
 		return false
 	}
 	return s[0] >= 'A' && s[0] <= 'Z'
+}
+
+// PackageNameOf 返回文件上下文声明的包名；非 Java 上下文（未实现
+// core.PackageAwareFileContext）返回空串。
+func PackageNameOf(fc core.FileContext) string {
+	if pfc, ok := fc.(core.PackageAwareFileContext); ok {
+		return pfc.PackageName()
+	}
+	return ""
 }
 
 // PkgOf 从全限定 QN 提取包前缀（最后一段点号之前部分）。
