@@ -77,7 +77,7 @@ docs/               设计文档（本目录）
 - **DependencyRelation**：两个 CodeElement 之间的一条依赖（CALL/CREATE/USE/ASSIGN/EXTEND/...）。
 - **Mores**：语言特化的元数据字典，key 为字符串常量，按 `ele_` / `rel_` 分组集中定义。
 - **五阶段流水线**：Collector（并行收集）→ Binder（符号绑定）→ Extractor（并行提取）→ Linker（层级拓扑）→ NoiseFilter（三级降噪）。
-- **三段式动作解析**（Java）：NodeContextResolver（上下文提取）→ ExpressionSegmenter（分段）→ ChainResolver（符号推导）。C/C++ 因无链式调用语法糖，改用「节点形态分类 + 作用域链/继承链查找」。
+- **三段式动作解析**（Java）：NodeContextResolver（上下文提取）→ ExpressionSegmenter（分段）→ ChainResolver（符号推导）。C/C++ 采用两段式：段 1 `normalize` 归一化为统一 `expr`，段 2 `resolveExpr` 沿作用域链/继承链查找。
 - **上下文接口**：`FileContext` / `GlobalContext` 为接口，`Base*` 实现提供通用索引与锁；语言实现内嵌复用。
 - **声明/定义双元素**：`FUNCTION_DECL`/`METHOD_DECL` 与 `FUNCTION`/`METHOD` 同 QN 共存，`ImplLink` 连接（C/C++）。
 

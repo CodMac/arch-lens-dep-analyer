@@ -3,7 +3,7 @@
 > 适用范围：`x/cpp/` · 与 [qn-format.md](../qn-format.md)（QN 契约）、[language-extension.md](../language-extension.md)（SPI 契约）互为补充
 >
 > 本文档回答「C/C++ 支持到什么程度」：元素/关系覆盖清单、声明-实现配对模型、条件编译策略、实现边界与已知限制。
-> 行为契约由 `x/cpp/testdata/e2e/baseline.golden.jsonl`（719 行 = 277 元素 + 442 关系，LevelBalanced）锚定。
+> 行为契约由 `x/cpp/testdata/e2e/baseline.golden.jsonl`（867 行 = 319 元素 + 548 关系，LevelBalanced）锚定。
 
 ## 1. 总体状态
 
@@ -147,18 +147,66 @@ tree-sitter **不做宏展开**，条件编译各分支在 AST 中全部保留�
 - QN 分隔符为 **`::`**（`SymbolBuilder.BuildQualifiedName`，`x/cpp/symbol_builder`）。
 - 文件元素 QN 为相对路径（正斜杠），与 Java 一致。
 
-### 6.2 作用域链查找
+### 6.2 两段式解析
 
-`SymbolResolver` 采用「节点形态分类 + 作用域链查找」（C/C++ 无链式方法调用语法糖，不需要 Java 的三段式）：
+`SymbolResolver` 采用**两段式**架构（Java 为「NodeContextResolver → ExpressionSegmenter → ChainResolver」三段式）：
+
+**段 1 归一化**：`normalize(node, src)` 把任意动作 AST 节点折叠为统一的 `expr` 描述，吸收形态差异。
+
+```go
+type expr struct {
+    form     exprForm // formIdent / formMember / formScoped / formCall / formNew / formCast / formText
+    node     coreast.Node
+    recv     *expr    // 递归接收者
+    name     string
+    typeText string   // new T / (T)x / static_cast<T> 的类型文本
+    text     string   // 纯文本接收者（公开 SPI 传入 receiver 字符串时）
+    argc     int
+}
+```
+
+覆盖的 AST 形态：`identifier`（formIdent）、`field_expression`（formMember，`argument` 即 receiver）、`qualified_identifier`（formScoped）、`call_expression`（formCall）、`new_expression`（formNew）、`cast_expression`/`static_cast`（formCast）、`template_function`、`pointer_expression`（`*p` 解引用）、`parenthesized_expression`、`subscript_expression`（`arr[i]`）。
+
+**段 2 查找**：`resolveExpr(gc, fc, e, want)` 只依赖 `expr`，按期望类型分派：
+
+| want | 入口 | 行为 |
+|---|---|---|
+| `wantValue` | `resolveValue` | 变量/字段/枚举常量 |
+| `wantFunc` | `resolveFunc` | 函数/方法（含重载挑选） |
+| `wantType` | `typeOf` | 类型符号；链式场景递归 `typeOf(e.recv)` 传播接收者类型 |
+
+查找规则：
 
 1. 短名沿词法作用域链上溯：`ns::Class::method` → `ns::Class` → `ns` → 全局。
 2. 类型解析先查精确 QN，再查文件内短名，再查全局短名；相对限定名（`core::Base`）按文件内 namespace 补全。
 3. 成员查找沿类型继承链（`cpp.class.superclass`）递归。
 
+`ResolveAction` 缩为「normalize → 按 relType 选 want」的薄分派；`ResolveVar`/`ResolveFunc` 公开 SPI 也构造 `expr` 后走同一查找路径，保证入口归一。
+
+**为什么不需要三段式**：C/C++ 的 AST 已把 receiver 与成员名分开（`call_expression.function` 为 `field_expression`，其 `argument` 即 receiver），段 1 的归一化直接吸收该结构，无需 Java 的「向上爬升取上下文 + 拉平成链」两步；且无 `super`/`Xxx.class`/方法引用/泛型实例化等语法。
+
+### 6.2.1 链式接收者类型传播
+
+链式调用（`f()->g()`、`a.b.c`）在段 2 的 `typeOf` 中递归传播接收者类型，否则会退化为全局短名匹配（同名方法误命中）：
+
+| 接收者形态 | 解析方式 |
+|---|---|
+| `f()->g()` | 解析 `f` 得到函数元素，取其 `cpp.function.return_type_with_qn`（退回 `return_type`）作为 receiver 类型 |
+| `a.b.c` | 递归 `typeOf(e.recv)`，取字段的 `cpp.field.type_with_qn`（退回 `raw_type`） |
+| `makeL1(h)->g()` | 同上，自由函数返回值作接收者 |
+| `this->f()->g()` | `this` → 所属类，后续段按调用/字段继续传播 |
+| `*p` / `(expr)` / `arr[i]` | 归一化阶段剥去解引用/括号/下标后递归 |
+| `new T()` | 直接取 `T` |
+
+解析顺序：段 1 已把接收者折叠为 `expr` 子树，段 2 的 `typeOf` 直接递归该子树；仅当接收者以纯文本形式（`formText`，公开 SPI 传入 `receiver` 字符串）出现时才走文本匹配（`this` / 类型名 / 简单变量）。裸标识符作接收者时**变量优先于同名类型**（`obj.method()` 语义）。
+
+已知边界：接收者为外部类型的方法时，返回类型无法解析（无源码符号），链在此处断开并退回短名兜底。
+
 ### 6.3 typedef / using 别名链
 
 - Collector 记录 `cpp.type.underlying`（底层类型文本）。
 - Binder 构建全局别名表并在类型绑定时**递归展开**（最多 8 层防环），再解析为 QN。
+- **匿名承载 typedef 不展开**：`typedef struct {...} Point;` 的底层文本是匿名结构体（`struct { int x; int y; }`），不是可解析的类型名；此时别名本身即目标类型，Binder 直接绑定到 `Point`。否则变量的 `cpp.variable.type_with_qn` 会退化为匿名结构体文本，`p.x` 的接收者类型解析失败后退回全局短名扫描，命中同名参数/变量（结果随并行收集顺序变化而不确定）。
 
 ### 6.4 外部符号兜底
 
@@ -185,6 +233,7 @@ tree-sitter **不做宏展开**，条件编译各分支在 AST 中全部保留�
 | 10 | **匿名 namespace** | 记名 `$anon`，不与外部链接语义区分 |
 | 11 | **`extern "C"`** | `linkage_specification` 内的声明照常收集，不做 C/C++ 链接名区分 |
 | 12 | **头文件重复包含** | 无 include guard 求解；同一头文件被多个源 include 时各产一条 Import |
+| 13 | **外部类型链式断开** | 链式接收者为外部类型（如 `std::vector<T>::begin()`）时，其返回类型无源码符号可查，链在此处断开并退回短名兜底 |
 
 ## 8. 与 SPI 契约的对应
 
@@ -196,7 +245,7 @@ tree-sitter **不做宏展开**，条件编译各分支在 AST 中全部保留�
 | Extractor | `x/cpp/extractor/` | 结构 + 动作 + Capture 派生 |
 | Linker | `x/cpp/linker/` | Contain 拓扑 + ImplLink 签名配对 |
 | NoiseFilter | `x/cpp/noise_filter/` | 复用 `core.DefaultNoiseFilter` 三态；ImplLink 恒保留 |
-| SymbolResolver | `x/cpp/symbol_resolver/` | 节点形态分类 + 作用域链/继承链查找 |
+| SymbolResolver | `x/cpp/symbol_resolver/` | 两段式：段 1 `normalize` 归一化为 `expr` + 段 2 `resolveExpr` 作用域链/继承链查找 + 链式接收者类型传播 |
 | SymbolBuilder | `x/cpp/symbol_builder/` | QN 用 `::` 拼接 |
 | FileContext | `x/cpp/context/` | 内嵌 `core.BaseFileContext` + 实现 `cppctx.NamespaceAware`（`Namespaces()`） |
 | GlobalContext | `x/cpp/context/` | 内嵌 `core.BaseGlobalContext`；NAMESPACE 由 Collector 建元素；重载索引收 Function 族 |
@@ -204,9 +253,9 @@ tree-sitter **不做宏展开**，条件编译各分支在 AST 中全部保留�
 ## 9. 测试现状
 
 - 三层测试 + e2e 黄金回归集，全部位于 `x/cpp/test/`。
-- e2e 基线：`x/cpp/testdata/e2e/baseline.golden.jsonl`（277 元素 + 442 关系，LevelBalanced）。
-- 元素覆盖（基线实测）：FILE 19 / NAMESPACE 3 / CLASS 3 / STRUCT 14 / ENUM 6 / ENUM_CONSTANT 14 / TYPE 14 / MACRO 14 / FIELD 39 / FUNCTION 31 / FUNCTION_DECL 8 / METHOD 4 / METHOD_DECL 6 / VARIABLE 96 / SCOPE_BLOCK 5 / LAMBDA 1。
-- 关系覆盖（基线实测）：CONTAIN 300 / USE 70 / ASSIGN 24 / TYPE_ARG 18 / CALL 10 / IMPORT 9 / IMPL_LINK 4 / CAST 2 / PARAMETER 1 / RETURN 1 / CAPTURE 1 / CREATE 1 / EXTEND 1。
+- e2e 基线：`x/cpp/testdata/e2e/baseline.golden.jsonl`（319 元素 + 548 关系，LevelBalanced）。
+- 元素覆盖（基线实测）：FILE 20 / NAMESPACE 3 / CLASS 4 / STRUCT 21 / ENUM 6 / ENUM_CONSTANT 14 / TYPE 14 / MACRO 14 / FIELD 48 / FUNCTION 33 / FUNCTION_DECL 8 / METHOD 13 / METHOD_DECL 6 / VARIABLE 109 / SCOPE_BLOCK 5 / LAMBDA 1。
+- 关系覆盖（基线实测）：CONTAIN 341 / USE 89 / ASSIGN 34 / TYPE_ARG 28 / CALL 27 / IMPORT 9 / RETURN 7 / IMPL_LINK 4 / PARAMETER 4 / CAST 2 / CAPTURE 1 / CREATE 1 / EXTEND 1。
 - 基线（LevelBalanced）中 PARAMETER/RETURN 大幅减少，是因为当前样例的参数/返回类型多为基本类型（`int`/`void`），被外部符号降噪过滤；CONTAIN/USE/ASSIGN 等指向源码符号的关系不受影响。
 - 测试用例：
   | 测试 | 覆盖 |
@@ -235,6 +284,7 @@ tree-sitter **不做宏展开**，条件编译各分支在 AST 中全部保留�
   | `TestResolverCast` | C 风格强转 + `static_cast` |
   | `TestResolverFieldInitializer` | 构造器成员初始化列表 |
   | `TestResolverCapture` | Lambda 捕获 |
+  | `TestResolverChain` | 链式接收者类型传播：`f()->g()` / `a.b.c` / `this->f()->g()` / 自由函数返回值 / 同名方法区分 |
 
 ## 10. 测试命令
 

@@ -2,7 +2,7 @@
 
 > 适用版本：当前主干
 >
-> 本文档描述 **Java** 的动作解析实现（`x/java/resolver/`）。C/C++ 不使用三段式：其表达式无链式调用语法糖，`x/cpp/symbol_resolver` 直接按节点形态（`call_expression` / `field_expression` / `qualified_identifier` / `new_expression` / `cast_expression`）分派，再沿词法作用域链与类型继承链查找，详见 [languages/cpp.md](languages/cpp.md) §6.2。
+> 本文档描述 **Java** 的动作解析实现（`x/java/resolver/`）。C/C++ 不使用三段式，而采用**两段式**：段 1 `normalize` 把动作 AST 节点归一化为统一 `expr`（吸收 `call_expression` / `field_expression` / `qualified_identifier` / `new_expression` / `cast_expression` 等形态差异），段 2 `resolveExpr` 沿词法作用域链与类型继承链查找，详见 [languages/cpp.md](languages/cpp.md) §6.2。
 
 ## 1. 概述
 

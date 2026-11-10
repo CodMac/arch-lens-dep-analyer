@@ -2,8 +2,18 @@
 // 职责：统一动作解析入口（Call/Create/Cast/Assign/Use/Throw），
 // 以及类型/变量/函数的基础解析（供 binder/extractor 共享）。
 //
-// 与 Java 三段式的差异：C/C++ 表达式形态更简单（无链式方法调用语法糖），
-// 采用「节点形态分类 + 作用域链查找」的两段式解析。
+// 解析采用**两段式**（与 Java 的「Context → Segmenter → ChainResolver」三段式相对）：
+//
+//	段 1 归一化：把任意动作 AST 节点折叠为统一的 expr 描述
+//	             （form + recv + name + typeText + argc），
+//	             吸收 field_expression / qualified_identifier / call_expression /
+//	             new_expression / cast_expression / template_function 等形态差异。
+//	段 2 查找：只依赖 expr，沿「词法作用域链 + 类型继承链」查找目标符号；
+//	             需要接收者类型时递归 typeOf(recv)，实现链式调用的类型传播。
+//
+// 之所以不需要 Java 的三段式：C/C++ 的 AST 已把 receiver 与成员名分开
+// （call_expression.function 为 field_expression，其 argument 即 receiver），
+// 且无 super / Xxx.class / 方法引用 / 泛型实例化等语法。
 package symbol_resolver
 
 import (
@@ -68,14 +78,12 @@ func (r *SymbolResolver) ResolveVar(gc core.GlobalContext, fc core.FileContext, 
 	if symbol == "" {
 		return nil
 	}
+	e := &expr{form: formIdent, node: node, name: symbol}
 	if receiver != "" {
-		if recvType := r.receiverType(gc, fc, node, receiver); recvType != nil {
-			if elem := r.lookupMember(gc, fc, recvType, symbol, model.Field); elem != nil {
-				return elem
-			}
-		}
+		e.form = formMember
+		e.recv = &expr{form: formText, node: node, text: receiver}
 	}
-	return r.lookupScopedSymbol(gc, fc, node, symbol)
+	return r.resolveValue(gc, fc, e)
 }
 
 // ResolveFunc 解析函数/方法。
@@ -84,24 +92,277 @@ func (r *SymbolResolver) ResolveFunc(gc core.GlobalContext, fc core.FileContext,
 	if symbol == "" {
 		return nil
 	}
-	argCount := r.argCount(node)
-
+	e := &expr{form: formIdent, node: node, name: symbol, argc: r.argCount(node)}
 	if receiver != "" {
-		if recvType := r.receiverType(gc, fc, node, receiver); recvType != nil {
-			if elem := r.lookupMemberFunc(gc, fc, recvType, symbol, argCount); elem != nil {
-				return elem
+		e.form = formMember
+		e.recv = &expr{form: formText, node: node, text: receiver}
+	}
+	return r.resolveFunc(gc, fc, e)
+}
+
+// ResolveAction 统一动作解析入口：段 1 归一化 → 段 2 查找。
+func (r *SymbolResolver) ResolveAction(gc core.GlobalContext, fc core.FileContext, node coreast.Node, relType model.DependencyType) *model.CodeElement {
+	if node == nil {
+		return nil
+	}
+	src := *fc.SourceBytes()
+	e := r.normalize(node, src)
+	if e == nil {
+		return nil
+	}
+
+	switch relType {
+	case model.Call:
+		// static_cast<T>(x) 等显式转换：语义为 CAST 而非 CALL。
+		if e.form == formCast && e.typeText != "" {
+			return r.ResolveType(gc, fc, e.typeText, model.Class)
+		}
+		// extractor 传入的是 call_expression 的 function 字段（非整个调用节点），
+		// 此时归一化结果不含实参个数，需从祖先调用节点补齐（重载挑选依赖它）。
+		if e.form != formCall {
+			e.argc = r.argCount(node)
+		}
+		if elem := r.resolveExpr(gc, fc, e, wantFunc); elem != nil {
+			return elem
+		}
+		// 兜底：外部函数（保持原有 QN 形态：接收者原文::函数名）。
+		qn := e.name
+		if txt := exprText(e.recv, src); txt != "" {
+			qn = helper.BuildQN(txt, e.name)
+		}
+		return helper.NewExternalElement(model.Function, e.name, qn)
+
+	case model.Create, model.Cast:
+		return r.resolveExpr(gc, fc, e, wantType)
+
+	case model.Assign, model.Use:
+		return r.resolveExpr(gc, fc, e, wantValue)
+
+	case model.Throw:
+		// throw new T() → 类型；throw f() → 函数；throw var → 变量声明类型。
+		switch e.form {
+		case formNew:
+			return r.resolveExpr(gc, fc, e, wantType)
+		case formCall:
+			return r.resolveExpr(gc, fc, e, wantFunc)
+		default:
+			if t := r.typeOf(gc, fc, e); t != nil {
+				return t
 			}
-			// 外部接收者类型：产外部方法。
-			return helper.NewExternalElement(model.Method, symbol, helper.BuildQN(recvType.QualifiedName, symbol))
+			// 变量声明类型不在源码中（外部类型）时仍产出外部类型元素。
+			if v := r.resolveValue(gc, fc, e); v != nil && v.Extra != nil {
+				for _, key := range []string{constants.VariableTypeWithQN, constants.FieldTypeWithQN} {
+					if raw, ok := v.Extra.Mores[key].(string); ok && raw != "" {
+						return r.ResolveType(gc, fc, raw, model.Class)
+					}
+				}
+			}
+			return nil
 		}
 	}
+	return nil
+}
 
-	if elem := r.lookupScopedFunc(gc, fc, node, symbol, argCount); elem != nil {
-		return elem
+// =============================================================================
+// 段 1：表达式归一化
+// =============================================================================
+
+// exprForm 是动作表达式归一化后的形态。
+type exprForm int
+
+const (
+	formIdent  exprForm = iota // 裸标识符：name
+	formMember                 // 成员访问：recv.name / recv->name
+	formScoped                 // 限定访问：scope::name
+	formCall                   // 调用：callee(...)
+	formNew                    // new T(...)
+	formCast                   // (T)x / static_cast<T>(x)
+	formText                   // 纯文本接收者（公开 SPI 传入 receiver 字符串时）
+)
+
+// expr 是动作节点的归一化描述（段 1 产出）。
+// 段 2 只依赖本结构，不再关心原始 AST 形态。
+type expr struct {
+	form     exprForm
+	node     coreast.Node // 表达式节点（可为 nil）
+	recv     *expr        // 接收者表达式（formMember / formScoped / formCall）
+	name     string       // 成员名 / 函数名 / 标识符
+	typeText string       // formNew / formCast 的类型文本
+	text     string       // formText 的接收者原文
+	argc     int          // formCall 的实参个数
+}
+
+// normalize 将任意动作节点折叠为统一的 expr（段 1）。
+func (r *SymbolResolver) normalize(node coreast.Node, src []byte) *expr {
+	if node == nil {
+		return nil
+	}
+	switch node.Kind() {
+	case "identifier", "field_identifier", "type_identifier", "namespace_identifier",
+		"operator_name", "destructor_name", "primitive_type", "sized_type_specifier":
+		return &expr{form: formIdent, node: node, name: strings.TrimSpace(node.Utf8Text(src))}
+
+	case "field_expression":
+		field := node.ChildByFieldName("field")
+		if field == nil {
+			return nil
+		}
+		return &expr{
+			form: formMember,
+			node: node,
+			recv: r.normalize(node.ChildByFieldName("argument"), src),
+			name: helper.GetNodeContent(field, src),
+		}
+
+	case "qualified_identifier":
+		nameNode := node.ChildByFieldName("name")
+		if nameNode == nil {
+			return nil
+		}
+		return &expr{
+			form: formScoped,
+			node: node,
+			recv: r.normalize(node.ChildByFieldName("scope"), src),
+			name: strings.TrimSpace(nameNode.Utf8Text(src)),
+		}
+
+	case "call_expression":
+		callee := r.normalize(node.ChildByFieldName("function"), src)
+		if callee == nil {
+			return nil
+		}
+		// static_cast<T>(x) 等：保持转换语义，不当作普通调用。
+		if callee.form == formCast {
+			return callee
+		}
+		callee.form = formCall
+		callee.node = node
+		if args := node.ChildByFieldName("arguments"); args != nil {
+			callee.argc = args.NamedChildCount()
+		}
+		return callee
+
+	case "new_expression":
+		return &expr{form: formNew, node: node, typeText: typeNodeName(node.ChildByFieldName("type"), src)}
+
+	case "cast_expression":
+		return &expr{form: formCast, node: node, typeText: typeNodeName(node.ChildByFieldName("type"), src)}
+
+	case "template_function", "template_method":
+		nameNode := node.ChildByFieldName("name")
+		name := ""
+		if nameNode != nil {
+			name = strings.TrimSpace(nameNode.Utf8Text(src))
+		}
+		if isCastKeyword(name) {
+			return &expr{form: formCast, node: node, typeText: castTemplateArg(node, src)}
+		}
+		if nameNode != nil {
+			return r.normalize(nameNode, src)
+		}
+		return nil
+
+	case "pointer_expression", "parenthesized_expression":
+		arg := node.ChildByFieldName("argument")
+		if arg == nil {
+			for i := 0; i < node.NamedChildCount(); i++ {
+				arg = node.NamedChild(i)
+				break
+			}
+		}
+		return r.normalize(arg, src)
+
+	case "subscript_expression":
+		return r.normalize(node.ChildByFieldName("argument"), src)
 	}
 
+	// 未知形态：退化为裸标识符（名称取原文）。
+	return &expr{form: formIdent, node: node, name: strings.TrimSpace(node.Utf8Text(src))}
+}
+
+// exprText 返回表达式的源码文本（外部兜底 QN 用）。
+func exprText(e *expr, src []byte) string {
+	if e == nil {
+		return ""
+	}
+	if e.form == formText {
+		return e.text
+	}
+	if e.node != nil {
+		return helper.GetNodeContent(e.node, src)
+	}
+	return e.text
+}
+
+// =============================================================================
+// 段 2：查找
+// =============================================================================
+
+// wantKind 是段 2 的期望解析类别。
+type wantKind int
+
+const (
+	wantValue wantKind = iota // 变量/字段/枚举常量
+	wantFunc                  // 函数/方法
+	wantType                  // 类型
+)
+
+// resolveExpr 按期望类别解析归一化表达式（段 2 入口）。
+func (r *SymbolResolver) resolveExpr(gc core.GlobalContext, fc core.FileContext, e *expr, want wantKind) *model.CodeElement {
+	if e == nil {
+		return nil
+	}
+	switch e.form {
+	case formNew, formCast:
+		if e.typeText == "" {
+			return nil
+		}
+		return r.ResolveType(gc, fc, e.typeText, model.Class)
+
+	case formCall:
+		if want == wantType {
+			return r.typeOf(gc, fc, e)
+		}
+		return r.resolveFunc(gc, fc, e)
+
+	case formIdent, formMember, formScoped, formText:
+		switch want {
+		case wantFunc:
+			return r.resolveFunc(gc, fc, e)
+		case wantType:
+			if t := r.typeOf(gc, fc, e); t != nil {
+				return t
+			}
+			// 未命中源码类型：按原文产外部类型（Create/Cast 语义）。
+			raw := e.name
+			if e.node != nil {
+				raw = helper.GetNodeContent(e.node, *fc.SourceBytes())
+			}
+			return r.ResolveType(gc, fc, raw, model.Class)
+		default:
+			return r.resolveValue(gc, fc, e)
+		}
+	}
+	return nil
+}
+
+// resolveFunc 解析函数/方法：接收者类型 → 成员方法；否则作用域链 → 自由函数。
+func (r *SymbolResolver) resolveFunc(gc core.GlobalContext, fc core.FileContext, e *expr) *model.CodeElement {
+	if e == nil || e.name == "" {
+		return nil
+	}
+	if recvType := r.typeOf(gc, fc, e.recv); recvType != nil {
+		if elem := r.lookupMemberFunc(gc, fc, recvType, e.name, e.argc); elem != nil {
+			return elem
+		}
+		// 外部接收者类型：产外部方法。
+		return helper.NewExternalElement(model.Method, e.name, helper.BuildQN(recvType.QualifiedName, e.name))
+	}
+	if elem := r.lookupScopedFunc(gc, fc, e.node, e.name, e.argc); elem != nil {
+		return elem
+	}
 	// 变量持有 lambda（auto f = [](){...}; f();）：解析到 Lambda 元素。
-	if v := r.lookupScopedSymbol(gc, fc, node, symbol); v != nil && v.Extra != nil {
+	if v := r.lookupScopedSymbol(gc, fc, e.node, e.name); v != nil && v.Extra != nil {
 		if lambdaQN, ok := v.Extra.Mores[constants.VariableLambdaQN].(string); ok && lambdaQN != "" {
 			if entry, found := gc.FindByQualifiedName(lambdaQN); found {
 				return entry.Element
@@ -111,179 +372,115 @@ func (r *SymbolResolver) ResolveFunc(gc core.GlobalContext, fc core.FileContext,
 	return nil
 }
 
-// ResolveAction 统一动作解析入口。
-func (r *SymbolResolver) ResolveAction(gc core.GlobalContext, fc core.FileContext, node coreast.Node, relType model.DependencyType) *model.CodeElement {
-	if node == nil {
+// resolveValue 解析变量/字段/枚举常量：接收者类型 → 成员；否则作用域链。
+func (r *SymbolResolver) resolveValue(gc core.GlobalContext, fc core.FileContext, e *expr) *model.CodeElement {
+	if e == nil || e.name == "" {
 		return nil
 	}
-	switch relType {
-	case model.Call:
-		return r.resolveCall(gc, fc, node)
-	case model.Create:
-		return r.resolveCreate(gc, fc, node)
-	case model.Cast:
-		return r.resolveCast(gc, fc, node)
-	case model.Assign:
-		return r.resolveAssign(gc, fc, node)
-	case model.Use:
-		return r.resolveUse(gc, fc, node)
-	case model.Throw:
-		return r.resolveThrow(gc, fc, node)
+	if recvType := r.typeOf(gc, fc, e.recv); recvType != nil {
+		if elem := r.lookupMember(gc, fc, recvType, e.name, model.Field); elem != nil {
+			return elem
+		}
+	}
+	return r.lookupScopedSymbol(gc, fc, e.node, e.name)
+}
+
+// typeOf 返回表达式的静态类型（链式接收者传播的递归入口）。
+func (r *SymbolResolver) typeOf(gc core.GlobalContext, fc core.FileContext, e *expr) *model.CodeElement {
+	if e == nil {
+		return nil
+	}
+	switch e.form {
+	case formNew, formCast:
+		if e.typeText == "" {
+			return nil
+		}
+		return r.lookupType(gc, fc, helper.BaseTypeName(e.typeText))
+
+	case formCall:
+		return r.returnTypeOf(gc, fc, r.resolveFunc(gc, fc, e))
+
+	case formText:
+		return r.textType(gc, fc, e)
+
+	case formScoped:
+		// A::B 先按完整限定名当类型（namespace/嵌套类），再按成员变量。
+		if e.node != nil {
+			if t := r.lookupType(gc, fc, helper.BaseTypeName(helper.GetNodeContent(e.node, *fc.SourceBytes()))); t != nil {
+				return t
+			}
+		}
+		if t := r.declaredTypeOf(gc, fc, r.resolveValue(gc, fc, e)); t != nil {
+			return t
+		}
+		return r.lookupType(gc, fc, helper.BaseTypeName(e.name))
+
+	case formIdent, formMember:
+		// 裸标识符/成员作接收者时通常是变量（obj.method()），变量优先于同名类型。
+		if t := r.declaredTypeOf(gc, fc, r.resolveValue(gc, fc, e)); t != nil {
+			return t
+		}
+		return r.lookupType(gc, fc, helper.BaseTypeName(e.name))
 	}
 	return nil
 }
 
-// =============================================================================
-// 动作解析
-// =============================================================================
-
-// resolveCall 解析调用目标。node 为 call_expression 的 function 字段节点。
-func (r *SymbolResolver) resolveCall(gc core.GlobalContext, fc core.FileContext, node coreast.Node) *model.CodeElement {
-	src := *fc.SourceBytes()
-	recv, name := splitCallee(node, src)
-	if name == "" {
+// textType 解析纯文本接收者的类型（公开 SPI 传入 receiver 字符串时）。
+func (r *SymbolResolver) textType(gc core.GlobalContext, fc core.FileContext, e *expr) *model.CodeElement {
+	recv := strings.TrimSpace(e.text)
+	if recv == "" {
 		return nil
 	}
-	// 构造函数调用（C++ new 的 function 位置不会出现；此处为普通调用）。
-	// static_cast<T>(x) / dynamic_cast / const_cast / reinterpret_cast：类型转换语义。
-	if recv == "" && isCastKeyword(name) {
-		if t := castTemplateArg(node, *fc.SourceBytes()); t != "" {
-			return r.ResolveType(gc, fc, t, model.Class)
+	if recv == "this" || recv == "*this" {
+		return enclosingType(fc, e.node)
+	}
+	if t := r.lookupType(gc, fc, helper.BaseTypeName(recv)); t != nil {
+		return t
+	}
+	return r.declaredTypeOf(gc, fc, r.lookupScopedSymbol(gc, fc, e.node, recv))
+}
+
+// returnTypeOf 取函数元素的返回类型元素（优先 QN 版本，退回原始文本）。
+func (r *SymbolResolver) returnTypeOf(gc core.GlobalContext, fc core.FileContext, fn *model.CodeElement) *model.CodeElement {
+	if fn == nil || fn.Extra == nil {
+		return nil
+	}
+	for _, key := range []string{constants.FunctionReturnTypeWithQN, constants.FunctionReturnType} {
+		if t, ok := fn.Extra.Mores[key].(string); ok && t != "" {
+			if elem := r.lookupType(gc, fc, helper.BaseTypeName(t)); elem != nil {
+				return elem
+			}
 		}
 	}
-	if elem := r.ResolveFunc(gc, fc, node, recv, name); elem != nil {
-		return elem
-	}
-	// 兜底：外部函数。
-	qn := name
-	if recv != "" {
-		qn = helper.BuildQN(recv, name)
-	}
-	return helper.NewExternalElement(model.Function, name, qn)
+	return nil
 }
 
-// isCastKeyword 判断是否为 C++ 显式转换关键字。
-func isCastKeyword(name string) bool {
-	switch name {
-	case "static_cast", "dynamic_cast", "const_cast", "reinterpret_cast":
-		return true
-	}
-	return false
+// declaredTypeKeys 是变量/字段声明类型的 Mores 键（优先 QN 版本，退回原始文本）。
+var declaredTypeKeys = []string{
+	constants.VariableTypeWithQN, constants.FieldTypeWithQN,
+	constants.VariableRawType, constants.FieldRawType,
 }
 
-// castTemplateArg 取 template_function 的模板实参类型文本。
-func castTemplateArg(node coreast.Node, src []byte) string {
-	if node == nil {
+// declaredTypeText 取变量/字段元素的声明类型原文。
+func declaredTypeText(v *model.CodeElement) string {
+	if v == nil || v.Extra == nil {
 		return ""
 	}
-	if node.Kind() == "template_function" {
-		if args := node.ChildByFieldName("arguments"); args != nil {
-			for i := 0; i < args.NamedChildCount(); i++ {
-				ch := args.NamedChild(i)
-				if name := typeNodeName(ch, src); name != "" {
-					return name
-				}
-			}
+	for _, key := range declaredTypeKeys {
+		if t, ok := v.Extra.Mores[key].(string); ok && t != "" {
+			return t
 		}
 	}
 	return ""
 }
 
-// resolveCreate 解析实例创建目标。node 为 new_expression 的 type 字段节点。
-func (r *SymbolResolver) resolveCreate(gc core.GlobalContext, fc core.FileContext, node coreast.Node) *model.CodeElement {
-	name := typeNodeName(node, *fc.SourceBytes())
-	if name == "" {
+// declaredTypeOf 取变量/字段元素的声明类型元素。
+func (r *SymbolResolver) declaredTypeOf(gc core.GlobalContext, fc core.FileContext, v *model.CodeElement) *model.CodeElement {
+	raw := declaredTypeText(v)
+	if raw == "" {
 		return nil
 	}
-	return r.ResolveType(gc, fc, name, model.Class)
-}
-
-// resolveCast 解析强转目标类型。node 为 cast_expression 的 type 字段节点。
-func (r *SymbolResolver) resolveCast(gc core.GlobalContext, fc core.FileContext, node coreast.Node) *model.CodeElement {
-	name := typeNodeName(node, *fc.SourceBytes())
-	if name == "" {
-		return nil
-	}
-	return r.ResolveType(gc, fc, name, model.Class)
-}
-
-// resolveAssign 解析赋值目标。node 为 assignment_expression 的 left 字段节点。
-func (r *SymbolResolver) resolveAssign(gc core.GlobalContext, fc core.FileContext, node coreast.Node) *model.CodeElement {
-	return r.resolveLValue(gc, fc, node)
-}
-
-// resolveUse 解析使用目标。
-func (r *SymbolResolver) resolveUse(gc core.GlobalContext, fc core.FileContext, node coreast.Node) *model.CodeElement {
-	return r.resolveLValue(gc, fc, node)
-}
-
-// resolveLValue 解析可寻址表达式（identifier / field_expression / qualified_identifier / pointer_expression）。
-func (r *SymbolResolver) resolveLValue(gc core.GlobalContext, fc core.FileContext, node coreast.Node) *model.CodeElement {
-	if node == nil {
-		return nil
-	}
-	src := *fc.SourceBytes()
-	switch node.Kind() {
-	case "identifier", "field_identifier":
-		return r.ResolveVar(gc, fc, node, "", node.Utf8Text(src))
-	case "field_expression":
-		arg := node.ChildByFieldName("argument")
-		field := node.ChildByFieldName("field")
-		if arg == nil || field == nil {
-			return nil
-		}
-		return r.ResolveVar(gc, fc, node, helper.GetNodeContent(arg, src), helper.GetNodeContent(field, src))
-	case "qualified_identifier":
-		recv, name := splitQualified(node, src)
-		if name == "" {
-			return nil
-		}
-		return r.ResolveVar(gc, fc, node, recv, name)
-	case "pointer_expression", "parenthesized_expression":
-		arg := node.ChildByFieldName("argument")
-		if arg == nil {
-			for i := 0; i < node.NamedChildCount(); i++ {
-				arg = node.NamedChild(i)
-				break
-			}
-		}
-		return r.resolveLValue(gc, fc, arg)
-	case "subscript_expression":
-		arg := node.ChildByFieldName("argument")
-		return r.resolveLValue(gc, fc, arg)
-	}
-	return nil
-}
-
-// resolveThrow 解析抛出异常的类型。node 为 throw_statement 的 argument 字段节点。
-func (r *SymbolResolver) resolveThrow(gc core.GlobalContext, fc core.FileContext, node coreast.Node) *model.CodeElement {
-	if node == nil {
-		return nil
-	}
-	src := *fc.SourceBytes()
-	// throw new Foo() / throw Foo(...) / throw var
-	switch node.Kind() {
-	case "new_expression":
-		if t := node.ChildByFieldName("type"); t != nil {
-			return r.ResolveType(gc, fc, typeNodeName(t, src), model.Class)
-		}
-	case "call_expression":
-		if f := node.ChildByFieldName("function"); f != nil {
-			if e := r.resolveCall(gc, fc, f); e != nil {
-				return e
-			}
-		}
-	}
-	// 变量形态：取其声明类型。
-	if v := r.resolveLValue(gc, fc, node); v != nil && v.Extra != nil {
-		if t, ok := v.Extra.Mores[constants.VariableTypeWithQN].(string); ok && t != "" {
-			return r.ResolveType(gc, fc, t, model.Class)
-		}
-		if t, ok := v.Extra.Mores[constants.FieldTypeWithQN].(string); ok && t != "" {
-			return r.ResolveType(gc, fc, t, model.Class)
-		}
-	}
-	return nil
+	return r.lookupType(gc, fc, helper.BaseTypeName(raw))
 }
 
 // =============================================================================
@@ -371,36 +568,6 @@ func (r *SymbolResolver) typeChain(gc core.GlobalContext, fc core.FileContext, o
 		out = append(out, r.typeChain(gc, fc, base, depth+1)...)
 	}
 	return out
-}
-
-// receiverType 解析接收者表达式对应的类型元素。
-func (r *SymbolResolver) receiverType(gc core.GlobalContext, fc core.FileContext, node coreast.Node, receiver string) *model.CodeElement {
-	receiver = strings.TrimSpace(receiver)
-	if receiver == "" {
-		return nil
-	}
-	// this / *this
-	if receiver == "this" || receiver == "*this" {
-		if owner := enclosingType(fc, node); owner != nil {
-			return owner
-		}
-		return nil
-	}
-	// 类型名静态访问：Type::member / Type::staticMethod
-	if elem := r.lookupType(gc, fc, helper.BaseTypeName(receiver)); elem != nil {
-		return elem
-	}
-	// 变量/字段：取其声明类型。
-	if v := r.ResolveVar(gc, fc, node, "", receiver); v != nil && v.Extra != nil {
-		for _, key := range []string{constants.VariableTypeWithQN, constants.FieldTypeWithQN, constants.VariableRawType, constants.FieldRawType} {
-			if t, ok := v.Extra.Mores[key].(string); ok && t != "" {
-				if elem := r.lookupType(gc, fc, helper.BaseTypeName(t)); elem != nil {
-					return elem
-				}
-			}
-		}
-	}
-	return nil
 }
 
 // enclosingType 返回节点所属的类/结构体元素。
@@ -583,55 +750,30 @@ func (r *SymbolResolver) argCount(node coreast.Node) int {
 // 节点工具
 // =============================================================================
 
-// splitCallee 从调用目标节点拆出接收者与函数名。
-func splitCallee(node coreast.Node, src []byte) (recv, name string) {
-	if node == nil {
-		return "", ""
+// isCastKeyword 判断是否为 C++ 显式转换关键字。
+func isCastKeyword(name string) bool {
+	switch name {
+	case "static_cast", "dynamic_cast", "const_cast", "reinterpret_cast":
+		return true
 	}
-	switch node.Kind() {
-	case "identifier", "field_identifier", "operator_name", "destructor_name":
-		return "", strings.TrimSpace(node.Utf8Text(src))
-	case "qualified_identifier":
-		return splitQualified(node, src)
-	case "field_expression":
-		arg := node.ChildByFieldName("argument")
-		field := node.ChildByFieldName("field")
-		if field == nil {
-			return "", ""
-		}
-		return helper.GetNodeContent(arg, src), helper.GetNodeContent(field, src)
-	case "template_function", "template_method":
-		if n := node.ChildByFieldName("name"); n != nil {
-			return splitCallee(n, src)
-		}
-	case "parenthesized_expression":
-		for i := 0; i < node.NamedChildCount(); i++ {
-			return splitCallee(node.NamedChild(i), src)
-		}
-	}
-	return "", strings.TrimSpace(node.Utf8Text(src))
+	return false
 }
 
-// splitQualified 拆解 qualified_identifier 的 scope 与 name。
-func splitQualified(node coreast.Node, src []byte) (recv, name string) {
-	scope := node.ChildByFieldName("scope")
-	nameNode := node.ChildByFieldName("name")
-	if nameNode == nil {
-		return "", ""
+// castTemplateArg 取 template_function 的模板实参类型文本。
+func castTemplateArg(node coreast.Node, src []byte) string {
+	if node == nil {
+		return ""
 	}
-	if scope != nil {
-		recv = helper.GetNodeContent(scope, src)
-	}
-	if nameNode.Kind() == "qualified_identifier" {
-		innerRecv, innerName := splitQualified(nameNode, src)
-		if recv == "" {
-			recv = innerRecv
-		} else if innerRecv != "" {
-			recv = helper.BuildQN(recv, innerRecv)
+	if node.Kind() == "template_function" {
+		if args := node.ChildByFieldName("arguments"); args != nil {
+			for i := 0; i < args.NamedChildCount(); i++ {
+				if name := typeNodeName(args.NamedChild(i), src); name != "" {
+					return name
+				}
+			}
 		}
-		return recv, innerName
 	}
-	return recv, strings.TrimSpace(nameNode.Utf8Text(src))
+	return ""
 }
 
 // typeNodeName 提取类型节点的名称文本（template_type 取模板名）。

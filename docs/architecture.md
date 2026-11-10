@@ -213,13 +213,13 @@ x/cpp/
 ├── extractor/               # 结构 + 动作 + Capture 派生
 ├── linker/                  # Contain 拓扑 + ImplLink 签名配对
 ├── noise_filter/            # 复用 DefaultNoiseFilter，ImplLink 恒保留
-├── symbol_resolver/         # 节点形态分类 + 作用域链/继承链查找
+├── symbol_resolver/         # 两段式：normalize 归一化为 expr + 作用域链/继承链查找
 ├── symbol_builder/          # QN 用 :: 拼接
 ├── constants/               # cpp.* Mores key
 └── helper/                  # :: 切分、类型文本归一化、外部符号构造
 ```
 
-> C/C++ 无独立的 `resolver/` 三段式包：C/C++ 表达式无 Java 的链式调用语法糖，`symbol_resolver` 内直接按节点形态分类解析。
+> C/C++ 无独立的 `resolver/` 三段式包：C/C++ 的 AST 已把 receiver 与成员名分开，`symbol_resolver` 内采用两段式（段 1 `normalize` 归一化为统一 `expr`，段 2 `resolveExpr` 查找）。
 
 ### 3.6 output/（导出器）
 

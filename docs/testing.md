@@ -13,7 +13,7 @@
 ├─────────────────────────────────────────────┤
 │ 三层单元测试                                  │
 │   第1层 Extractor：关系提取断言矩阵            │
-│   第2层 Resolver：三段式符号解析断言           │
+│   第2层 Resolver：符号解析断言（Java 三段式 / C++ 两段式） │
 │   第3层 Collector：符号定义收集断言            │
 ├─────────────────────────────────────────────┤
 │ testdata/  黄金回归集（源码样例 + 期望断言）    │
@@ -120,6 +120,7 @@ C/C++ 不使用 Java 的「源码注释期望块」模式，改用**显式断言
 | `TestResolverCast` | C 风格强转 + `static_cast` |
 | `TestResolverFieldInitializer` | 构造器成员初始化列表 `: a(x)` |
 | `TestResolverCapture` | Lambda 捕获 |
+| `TestResolverChain` | 链式接收者类型传播：`f()->g()` / `a.b.c` / `this->f()->g()` / 自由函数返回值 / 同名方法区分 |
 
 ## 3. 测试数据组织（黄金回归集）
 
@@ -134,7 +135,7 @@ x/cpp/testdata/
 ├── collector/cond/  # 条件编译样例（cond.c）
 ├── collector/c/     # C 全场景元素提取样例（11 组：base/func/decl_def/struct/
 │                    #   enum/typedef/macro/variable/param/cond/edge）
-├── resolver/        # 解析样例（calls.cpp）
+├── resolver/        # 解析样例（calls.cpp / chain.cpp）
 └── e2e/             # 端到端黄金基线（baseline.golden.jsonl）
 ```
 

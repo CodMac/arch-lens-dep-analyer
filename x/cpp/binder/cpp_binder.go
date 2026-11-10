@@ -186,6 +186,11 @@ func (b *Binder) expandAlias(gc core.GlobalContext, fCtx core.FileContext, alias
 	if !ok || underlying == "" {
 		return name
 	}
+	// 匿名 struct/union/class 承载实体（typedef struct {...} Point;）：
+	// 别名本身即目标类型，底层文本不是可解析的类型名，不展开。
+	if isAnonymousTypeText(underlying) {
+		return aliasQN
+	}
 	next := helper.BaseTypeName(underlying)
 	if next == "" || next == name {
 		return name
@@ -216,6 +221,20 @@ func splitParam(p string) (typePart, namePart string) {
 		return p, ""
 	}
 	return strings.TrimSpace(p[:idx]), candidate
+}
+
+// isAnonymousTypeText 判断类型文本是否为匿名 struct/union/class/enum 定义
+// （typedef struct { ... } Point; 的底层文本）。
+func isAnonymousTypeText(s string) bool {
+	s = strings.TrimSpace(s)
+	for _, kw := range []string{"struct", "union", "class", "enum"} {
+		if !strings.HasPrefix(s, kw) {
+			continue
+		}
+		rest := strings.TrimSpace(strings.TrimPrefix(s, kw))
+		return strings.HasPrefix(rest, "{") || strings.HasPrefix(rest, ":")
+	}
+	return false
 }
 
 // isIdentifier 判断是否为合法 C/C++ 标识符。

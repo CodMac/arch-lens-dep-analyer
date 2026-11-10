@@ -227,10 +227,15 @@ com.example.chained.ChainedCallExample.Builder.age(int).age   ← Builder 方法
 
 ### 3.2 Target QN
 
-动作关系的 Target 由 `SymbolResolver.ResolveAction` 三段式解析得出：
-1. **NodeContextResolver** 提取双轨上下文（接收者/符号）。
-2. **ExpressionSegmenter** 拉平符号链（`a.b().c` → Head `a` + Segments `b`、`c`）。
-3. **ChainResolver** 沿链推导目标元素。
+动作关系的 Target 由 `SymbolResolver.ResolveAction` 解析得出：
+
+- **Java**（三段式）：
+  1. **NodeContextResolver** 提取双轨上下文（接收者/符号）。
+  2. **ExpressionSegmenter** 拉平符号链（`a.b().c` → Head `a` + Segments `b`、`c`）。
+  3. **ChainResolver** 沿链推导目标元素。
+- **C/C++**（两段式）：
+  1. **段 1 `normalize`** 把动作 AST 节点归一化为统一 `expr`（`form` + `recv` + `name` + `typeText`）。
+  2. **段 2 `resolveExpr`** 沿词法作用域链 / 类型继承链查找，链式接收者由 `typeOf` 递归传播类型。
 
 | 关系类型 | Target 期望 kind | Target QN 来源 |
 |---|---|---|
