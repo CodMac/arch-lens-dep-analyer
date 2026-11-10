@@ -10,6 +10,7 @@ import (
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/x/cpp/binder"
 	"github.com/CodMac/arch-lens-dep-analyer/x/cpp/collector"
+	cppctx "github.com/CodMac/arch-lens-dep-analyer/x/cpp/context"
 	"github.com/CodMac/arch-lens-dep-analyer/x/cpp/extractor"
 	"github.com/CodMac/arch-lens-dep-analyer/x/cpp/linker"
 	"github.com/CodMac/arch-lens-dep-analyer/x/cpp/noise_filter"
@@ -32,6 +33,8 @@ func init() {
 			NoiseFilter:    noise_filter.New(core.LevelBalanced),
 			SymbolResolver: resolver,
 			SymbolBuilder:  builder,
+
+			NewGlobalContext: cppctx.NewGlobalContext,
 		}
 	}
 

@@ -14,12 +14,19 @@ func TestExtractorStructural(t *testing.T) {
 	gc, rels := RunExtraction(t, "x/cpp/testdata", paths)
 
 	// --- Import：项目内头文件解析为 File 元素 ---
-	imp := FindRel(t, rels, func(r *model.DependencyRelation) bool {
-		return r.Type == model.Import && r.Target != nil &&
-			r.Target.QualifiedName == "collector/base/basic.h"
-	})
-	if imp.Source.QualifiedName != "collector/base/basic.c" {
-		t.Errorf("import source = %s, want collector/base/basic.c", imp.Source.QualifiedName)
+	// basic.c 与 basic.cpp 都 include basic.h，抽取阶段并行执行，关系顺序不确定，
+	// 故按 (source, target) 精确匹配而非取首条。
+	importSources := map[string]bool{}
+	for _, r := range rels {
+		if r.Type == model.Import && r.Target != nil &&
+			r.Target.QualifiedName == "collector/base/basic.h" {
+			importSources[r.Source.QualifiedName] = true
+		}
+	}
+	for _, want := range []string{"collector/base/basic.c", "collector/base/basic.cpp"} {
+		if !importSources[want] {
+			t.Errorf("import of basic.h from %s not found (got %v)", want, importSources)
+		}
 	}
 
 	// --- Import：系统头归外部符号 ---

@@ -78,7 +78,11 @@ func (l *Linker) linkNamespaces(gc core.GlobalContext, relMap map[string]*model.
 
 	// Namespace → File（文件内出现该 namespace 即建边）。
 	for _, fCtx := range gc.FileContexts() {
-		for _, ns := range fCtx.Namespaces() {
+		nfc, ok := fCtx.(core.NamespaceAwareFileContext)
+		if !ok {
+			continue
+		}
+		for _, ns := range nfc.Namespaces() {
 			l.addRel(relMap, model.Namespace, ns, model.File, fCtx.FilePath())
 		}
 	}

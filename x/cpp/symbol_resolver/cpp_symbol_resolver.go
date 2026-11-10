@@ -31,29 +31,6 @@ func (r *SymbolResolver) BuildQualifiedName(parentQN, name string) string {
 	return helper.BuildQN(parentQN, name)
 }
 
-// RegisterPackage 注册命名空间层级（C++ 按 :: 拆分；C 无 namespace 时为空操作）。
-func (r *SymbolResolver) RegisterPackage(gc core.GlobalContext, packageName string) {
-	if packageName == "" {
-		return
-	}
-	parts := helper.SplitQN(packageName)
-	var cur []string
-	for _, p := range parts {
-		if p == "" || p == "$anon" {
-			continue
-		}
-		cur = append(cur, p)
-		qn := strings.Join(cur, helper.QNSep)
-		if _, ok := gc.FindByQualifiedName(qn); !ok {
-			gc.AddDefinition(&core.DefinitionEntry{
-				Element: &model.CodeElement{
-					Kind: model.Namespace, Name: p, QualifiedName: qn, IsFormSource: true,
-				},
-			})
-		}
-	}
-}
-
 // IsPrimitive 判断类型名是否为 C/C++ 基本类型。
 func (r *SymbolResolver) IsPrimitive(typeName string) bool {
 	return helper.IsPrimitive(helper.BaseTypeName(typeName))
@@ -319,7 +296,11 @@ func (r *SymbolResolver) lookupType(gc core.GlobalContext, fc core.FileContext, 
 	}
 	// 相对限定名：namespace app 内的 core::Base 实为 app::core::Base。
 	if strings.Contains(name, helper.QNSep) {
-		for _, ns := range fc.Namespaces() {
+		var namespaces []string
+		if nfc, ok := fc.(core.NamespaceAwareFileContext); ok {
+			namespaces = nfc.Namespaces()
+		}
+		for _, ns := range namespaces {
 			if cand := helper.BuildQN(ns, name); cand != name {
 				if entry, ok := gc.FindByQualifiedName(cand); ok && isTypeKind(entry.Element.Kind) {
 					return entry.Element

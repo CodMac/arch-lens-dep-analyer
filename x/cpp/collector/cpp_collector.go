@@ -18,6 +18,7 @@ import (
 	coreast "github.com/CodMac/arch-lens-dep-analyer/core/ast"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/cpp/constants"
+	cppctx "github.com/CodMac/arch-lens-dep-analyer/x/cpp/context"
 	"github.com/CodMac/arch-lens-dep-analyer/x/cpp/helper"
 )
 
@@ -44,6 +45,7 @@ type identified struct {
 	elem     *model.CodeElement
 	declNode coreast.Node // 声明器节点（函数/变量/字段），可为 nil
 	sig      string       // 函数参数签名 "(int,char*)"，非函数为空
+	isDecl   bool         // 是否为「声明」（非定义）：声明与定义共享同一 QN，不参与重复计数
 	parentQN string       // 计算后的父级 QN（assignQN 填充）
 }
 
@@ -60,7 +62,7 @@ func (c *Collector) CollectDefinitions(src coreast.SourceFile) (core.FileContext
 	content := src.Content()
 	path := src.Path()
 
-	fCtx := core.NewFileContext(path, "", root, &content)
+	fCtx := cppctx.NewFileContext(path, "", root, &content)
 
 	// Step 0: 文件自身元素
 	c.initFileElem(fCtx)
@@ -186,9 +188,10 @@ func (c *Collector) collectBasicDefinitions(node coreast.Node, fCtx core.FileCon
 					it.elem.GetMores()[constants.Condition] = cond
 				}
 				fCtx.AddDefinition(&core.DefinitionEntry{
-					Element:  it.elem,
-					ParentQN: it.parentQN,
-					Node:     node,
+					Element:       it.elem,
+					ParentQN:      it.parentQN,
+					IsDeclaration: it.isDecl,
+					Node:          node,
 				})
 			}
 
@@ -202,10 +205,13 @@ func (c *Collector) collectBasicDefinitions(node coreast.Node, fCtx core.FileCon
 			}
 
 			// 匿名 struct/union 承载实体（决策 #2）：字段挂 typedef 名 / 变量名。
-			if carrier := anonymousStructCarrier(node, items, src); carrier != "" {
-				childOcc := make(map[string]int)
-				for i := 0; i < node.ChildCount(); i++ {
-					c.collectBasicDefinitions(node.Child(i), fCtx, carrier, tmplParams, childOcc)
+			// 多声明器（typedef struct {...} A, *B; / struct {...} s1, s2;）时每个承载实体各挂一份。
+			if carriers := anonymousStructCarriers(node, items, src); len(carriers) > 0 {
+				for _, carrier := range carriers {
+					childOcc := make(map[string]int)
+					for i := 0; i < node.ChildCount(); i++ {
+						c.collectBasicDefinitions(node.Child(i), fCtx, carrier, tmplParams, childOcc)
+					}
 				}
 				return
 			}
@@ -217,29 +223,40 @@ func (c *Collector) collectBasicDefinitions(node coreast.Node, fCtx core.FileCon
 	}
 }
 
-// anonymousStructCarrier 判定节点是否为「匿名 struct/union 的承载声明」，
-// 若是则返回承载实体的 QN（typedef 名 / 变量名 / 字段名），供其成员字段挂载。
+// anonymousStructCarriers 判定节点是否为「匿名 struct/union 的承载声明」，
+// 若是则返回全部承载实体的 QN（typedef 名 / 变量名 / 字段名），供其成员字段挂载。
 // 覆盖形态：typedef struct {...} Point; / struct {...} obj; / struct {...} inner;
-func anonymousStructCarrier(node coreast.Node, items []identified, src []byte) string {
+// 多声明器形态（typedef struct {...} A, *B;）返回全部承载实体，字段各挂一份（允许冗余）。
+func anonymousStructCarriers(node coreast.Node, items []identified, src []byte) []string {
 	if len(items) == 0 {
-		return ""
+		return nil
 	}
 	switch node.Kind() {
 	case "type_definition", "declaration", "field_declaration":
 	default:
-		return ""
+		return nil
 	}
 	t := node.ChildByFieldName("type")
 	if t == nil {
-		return ""
+		return nil
 	}
 	if t.Kind() != "struct_specifier" && t.Kind() != "union_specifier" {
-		return ""
+		return nil
 	}
 	if t.ChildByFieldName("name") != nil {
-		return ""
+		return nil
 	}
-	return items[0].elem.QualifiedName
+	// 只取承载实体（变量/字段/类型别名），函数声明器不是匿名类型的承载者。
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		switch it.elem.Kind {
+		case model.Variable, model.Field, model.Type:
+			if it.elem.QualifiedName != "" {
+				out = append(out, it.elem.QualifiedName)
+			}
+		}
+	}
+	return out
 }
 
 // resolveRelativeQN 将类外定义的相对限定名按当前命名空间补全前缀。
@@ -364,7 +381,7 @@ func (c *Collector) identifyElements(node coreast.Node, fCtx core.FileContext, t
 			name, _ := declaratorFullName(decl, src)
 			elem := newElem(model.MethodDecl, name, tmplParams)
 			elem.GetMores()[constants.FunctionIsDeclaration] = true
-			return []identified{{elem: elem, declNode: decl, sig: paramSignature(decl, src)}}, model.MethodDecl
+			return []identified{{elem: elem, declNode: decl, sig: paramSignature(decl, src), isDecl: true}}, model.MethodDecl
 		}
 		var out []identified
 		for _, d := range collectDeclarators(node) {
@@ -389,7 +406,10 @@ func (c *Collector) identifyElements(node coreast.Node, fCtx core.FileContext, t
 			return nil, ""
 		}
 		name := helper.GetNodeContent(node.ChildByFieldName("name"), src)
-		return []identified{{elem: newElem(model.Struct, name, tmplParams)}}, model.Struct
+		return []identified{{
+			elem:   newElem(model.Struct, name, tmplParams),
+			isDecl: node.ChildByFieldName("body") == nil,
+		}}, model.Struct
 
 	case "class_specifier":
 		if node.ChildByFieldName("name") == nil {
@@ -399,7 +419,10 @@ func (c *Collector) identifyElements(node coreast.Node, fCtx core.FileContext, t
 			return nil, ""
 		}
 		name := helper.GetNodeContent(node.ChildByFieldName("name"), src)
-		return []identified{{elem: newElem(model.Class, name, tmplParams)}}, model.Class
+		return []identified{{
+			elem:   newElem(model.Class, name, tmplParams),
+			isDecl: node.ChildByFieldName("body") == nil,
+		}}, model.Class
 
 	case "enum_specifier":
 		if node.ChildByFieldName("name") == nil {
@@ -409,7 +432,10 @@ func (c *Collector) identifyElements(node coreast.Node, fCtx core.FileContext, t
 			return nil, ""
 		}
 		name := helper.GetNodeContent(node.ChildByFieldName("name"), src)
-		return []identified{{elem: newElem(model.Enum, name, tmplParams)}}, model.Enum
+		return []identified{{
+			elem:   newElem(model.Enum, name, tmplParams),
+			isDecl: node.ChildByFieldName("body") == nil,
+		}}, model.Enum
 
 	case "enumerator":
 		nameNode := node.ChildByFieldName("name")
@@ -420,12 +446,19 @@ func (c *Collector) identifyElements(node coreast.Node, fCtx core.FileContext, t
 		return []identified{{elem: newElem(model.EnumConstant, name, tmplParams)}}, model.EnumConstant
 
 	case "type_definition":
-		decl := node.ChildByFieldName("declarator")
-		name, _ := declaratorFullName(decl, src)
-		if name == "" {
+		// typedef 可含多个声明器：typedef int TI1, TI2; / typedef struct {...} A, *B;
+		var out []identified
+		for _, d := range collectDeclarators(node) {
+			name, _ := declaratorFullName(d, src)
+			if name == "" {
+				continue
+			}
+			out = append(out, identified{elem: newElem(model.Type, name, tmplParams), declNode: d})
+		}
+		if len(out) == 0 {
 			return nil, ""
 		}
-		return []identified{{elem: newElem(model.Type, name, tmplParams)}}, model.Type
+		return out, model.Type
 
 	case "alias_declaration":
 		nameNode := node.ChildByFieldName("name")
@@ -476,7 +509,8 @@ func (c *Collector) identifyElements(node coreast.Node, fCtx core.FileContext, t
 	return nil, ""
 }
 
-// identifyDeclaration 处理 declaration：函数原型 → *Decl；否则 → Variable（可多个声明器）。
+// identifyDeclaration 处理 declaration：函数原型 → *Decl；其余声明器 → Variable。
+// 混合形态（int mixf(int), mixv;）逐个声明器独立判定，不因命中首个函数而丢弃其余变量。
 func (c *Collector) identifyDeclaration(node coreast.Node, fCtx core.FileContext, tmplParams string) ([]identified, model.ElementKind) {
 	src := *fCtx.SourceBytes()
 	decls := collectDeclarators(node)
@@ -484,32 +518,36 @@ func (c *Collector) identifyDeclaration(node coreast.Node, fCtx core.FileContext
 		return nil, ""
 	}
 
-	// 函数原型判定：任一声明器为函数形态（非函数指针变量）。
-	for _, d := range decls {
-		if isFunc, _ := classifyDeclarator(d, src); isFunc {
-			name, _ := declaratorFullName(d, src)
-			kind := model.FunctionDecl
-			if isMethodContext(node, d, src) {
-				kind = model.MethodDecl
-			}
-			elem := newElem(kind, name, tmplParams)
-			elem.GetMores()[constants.FunctionIsDeclaration] = true
-			return []identified{{elem: elem, declNode: d, sig: paramSignature(d, src)}}, kind
-		}
-	}
-
+	_, extern, _ := scanStorage(node, src)
 	var out []identified
+	kind := model.ElementKind("")
 	for _, d := range decls {
 		name, _ := declaratorFullName(d, src)
 		if name == "" {
 			continue
 		}
-		out = append(out, identified{elem: newElem(model.Variable, name, tmplParams), declNode: d})
+		if isFunc, _ := classifyDeclarator(d, src); isFunc {
+			k := model.FunctionDecl
+			if isMethodContext(node, d, src) {
+				k = model.MethodDecl
+			}
+			elem := newElem(k, name, tmplParams)
+			elem.GetMores()[constants.FunctionIsDeclaration] = true
+			out = append(out, identified{elem: elem, declNode: d, sig: paramSignature(d, src), isDecl: true})
+			if kind == "" {
+				kind = k
+			}
+			continue
+		}
+		out = append(out, identified{elem: newElem(model.Variable, name, tmplParams), declNode: d, isDecl: extern})
+		if kind == "" {
+			kind = model.Variable
+		}
 	}
 	if len(out) == 0 {
 		return nil, ""
 	}
-	return out, model.Variable
+	return out, kind
 }
 
 // newElem 构造一个源码元素（Location/Path 由调用方填充）。
@@ -547,6 +585,13 @@ func (c *Collector) assignQN(it *identified, currentQN string, occurrences map[s
 	identity := elem.Name
 	if isFunctionKind(elem.Kind) {
 		identity += it.sig
+	}
+
+	// 声明与定义共享同一 QN：声明不参与同名重复计数，
+	// 否则同文件的 `int f(int); int f(int){}` 会被消歧成 f(int) / f(int)$2。
+	if it.isDecl {
+		elem.QualifiedName = c.resolver.BuildQualifiedName(currentQN, identity)
+		return
 	}
 
 	switch elem.Kind {
@@ -597,8 +642,10 @@ func collectDeclarators(node coreast.Node) []coreast.Node {
 }
 
 // classifyDeclarator 判定声明器是否为函数形态。
-// 函数指针变量（int (*fp)(int)）的 function_declarator 内层为 parenthesized_declarator，
-// 不视为函数声明。
+// 函数指针变量（int (*fp)(int)）的 function_declarator 内层为 parenthesized_declarator
+// 且括号内无函数声明器，不视为函数；
+// 返回函数指针/数组指针的函数（int (*rfp(int))(int) / int (*rap(void))[5]）括号内有
+// 函数声明器，仍视为函数。
 func classifyDeclarator(decl coreast.Node, src []byte) (bool, string) {
 	if decl == nil {
 		return false, ""
@@ -607,14 +654,20 @@ func classifyDeclarator(decl coreast.Node, src []byte) (bool, string) {
 	case "function_declarator":
 		inner := decl.ChildByFieldName("declarator")
 		if inner != nil && inner.Kind() == "parenthesized_declarator" {
-			return false, ""
+			if findFunctionDeclaratorInParens(inner) == nil {
+				return false, ""
+			}
 		}
 		name, _ := declaratorFullName(inner, src)
 		return true, name
 	case "pointer_declarator", "reference_declarator", "init_declarator", "array_declarator":
 		return classifyDeclarator(decl.ChildByFieldName("declarator"), src)
 	case "parenthesized_declarator":
-		return false, ""
+		if findFunctionDeclaratorInParens(decl) == nil {
+			return false, ""
+		}
+		name, _ := declaratorFullName(decl, src)
+		return true, name
 	}
 	return false, ""
 }
@@ -738,18 +791,39 @@ func paramSignature(decl coreast.Node, src []byte) string {
 	return "(" + strings.Join(types, ",") + ")"
 }
 
-// findFunctionDeclarator 沿声明器链找到 function_declarator。
+// findFunctionDeclarator 沿声明器链找到「被声明实体自身」的 function_declarator。
+// 返回函数指针的函数（int (*rfp(int))(int)）外层 function_declarator 描述的是返回类型，
+// 需穿透 parenthesized_declarator 找到内层 rfp 的 function_declarator。
 func findFunctionDeclarator(decl coreast.Node) coreast.Node {
 	for decl != nil {
 		switch decl.Kind() {
 		case "function_declarator":
+			inner := decl.ChildByFieldName("declarator")
+			if inner != nil && inner.Kind() == "parenthesized_declarator" {
+				if fd := findFunctionDeclaratorInParens(inner); fd != nil {
+					return fd
+				}
+			}
 			return decl
 		case "pointer_declarator", "reference_declarator", "init_declarator", "array_declarator":
 			decl = decl.ChildByFieldName("declarator")
 		case "parenthesized_declarator":
-			return nil
+			return findFunctionDeclaratorInParens(decl)
 		default:
 			return nil
+		}
+	}
+	return nil
+}
+
+// findFunctionDeclaratorInParens 在括号声明器内查找函数声明器（穿透指针/引用/数组）。
+func findFunctionDeclaratorInParens(paren coreast.Node) coreast.Node {
+	if paren == nil {
+		return nil
+	}
+	for i := 0; i < paren.NamedChildCount(); i++ {
+		if fd := findFunctionDeclarator(paren.NamedChild(i)); fd != nil {
+			return fd
 		}
 	}
 	return nil
@@ -792,13 +866,13 @@ func declaratorTypeSuffix(decl coreast.Node) string {
 	var sb strings.Builder
 	for decl != nil {
 		switch decl.Kind() {
-		case "pointer_declarator":
+		case "pointer_declarator", "abstract_pointer_declarator":
 			sb.WriteString("*")
 			decl = decl.ChildByFieldName("declarator")
-		case "reference_declarator":
+		case "reference_declarator", "abstract_reference_declarator":
 			sb.WriteString("&")
 			decl = decl.ChildByFieldName("declarator")
-		case "array_declarator":
+		case "array_declarator", "abstract_array_declarator":
 			sb.WriteString("[]")
 			decl = decl.ChildByFieldName("declarator")
 		default:
@@ -814,6 +888,7 @@ func normalizeTypeText(s string) string {
 	s = strings.ReplaceAll(s, " *", "*")
 	s = strings.ReplaceAll(s, " &", "&")
 	s = strings.Join(strings.Fields(s), " ")
+	s = strings.ReplaceAll(s, " [", "[")
 	return s
 }
 
@@ -1081,7 +1156,17 @@ func (c *Collector) enrichType(elem *model.CodeElement, node coreast.Node, src [
 	switch node.Kind() {
 	case "type_definition":
 		if t := node.ChildByFieldName("type"); t != nil {
-			mores[constants.TypeUnderlying] = normalizeTypeText(helper.GetNodeContent(t, src))
+			underlying := normalizeTypeText(helper.GetNodeContent(t, src))
+			// 多声明器时各别名的指针/数组修饰不同：typedef int TI, *PTI;
+			for _, d := range collectDeclarators(node) {
+				name, _ := declaratorFullName(d, src)
+				if name != elem.Name {
+					continue
+				}
+				underlying += declaratorTypeSuffix(d)
+				break
+			}
+			mores[constants.TypeUnderlying] = underlying
 		}
 	case "alias_declaration":
 		if t := node.ChildByFieldName("type"); t != nil {
@@ -1096,6 +1181,10 @@ func (c *Collector) enrichEnum(elem *model.CodeElement, node coreast.Node, src [
 	text := node.Utf8Text(src)
 	if strings.Contains(text, "enum class") || strings.Contains(text, "enum struct") {
 		elem.GetMores()[constants.EnumIsScoped] = true
+	}
+	// 前向声明（enum Tagged;）无 body，无枚举常量。
+	if node.ChildByFieldName("body") == nil {
+		elem.GetMores()[constants.IsDeclaration] = true
 	}
 }
 
@@ -1213,6 +1302,8 @@ func (c *Collector) collectNamespaces(fCtx core.FileContext) {
 		}
 	}
 	if len(out) > 0 {
-		fCtx.SetNamespaces(out)
+		if nfc, ok := fCtx.(core.NamespaceAwareFileContext); ok {
+			nfc.SetNamespaces(out)
+		}
 	}
 }

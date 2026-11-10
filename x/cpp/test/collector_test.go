@@ -194,7 +194,11 @@ func TestCollectorCpp(t *testing.T) {
 	if !ok {
 		t.Fatalf("file context not found")
 	}
-	ns := fc.Namespaces()
+	nfc, ok := fc.(core.NamespaceAwareFileContext)
+	if !ok {
+		t.Fatalf("file context should implement NamespaceAwareFileContext")
+	}
+	ns := nfc.Namespaces()
 	if len(ns) != 2 || ns[0] != "app" || ns[1] != "app::core" {
 		t.Errorf("Namespaces = %v, want [app app::core]", ns)
 	}
