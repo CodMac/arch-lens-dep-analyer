@@ -125,6 +125,19 @@ func (r *SymbolResolver) ResolveAction(gc core.GlobalContext, fc core.FileContex
 		if elem := r.resolveExpr(gc, fc, e, wantFunc); elem != nil {
 			return elem
 		}
+		// 可调用对象（operator() 重载 / 函数指针变量）不建模为外部函数调用。
+		if r.lookupLocalVariable(gc, fc, e.node, e.name) != nil {
+			return nil
+		}
+		// 构造器调用（T(...) 临时对象）：按类型产构造器元素。
+		if t := r.lookupType(gc, fc, e.name); t != nil {
+			return &model.CodeElement{
+				Kind:          model.Method,
+				Name:          t.Name,
+				QualifiedName: helper.BuildQN(t.QualifiedName, t.Name),
+				PackageName:   t.PackageName,
+			}
+		}
 		// 兜底：外部函数（保持原有 QN 形态：接收者原文::函数名）。
 		qn := e.name
 		if txt := exprText(e.recv, src); txt != "" {
@@ -144,6 +157,10 @@ func (r *SymbolResolver) ResolveAction(gc core.GlobalContext, fc core.FileContex
 		case formNew:
 			return r.resolveExpr(gc, fc, e, wantType)
 		case formCall:
+			// throw T(...)：被调用者是类型名时取类型（临时对象）。
+			if t := r.lookupType(gc, fc, e.name); t != nil {
+				return t
+			}
 			return r.resolveExpr(gc, fc, e, wantFunc)
 		default:
 			if t := r.typeOf(gc, fc, e); t != nil {
@@ -227,9 +244,20 @@ func (r *SymbolResolver) normalize(node coreast.Node, src []byte) *expr {
 		}
 
 	case "call_expression":
-		callee := r.normalize(node.ChildByFieldName("function"), src)
+		fnNode := node.ChildByFieldName("function")
+		callee := r.normalize(fnNode, src)
 		if callee == nil {
 			return nil
+		}
+		// 立即调用的 lambda：保留 lambda 节点本身，供段 2 直接命中 Lambda 元素。
+		if fnNode != nil && fnNode.Kind() == "lambda_expression" {
+			callee.form = formCall
+			callee.node = fnNode
+			callee.name = "lambda"
+			if args := node.ChildByFieldName("arguments"); args != nil {
+				callee.argc = args.NamedChildCount()
+			}
+			return callee
 		}
 		// static_cast<T>(x) 等：保持转换语义，不当作普通调用。
 		if callee.form == formCast {
@@ -351,6 +379,12 @@ func (r *SymbolResolver) resolveFunc(gc core.GlobalContext, fc core.FileContext,
 	if e == nil || e.name == "" {
 		return nil
 	}
+	// 立即调用的 lambda（[](int v){...}(3)）：直接命中该 Lambda 元素。
+	if e.node != nil && e.node.Kind() == "lambda_expression" {
+		if elem := lambdaElementOf(fc, e.node); elem != nil {
+			return elem
+		}
+	}
 	if recvType := r.typeOf(gc, fc, e.recv); recvType != nil {
 		if elem := r.lookupMemberFunc(gc, fc, recvType, e.name, e.argc); elem != nil {
 			return elem
@@ -366,6 +400,12 @@ func (r *SymbolResolver) resolveFunc(gc core.GlobalContext, fc core.FileContext,
 		if lambdaQN, ok := v.Extra.Mores[constants.VariableLambdaQN].(string); ok && lambdaQN != "" {
 			if entry, found := gc.FindByQualifiedName(lambdaQN); found {
 				return entry.Element
+			}
+		}
+		// 可调用对象（obj(args)）：解析到其类型的 operator() 重载。
+		if owner := r.declaredTypeOf(gc, fc, v); owner != nil {
+			if elem := r.lookupMemberFunc(gc, fc, owner, "operator()", e.argc); elem != nil {
+				return elem
 			}
 		}
 	}
@@ -475,12 +515,21 @@ func declaredTypeText(v *model.CodeElement) string {
 }
 
 // declaredTypeOf 取变量/字段元素的声明类型元素。
+// 源码内类型优先；外部类型（std::string 等）也返回外部类型元素，
+// 使 `s.size()` 能按接收者类型解析为 std::string::size 而非退化为 s::size。
 func (r *SymbolResolver) declaredTypeOf(gc core.GlobalContext, fc core.FileContext, v *model.CodeElement) *model.CodeElement {
 	raw := declaredTypeText(v)
 	if raw == "" {
 		return nil
 	}
-	return r.lookupType(gc, fc, helper.BaseTypeName(raw))
+	base := helper.BaseTypeName(raw)
+	if t := r.lookupType(gc, fc, base); t != nil {
+		return t
+	}
+	if base == "" || r.IsPrimitive(base) || helper.IsTypeVariable(base) {
+		return nil
+	}
+	return helper.NewExternalElement(model.Class, base, base)
 }
 
 // =============================================================================
@@ -570,6 +619,22 @@ func (r *SymbolResolver) typeChain(gc core.GlobalContext, fc core.FileContext, o
 	return out
 }
 
+// lambdaElementOf 返回与给定 lambda_expression 节点位置一致的 Lambda 元素。
+func lambdaElementOf(fc core.FileContext, node coreast.Node) *model.CodeElement {
+	if node == nil {
+		return nil
+	}
+	for _, entry := range fc.Definitions() {
+		if entry.Element.Kind != model.Lambda || entry.Node == nil {
+			continue
+		}
+		if entry.Node.Equal(node) {
+			return entry.Element
+		}
+	}
+	return nil
+}
+
 // enclosingType 返回节点所属的类/结构体元素。
 func enclosingType(fc core.FileContext, node coreast.Node) *model.CodeElement {
 	if node == nil {
@@ -642,6 +707,18 @@ func enclosingScope(fc core.FileContext, node coreast.Node) *model.CodeElement {
 		}
 	}
 	return best
+}
+
+// lookupLocalVariable 仅沿词法作用域链查找局部变量（不跨文件、不查全局短名）。
+// 用于判定「被调用者其实是局部可调用对象」，避免误产外部函数。
+func (r *SymbolResolver) lookupLocalVariable(gc core.GlobalContext, fc core.FileContext, node coreast.Node, name string) *model.CodeElement {
+	for _, scope := range r.scopeChain(fc, node) {
+		qn := helper.BuildQN(scope, name)
+		if entry, ok := gc.FindByQualifiedName(qn); ok && entry.Element.Kind == model.Variable {
+			return entry.Element
+		}
+	}
+	return nil
 }
 
 // lookupScopedSymbol 沿作用域链查找变量/字段/枚举常量。

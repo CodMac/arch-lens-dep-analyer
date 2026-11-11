@@ -139,6 +139,18 @@ C/C++ 不使用 Java 的「源码注释期望块」模式，改用**显式断言
 | `TestResolverFieldInitializer` | 构造器成员初始化列表 `: a(x)` |
 | `TestResolverCapture` | Lambda 捕获 |
 | `TestResolverChain` | 链式接收者类型传播：`f()->g()` / `a.b.c` / `this->f()->g()` / 自由函数返回值 / 同名方法区分 |
+| `TestExtractorCppStructural` | C++ 全形态 Import/Contain/Extend/Parameter/Return/TypeArg |
+| `TestExtractorCppActions` | C++ 全形态 Call/Create/Cast/Assign/Use/Throw |
+| `TestExtractorCppCapture` | C++ Lambda 捕获推导全形态 |
+| `TestExtractorCppImplLink` | C++ 1 头多源/static/只声明/类内 inline 配对边界 |
+| `TestResolverCppForms` | C++ 段 1 六种 exprForm + 段 2 分派 |
+| `TestResolverCppOverload` | C++ 重载按实参个数挑选 |
+| `TestResolverCppInherit` | C++ 继承链成员查找（含菱形、覆盖） |
+| `TestResolverCppScope` | C++ 相对限定名补全/作用域上溯/嵌套类/块内遮蔽 |
+| `TestResolverCppExternal` | C++ 外部符号兜底与模板变量 |
+| `TestResolverCppLambdaVar` | C++ lambda 变量调用与立即调用 |
+| `TestResolverCppCast` | C++ 五种强转形态 |
+| `TestResolverCppThrow` | C++ throw 三种形态 |
 
 ## 3. 测试数据组织（黄金回归集）
 
@@ -156,7 +168,9 @@ x/cpp/testdata/
 ├── collector/cpp/   # C++ 全场景元素提取样例（18 组：base/namespace/decl_def/class/
 │                    #   ctor_dtor/operator/template/inherit/enum/typedef_using/
 │                    #   variable/function/param/lambda/scope/macro/cond/edge）
-├── resolver/        # 解析样例（calls.cpp / chain.cpp）
+├── extractor/       # Extractor 全场景样例（structural/actions/capture/impl_link）
+├── resolver/        # 解析样例（calls.cpp / chain.cpp + forms/overload/inherit/
+│                    #   scope/external/lambda_var/cast/throw）
 └── e2e/             # 端到端黄金基线（baseline.golden.jsonl）
 ```
 

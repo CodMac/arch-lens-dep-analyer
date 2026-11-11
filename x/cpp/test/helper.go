@@ -3,6 +3,7 @@
 package test
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -69,6 +70,38 @@ func ResolvePaths(t *testing.T, dir string, exts ...string) []string {
 			t.Fatalf("glob %s: %v", ext, err)
 		}
 		files = append(files, matches...)
+	}
+	sort.Strings(files)
+	if len(files) == 0 {
+		t.Fatalf("no testdata files matched in %s", dir)
+	}
+	return files
+}
+
+// ResolveTree 递归收集 testdata 子目录下指定扩展名的源文件。
+// 用于包含嵌套子目录的样例组（如 extractor/structural/nested/）。
+func ResolveTree(t *testing.T, dir string, exts ...string) []string {
+	t.Helper()
+	if len(exts) == 0 {
+		exts = []string{".c", ".h", ".cpp", ".hpp", ".cc", ".cxx"}
+	}
+	want := make(map[string]bool, len(exts))
+	for _, e := range exts {
+		want[e] = true
+	}
+	var files []string
+	err := filepath.Walk(filepath.Join(TestDataDir, dir), func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || !want[filepath.Ext(path)] {
+			return nil
+		}
+		files = append(files, path)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", dir, err)
 	}
 	sort.Strings(files)
 	if len(files) == 0 {

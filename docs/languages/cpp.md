@@ -3,7 +3,7 @@
 > 适用范围：`x/cpp/` · 与 [qn-format.md](../qn-format.md)（QN 契约）、[language-extension.md](../language-extension.md)（SPI 契约）互为补充
 >
 > 本文档回答「C/C++ 支持到什么程度」：元素/关系覆盖清单、声明-实现配对模型、条件编译策略、实现边界与已知限制。
-> 行为契约由 `x/cpp/testdata/e2e/baseline.golden.jsonl`（2286 行 = 868 元素 + 1418 关系，LevelBalanced）锚定。
+> 行为契约由 `x/cpp/testdata/e2e/baseline.golden.jsonl`（3644 行 = 1242 元素 + 2402 关系，LevelBalanced）锚定。
 
 ## 1. 总体状态
 
@@ -197,6 +197,10 @@ type expr struct {
 | `this->f()->g()` | `this` → 所属类，后续段按调用/字段继续传播 |
 | `*p` / `(expr)` / `arr[i]` | 归一化阶段剥去解引用/括号/下标后递归 |
 | `new T()` | 直接取 `T` |
+| 外部类型变量（`std::string s; s.size()`） | 声明类型不在源码中时按外部类型元素归属，产 `std::string::size`（而非退化为 `s::size`） |
+| `obj(args)` 可调用对象 | 变量声明类型上的 `operator()` 重载；无匹配则不产 CALL（不误产外部函数） |
+| `T(...)` 临时对象 / `throw T(...)` | 被调用名命中类型时按构造器语义（CALL 目标 `T::T`；THROW 目标 `T`） |
+| `[](int v){...}(3)` 立即调用 lambda | 段 1 保留 lambda 节点，段 2 直接命中对应 Lambda 元素 |
 
 解析顺序：段 1 已把接收者折叠为 `expr` 子树，段 2 的 `typeOf` 直接递归该子树；仅当接收者以纯文本形式（`formText`，公开 SPI 传入 `receiver` 字符串）出现时才走文本匹配（`this` / 类型名 / 简单变量）。裸标识符作接收者时**变量优先于同名类型**（`obj.method()` 语义）。
 
@@ -233,7 +237,8 @@ type expr struct {
 | 10 | **匿名 namespace** | 记名 `$anon`，不与外部链接语义区分 |
 | 11 | **`extern "C"`** | `linkage_specification` 内的声明照常收集，不做 C/C++ 链接名区分 |
 | 12 | **头文件重复包含** | 无 include guard 求解；同一头文件被多个源 include 时各产一条 Import |
-| 13 | **外部类型链式断开** | 链式接收者为外部类型（如 `std::vector<T>::begin()`）时，其返回类型无源码符号可查，链在此处断开并退回短名兜底 |
+| 13 | **外部类型链式断开** | 链式接收者为外部类型（如 `std::vector<T>::begin()`）时，其返回类型无源码符号可查，链在此处断开并退回短名兜底；但**直接**成员调用按外部类型归属（`vec.push_back()` → `std::vector::push_back`） |
+| 14 | **可调用对象 / 函数指针** | `obj(args)` 解析到声明类型的 `operator()`；函数指针变量调用不建模为外部函数（无匹配即不产 CALL） |
 
 ## 8. 与 SPI 契约的对应
 
@@ -253,9 +258,9 @@ type expr struct {
 ## 9. 测试现状
 
 - 三层测试 + e2e 黄金回归集，全部位于 `x/cpp/test/`。
-- e2e 基线：`x/cpp/testdata/e2e/baseline.golden.jsonl`（868 元素 + 1418 关系，LevelBalanced）。
-- 元素覆盖（基线实测）：FILE 41 / NAMESPACE 12 / CLASS 19 / STRUCT 53 / ENUM 16 / ENUM_CONSTANT 36 / TYPE 27 / MACRO 28 / FIELD 105 / FUNCTION 78 / FUNCTION_DECL 17 / METHOD 35 / METHOD_DECL 54 / VARIABLE 308 / SCOPE_BLOCK 23 / LAMBDA 16。
-- 关系覆盖（基线实测）：CONTAIN 941 / USE 176 / ASSIGN 92 / TYPE_ARG 60 / CALL 39 / PARAMETER 30 / RETURN 25 / IMPL_LINK 14 / EXTEND 14 / IMPORT 13 / CAPTURE 11 / CAST 2 / CREATE 1。
+- e2e 基线：`x/cpp/testdata/e2e/baseline.golden.jsonl`（1242 元素 + 2402 关系，LevelBalanced）。
+- 元素覆盖（基线实测）：FILE 67 / NAMESPACE 26 / CLASS 21 / STRUCT 80 / ENUM 17 / ENUM_CONSTANT 38 / TYPE 29 / MACRO 41 / FIELD 130 / FUNCTION 121 / FUNCTION_DECL 42 / METHOD 62 / METHOD_DECL 75 / VARIABLE 439 / SCOPE_BLOCK 28 / LAMBDA 26。
+- 关系覆盖（基线实测）：CONTAIN 1480 / USE 328 / ASSIGN 164 / TYPE_ARG 106 / CALL 88 / IMPL_LINK 57 / PARAMETER 45 / RETURN 32 / IMPORT 31 / EXTEND 24 / CAPTURE 20 / CAST 14 / CREATE 7 / THROW 6。
 - 基线（LevelBalanced）中 PARAMETER/RETURN 大幅减少，是因为当前样例的参数/返回类型多为基本类型（`int`/`void`），被外部符号降噪过滤；CONTAIN/USE/ASSIGN 等指向源码符号的关系不受影响。
 - 测试用例：
   | 测试 | 覆盖 |
@@ -292,10 +297,14 @@ type expr struct {
   | `TestCollectorCppConditional` | `#if`/`#ifdef`/`#ifndef`/`#elif`/`#else`/嵌套取最内层/`#pragma` |
   | `TestCollectorCppEdge` | 重名消歧、匿名 struct/union 承载、类型引用负例、前向声明、空 struct/函数、无名参数 |
   | `TestCollectorConditional` | 条件编译分支标注 |
-  | `TestExtractorStructural` | Import/Contain/Extend/Parameter/Return/TypeArg |
-  | `TestExtractorActions` | Call/Assign/Use/Cast |
-  | `TestExtractorImplLink` | 跨文件签名配对、static 不配对、类外定义配对 |
+  | `TestExtractorStructural` | Import/Contain/Extend/Parameter/Return/TypeArg（基础样例） |
+  | `TestExtractorActions` | Call/Assign/Use/Cast（基础样例） |
+  | `TestExtractorImplLink` | 跨文件签名配对、static 不配对、类外定义配对（基础样例） |
   | `TestExtractorContainNamespace` | namespace 层级拓扑 |
+  | `TestExtractorCppStructural` | 全形态：Import（项目内/系统/嵌套路径）、Contain（File/Namespace/类/函数 + 去重）、Extend（单/多继承）、Parameter/Return（源码类型 + void 不产）、TypeArg（字段/局部/全局 + 模板实参 + 基本类型不产） |
+  | `TestExtractorCppActions` | 全形态：Call（自由/重载/命名空间限定/成员/指针成员/静态/const/operator()）、Create+构造器 CALL、Cast（C 风格 + 四种显式转换 + (void) 抑制）、Assign（初始化/赋值/字段/复合 + Mores）、Use（字段/变量）、Throw（new/T(...)/var 三形态） |
+  | `TestExtractorCppCapture` | 值捕获/引用捕获/全捕获/嵌套 lambda/赋值推导/无捕获不产/lambda 内部变量不捕获/去重 |
+  | `TestExtractorCppImplLink` | 1 头多源、签名、类外定义、static 不配对、只声明不配对、类内 inline 不配对 |
   | `TestResolverCall` | 自由函数/成员/指针成员/静态/命名空间限定调用 |
   | `TestResolverCreate` | `new` 表达式 + 构造器 CALL |
   | `TestResolverUse` / `TestResolverAssign` | 变量/字段/枚举常量读写 |
@@ -303,6 +312,14 @@ type expr struct {
   | `TestResolverFieldInitializer` | 构造器成员初始化列表 |
   | `TestResolverCapture` | Lambda 捕获 |
   | `TestResolverChain` | 链式接收者类型传播：`f()->g()` / `a.b.c` / `this->f()->g()` / 自由函数返回值 / 同名方法区分 |
+  | `TestResolverCppForms` | 段 1 六种 exprForm：formIdent/formMember/formScoped/formCall/formNew/formCast |
+  | `TestResolverCppOverload` | 按实参个数挑选重载（自由函数 + 成员方法，0/1/2 参） |
+  | `TestResolverCppInherit` | 继承链查找：直接成员/一级基类/二级基类（菱形）/覆盖命中派生类 |
+  | `TestResolverCppScope` | 相对限定名补全、短名作用域上溯、嵌套类成员、块内遮蔽 |
+  | `TestResolverCppExternal` | 外部类型方法归属（`std::string::size`）、模板变量不产依赖、基本类型 PRIMITIVE、外部类型 PackageName |
+  | `TestResolverCppLambdaVar` | lambda 变量调用、立即调用 lambda |
+  | `TestResolverCppCast` | C 风格 + static/dynamic/const/reinterpret_cast、`(void)` 抑制 |
+  | `TestResolverCppThrow` | throw new T / throw T(...) / throw var |
 
 ## 10. 测试命令
 
