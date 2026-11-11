@@ -586,9 +586,15 @@ func (r *SymbolResolver) alignElementWithRelType(gc core.GlobalContext, fc core.
 			return elem
 		case model.Class, model.Interface, model.AnonymousClass, model.Enum:
 			// 未注册构造的实例化：类型元素校正为 Method 时保留包归属（外部符号 NamespaceQN 不可丢）。
+			// 源码类型的 QN 补上构造器名段（类QN.类名），与 collector 产出的构造器元素对齐；
+			// 外部类型保持裸类 QN（其构造器不在符号表内，且 Balanced 下会被降噪）。
+			qn := elem.QualifiedName
+			if !elem.IsFormExternal {
+				qn = gc.BuildQualifiedName(qn, elem.Name)
+			}
 			return &model.CodeElement{
 				Name:           elem.Name,
-				QualifiedName:  elem.QualifiedName,
+				QualifiedName:  qn,
 				NamespaceQN:    elem.NamespaceQN,
 				Kind:           model.Method,
 				IsFormExternal: elem.IsFormExternal,

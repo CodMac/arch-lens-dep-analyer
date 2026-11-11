@@ -633,9 +633,8 @@ func (c *DeSugar) lombokRequiredArgsConstructor(elem *model.CodeElement, node co
 		}
 	}
 
-	if len(finalFields) == 0 {
-		return
-	}
+	// 无 required 字段时 Lombok 仍生成无参构造器（javac 语义），
+	// 故不提前返回：继续走下方流程产出 类名()。
 
 	var paramTypes []string
 	var paramNames []string

@@ -23,6 +23,15 @@ public class ConstructorComprehensive {
             private String description;
         }
     }
+
+    // @RequiredArgsConstructor 无 required 字段（仅 static final / 带初始化器的 final）：
+    // Lombok 仍生成无参构造器。
+    @RequiredArgsConstructor
+    public static class NoRequiredFields {
+        private static final String CONST = "c";
+        private final String initialized = "fixed";
+        private String optional;
+    }
 }
 
 public class ConstructorUsageTest {

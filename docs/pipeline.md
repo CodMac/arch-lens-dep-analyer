@@ -149,10 +149,12 @@ type NoiseFilter interface {
 | 等级 | 语义 |
 |---|---|
 | `LevelRaw` | 直通，不过滤 |
-| `LevelBalanced` | 保留源码/语法糖/Contain/ImplLink；外部符号的 Extend/Implement/Annotation/Parameter/Return/TypeArg/Call/Create/Cast/Use/Assign 为噪音 |
+| `LevelBalanced` | 保留源码/语法糖/Contain/ImplLink；外部符号的 Extend/Implement/Import/Throw/Annotation/Parameter/Return/TypeArg/Call/Create/Cast/Use/Assign 为噪音 |
 | `LevelPure` | 仅保留源码符号相关关系 |
 
 > `ImplLink`（C/C++ 声明-实现链接）与 `Contain` 同语义，**恒保留**，不受等级影响。
+
+> **外部符号必须被过滤**：导出器只写 `GlobalContext.Definitions()`，外部符号（`IsFormExternal=true`）不进元素表。任何保留外部目标的关系都会在导出结果里悬空，因此 `LevelBalanced` 必须覆盖全部外部关系类型（含 `Import`/`Throw`）。
 
 ## 5. 并发调度器
 

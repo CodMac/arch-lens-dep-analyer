@@ -38,6 +38,10 @@ func (f *NoiseFilter) IsNoise(rel model.DependencyRelation) bool {
 			// 规则 3: 外部继承/实现 -> 噪音
 			case model.Extend, model.Implement:
 				return true
+			// 规则 3b: 外部导入 / 外部异常 -> 噪音
+			// 外部符号不进元素表（导出器只写 GlobalContext 定义），保留会使关系目标悬空。
+			case model.Import, model.Throw:
+				return true
 			// 规则 4: 外部类型引用 -> 噪音
 			case model.Annotation, model.Parameter, model.Return, model.TypeArg:
 				return true

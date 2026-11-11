@@ -320,7 +320,7 @@ func TestExtractorC8TypeNameReceiver(t *testing.T) {
 		{
 			wantType:   model.Call,
 			wantSource: "com.example.rel.NewRefProbe.d()",
-			wantTarget: "com.example.rel.NewRefProbe.Inner()", wantKind: model.Method, wantLine: 40,
+			wantTarget: "com.example.rel.NewRefProbe.Inner.Inner()", wantKind: model.Method, wantLine: 40,
 		},
 		// Form 2：AnnoFilter.PLAIN.length() -> USE 接口常量 Field（C8FullProbe.java:30）
 		{
@@ -1102,11 +1102,12 @@ func TestExtractorScopedTypeCreate(t *testing.T) {
 		wantKind   model.ElementKind
 		wantLine   int
 	}{
-		// L23 new Outer.Inner() -> CREATE 目标静态嵌套类 + CALL 目标其构造器（构造器 QN = 类 QN + "()"）。
+		// L23 new Outer.Inner() -> CREATE 目标静态嵌套类 + CALL 目标其构造器（构造器 QN = 类QN.类名(参数类型列表)）。
 		{typ: model.Create, wantTarget: "com.example.rel.create.case1.Outer.Inner", wantKind: model.Class, wantLine: 23},
-		{typ: model.Call, wantTarget: "com.example.rel.create.case1.Outer.Inner()", wantKind: model.Method, wantLine: 23},
-		// L24 new Outer.Inner("n") -> CREATE（带参构造器）。
+		{typ: model.Call, wantTarget: "com.example.rel.create.case1.Outer.Inner.Inner()", wantKind: model.Method, wantLine: 23},
+		// L24 new Outer.Inner("n") -> CREATE + CALL 目标带参构造器（重载消解按实参个数）。
 		{typ: model.Create, wantTarget: "com.example.rel.create.case1.Outer.Inner", wantKind: model.Class, wantLine: 24},
+		{typ: model.Call, wantTarget: "com.example.rel.create.case1.Outer.Inner.Inner(String)", wantKind: model.Method, wantLine: 24},
 		// L25 new NestedClassCreateSuite.InstanceInner() -> CREATE 自身限定嵌套类。
 		{typ: model.Create, wantTarget: "com.example.rel.create.case1.NestedClassCreateSuite.InstanceInner", wantKind: model.Class, wantLine: 25},
 	}
@@ -1127,6 +1128,44 @@ func TestExtractorScopedTypeCreate(t *testing.T) {
 		if found == nil {
 			t.Errorf("%s %s -> %s (kind=%s, line %d) not found (BUG-2 regression?)",
 				c.typ, src, c.wantTarget, c.wantKind, c.wantLine)
+		}
+	}
+}
+
+// TestExtractorConstructorCallResolution 验证 new 表达式的 CALL 目标解析到真实构造器元素：
+// QN = 类QN.类名(参数类型列表)，并按实参个数做重载消解（而非固定拼成 类QN()）。
+func TestExtractorConstructorCallResolution(t *testing.T) {
+	paths := resolveSuitePaths(t, "create/case1")
+	gc, rels := RunExtraction(t, "x/java/testdata", paths)
+
+	src := "com.example.rel.create.case1.NestedClassCreateSuite.createNested()"
+	cases := []struct {
+		wantTarget string
+		wantLine   int
+	}{
+		// L23 new Outer.Inner() -> 无参构造器
+		{wantTarget: "com.example.rel.create.case1.Outer.Inner.Inner()", wantLine: 23},
+		// L24 new Outer.Inner("n") -> 单参构造器（重载消解按实参个数）
+		{wantTarget: "com.example.rel.create.case1.Outer.Inner.Inner(String)", wantLine: 24},
+	}
+
+	for _, c := range cases {
+		found := findRel(rels, func(r *model.DependencyRelation) bool {
+			if r.Type != model.Call || r.Source == nil || r.Target == nil {
+				return false
+			}
+			if r.Source.QualifiedName != src || r.Target.QualifiedName != c.wantTarget {
+				return false
+			}
+			return r.Location != nil && r.Location.StartLine == c.wantLine
+		})
+		if found == nil {
+			t.Errorf("CALL %s -> %s (line %d) not found", src, c.wantTarget, c.wantLine)
+			continue
+		}
+		// 目标必须是真实构造器元素，而不是悬空的合成符号。
+		if !DefExists(gc, c.wantTarget) {
+			t.Errorf("CALL target %s not found in element set (dangling)", c.wantTarget)
 		}
 	}
 }

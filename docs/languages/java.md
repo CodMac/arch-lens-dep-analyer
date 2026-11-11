@@ -6,7 +6,7 @@
 
 ## 1. 总体状态
 
-Java 是**首个落地**的语言实现（现与 C/C++ 并存，见 [cpp.md](cpp.md)）。全部 9 个 SPI（Parser / Collector / Binder / Extractor / Linker / NoiseFilter / SymbolResolver / SymbolBuilder / ParserFactory）均已实现并经 `x/java/init.go` 注册。行为契约由 `x/java/testdata/e2e/baseline.golden.jsonl`（4412 行 = 1458 元素 + 2954 关系，LevelBalanced）锚定。
+Java 是**首个落地**的语言实现（现与 C/C++ 并存，见 [cpp.md](cpp.md)）。全部 9 个 SPI（Parser / Collector / Binder / Extractor / Linker / NoiseFilter / SymbolResolver / SymbolBuilder / ParserFactory）均已实现并经 `x/java/init.go` 注册。行为契约由 `x/java/testdata/e2e/baseline.golden.jsonl`（4714 行 = 1618 元素 + 3096 关系，LevelBalanced）锚定。
 
 > **上下文接口化影响（2026-11-06）**：`FileContext`/`GlobalContext` 改为接口后，Java 全量实现做了机械适配（字段访问 → 方法调用），**语义不变**，e2e 基线内容不变（仅换行符噪声）。
 >
@@ -88,6 +88,8 @@ Java 是**首个落地**的语言实现（现与 C/C++ 并存，见 [cpp.md](cpp
 |---|---|---|
 | Call | Method | 方法调用、构造调用、方法引用 |
 | Create | Class/Interface | `new` 目标类、数组创建 |
+
+> **构造调用（`new X(...)` / `this(...)` / `super(...)`）的 CALL 目标**解析为 collector 产出的真实构造器元素，QN 为 `类QN.类名(参数类型列表)`，并按实参个数/类型做重载消解（`new Outer.Inner("n")` → `Outer.Inner.Inner(String)`）。无法命中源码构造器时按 `类QN.类名` 兜底。
 | Cast | Class/Interface | 强转、instanceof |
 | Use | Variable/Field | 标识符引用（经黑白名单清洗） |
 | Assign | Variable/Field | 赋值、复合赋值、自增减、声明初始化 |
@@ -111,6 +113,7 @@ Java 是**首个落地**的语言实现（现与 C/C++ 并存，见 [cpp.md](cpp
 | Lombok Builder 链式 setter | `Builder.字段名(类型)` | `Builder.name(String)` |
 | Lombok Builder `build()` | `Builder.build()` | `Builder.build()` |
 | Lombok Builder 私有构造器 | `类名(Builder)` | `ChainedCallExample(Builder)` |
+| Lombok `@RequiredArgsConstructor` | `类名(必选字段类型...)`；**无必选字段时生成 `类名()`** | `NoRequiredFields.NoRequiredFields()` |
 
 **Lombok 注解支持面**（testdata 覆盖）：`@Data` / `@Builder` / `@Slf4j` / `@Getter` / `@Setter` / `@ToString` / `@EqualsAndHashCode` / `@Value` / `@NoArgsConstructor` / `@AllArgsConstructor` / `@RequiredArgsConstructor`（`collector/sugar/lombok/` 下样例）。
 
@@ -263,7 +266,7 @@ uriBuilder.append(this.userInfo).append('@');
 ## 8. 测试现状
 
 - 三层单测 + e2e 黄金回归集（见 [testing.md](../testing.md)）。
-- e2e 基线：`x/java/testdata/e2e/baseline.golden.jsonl`（1613 元素 + 3197 关系，LevelBalanced）。
+- e2e 基线：`x/java/testdata/e2e/baseline.golden.jsonl`（1618 元素 + 3096 关系，LevelBalanced）。
 - 覆盖关系类型：Call/Create/Assign/Cast/Use/Extend/Implement/Parameter/Return/Throw/Annotation/TypeArg/Capture 共 13 类。
 - 展示层三字段测试：
   | 测试 | 覆盖 |

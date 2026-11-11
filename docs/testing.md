@@ -148,6 +148,8 @@ C/C++ 不使用 Java 的「源码注释期望块」模式，改用**显式断言
 | `TestCollectorS11DisplayFields` | Java 展示层三字段：包内成员/嵌套类/局部类/匿名类内部/File 空 |
 | `TestCollectorS12DisplayFieldsEdge` | Java 展示层三字段边界：五层链/默认包/接口嵌套/注解嵌套/record/枚举常量类体/嵌套匿名与局部类/初始化块 |
 | `TestCollectorDisplayFieldsInvariant` | Java 展示层三字段全量不变量（全部 collector 样例，841 元素） |
+| `TestExtractorConstructorCallResolution` | 构造调用 CALL 目标解析到真实构造器元素（`类QN.类名(参数类型列表)`，含重载消解） |
+| `TestE2ENoDanglingTargets` | LevelBalanced 下全部关系目标都能在元素集中找到（外部符号必须被降噪、构造器 QN 必须对齐） |
 | `TestCollectorCppDisplayFields` | C++ 展示层三字段：namespace/嵌套类型/自由函数/跨文件类外定义/File 空 |
 | `TestResolverCppForms` | C++ 段 1 六种 exprForm + 段 2 分派 |
 | `TestResolverCppOverload` | C++ 重载按实参个数挑选 |

@@ -167,6 +167,33 @@ func TestE2EGolden(t *testing.T) {
 	}
 }
 
+// TestE2ENoDanglingTargets 断言 LevelBalanced 下所有关系目标都能在元素集中找到。
+// 外部符号不进元素表（导出器只写 GlobalContext 定义），故外部目标必须在过滤阶段被降噪；
+// 构造器 CALL 的 QN 必须与 collector 产出的构造器元素 QN 对齐。
+func TestE2ENoDanglingTargets(t *testing.T) {
+	paths := resolveAllTestdata(t)
+	ec := RunPipeline(t, "x/java/testdata", paths, core.LevelBalanced)
+
+	elements := make(map[string]bool, len(ec.GC.Definitions()))
+	for _, def := range ec.GC.Definitions() {
+		if def.Element != nil {
+			elements[def.Element.QualifiedName] = true
+		}
+	}
+
+	for _, r := range ec.Relations {
+		if r.Target == nil {
+			continue
+		}
+		if elements[r.Target.QualifiedName] {
+			continue
+		}
+		t.Errorf("[%s] 目标悬空: %s (external=%v)\n  source: %s\n  location: %v",
+			r.Type, r.Target.QualifiedName, r.Target.IsFormExternal,
+			r.Source.QualifiedName, r.Location)
+	}
+}
+
 // resolveAllTestdata 收集全部 testdata 下的 .java 文件（e2e 覆盖全集）。
 func resolveAllTestdata(t *testing.T) []string {
 	t.Helper()

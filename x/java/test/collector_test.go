@@ -1019,12 +1019,16 @@ func TestCollectorS7Lombok(t *testing.T) {
 	t.Run("ConstructorNegatives", func(t *testing.T) {
 		for _, qn := range []string{
 			"com.example.lombok.ValueExample.ValueExample()",                                                // @Value 只生成 AllArgsConstructor
-			"com.example.lombok.ConstructorComprehensive.RequiredArgsConstructor.RequiredArgsConstructor()", // @RequiredArgsConstructor 只生成必选构造器
+			"com.example.lombok.ConstructorComprehensive.RequiredArgsConstructor.RequiredArgsConstructor()", // 有 required 字段 -> 只生成必选构造器
 			"com.example.lombok.ConstructorComprehensive.RequiredArgsConstructor.InnerClass.InnerClass()",   // 同上（嵌套类）
 			"com.example.lombok.BuilderComprehensive.Config.Config()",                                       // @Builder 无 @NoArgsConstructor 时不生成无参
 		} {
 			AssertNoDef(t, gc, qn)
 		}
+		// @RequiredArgsConstructor 无 required 字段时 Lombok 仍生成无参构造器（javac 语义）。
+		AssertDef(t, gc, "com.example.lombok.ConstructorComprehensive.NoRequiredFields.NoRequiredFields()", model.Method)
+		AssertMores(t, gc, "com.example.lombok.ConstructorComprehensive.NoRequiredFields.NoRequiredFields()",
+			constants.MethodIsConstructor, true)
 		// 反向守卫：ValueExample 有全参构造器、无 setter（@Value 不可变）
 		AssertDef(t, gc, "com.example.lombok.ValueExample.ValueExample(String,int,boolean)", model.Method)
 		AssertNoDef(t, gc, "com.example.lombok.ValueExample.setName(String)")

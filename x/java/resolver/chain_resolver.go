@@ -132,7 +132,15 @@ func (cr *ChainResolver) resolveHead(head ExpressionHead, relType model.Dependen
 				return anon
 			}
 		}
-		return cr.resolveTypeFromNameAt(head.ASTNode, head.Name)
+		typeElem := cr.resolveTypeFromNameAt(head.ASTNode, head.Name)
+		// 独立构造调用（无后续段）：解析到真实构造器元素，QN = 类QN.类名(参数类型列表)。
+		// 否则会退化为类 QN（再被 enricher 补成 "类QN()"），与 collector 产出的构造器
+		// 元素 QN 对不上，导致关系目标悬空。
+		if relType == model.Call && !hasSegments && typeElem != nil &&
+			!typeElem.IsFormExternal && isTypeKind(typeElem.Kind) {
+			return cr.resolveConstructor(typeElem, argCount, inferredTypes)
+		}
+		return typeElem
 
 	case HeadCastExpr:
 		return cr.resolveTypeFromNameAt(head.ASTNode, head.CastType)
@@ -287,6 +295,19 @@ func (cr *ChainResolver) resolveSegment(curr *model.CodeElement, seg ExpressionS
 		return cr.resolveTypeFromName(cr.gc.BuildQualifiedName(curr.QualifiedName, seg.Name))
 	}
 	return nil
+}
+
+// resolveConstructor 在目标类型及其父类链上查找构造器元素（含重载消解）。
+// 未命中时返回类型元素本身，交由调用方按旧语义兜底。
+func (cr *ChainResolver) resolveConstructor(typeElem *model.CodeElement, argCount int, inferredTypes []string) *model.CodeElement {
+	if typeElem == nil {
+		return nil
+	}
+	mr := NewMemberResolver(cr.gc, cr.fc)
+	if elem := cr.resolveCtorOnType(mr, typeElem, typeElem.Name, argCount, inferredTypes); elem != nil {
+		return elem
+	}
+	return typeElem
 }
 
 // resolveCtorInvoke 解析显式构造器调用（super() / this() / TypeName(...)）。

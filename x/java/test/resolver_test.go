@@ -894,9 +894,9 @@ func TestResolverR9Alignment(t *testing.T) {
 	node27 := resolveAtLine(t, s.src, "object_creation_expression", 27)
 	assertResolve(t, s.gc, s.fc, node27, model.Call, "StringBuilder", model.Method, true)
 
-	// L50 本类实例化按 Call -> 校正为内部 Method。
+	// L50 本类实例化按 Call -> 解析到真实构造器元素（类QN.类名(参数类型列表)）。
 	node50 := resolveAtLine(t, s.src, "object_creation_expression", 50)
-	assertResolve(t, s.gc, s.fc, node50, model.Call, "com.example.rel.CreateRelationSuite", model.Method, false)
+	assertResolve(t, s.gc, s.fc, node50, model.Call, "com.example.rel.CreateRelationSuite.CreateRelationSuite()", model.Method, false)
 }
 
 // TestResolverR10Visibility 可见性：protected 跨包子类可见，default 跨包不可见。
