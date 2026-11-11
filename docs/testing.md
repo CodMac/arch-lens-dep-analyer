@@ -127,6 +127,8 @@ C/C++ 不使用 Java 的「源码注释期望块」模式，改用**显式断言
 | `TestCollectorCppMacro` | 对象宏/函数式宏/可变参数宏/多行宏/空宏/字符串化/连接/条件分支同名宏/#undef |
 | `TestCollectorCppConditional` | `#if`/`#ifdef`/`#ifndef`/`#elif`/`#else`/嵌套取最内层/`#pragma` |
 | `TestCollectorCppEdge` | 重名消歧、匿名 struct/union 承载、类型引用负例、前向声明、空 struct/函数、无名参数 |
+| `TestCollectorCppDisplayFieldsEdge` | 展示层三字段边界：namespace 全形态（嵌套/C++17/inline/匿名/重开 `$N`）、类型全形态（三层嵌套/union/enum/模板）、局部类型、跨文件类外定义、纯 C、杂项（`collector/cpp/display`） |
+| `TestCollectorCppDisplayFieldsInvariant` | 展示层三字段横切不变量：遍历全部 collector/cpp 样例（785 元素）断言 File 空、NamespaceQN 真实、EnclosingQN==ParentQN、TypeQN 为具名类型且是 QN 段边界前缀、TypeQN 非函数 QN |
 | `TestCollectorConditional` | 条件编译分支标注（`collector/cond` 基础样例） |
 | `TestExtractorStructural` | Import/Contain/Extend/Parameter/Return/TypeArg |
 | `TestExtractorActions` | Call/Assign/Use/Cast |
@@ -170,9 +172,10 @@ x/cpp/testdata/
 ├── collector/cond/  # 条件编译样例（cond.c）
 ├── collector/c/     # C 全场景元素提取样例（11 组：base/func/decl_def/struct/
 │                    #   enum/typedef/macro/variable/param/cond/edge）
-├── collector/cpp/   # C++ 全场景元素提取样例（18 组：base/namespace/decl_def/class/
+├── collector/cpp/   # C++ 全场景元素提取样例（19 组：base/namespace/decl_def/class/
 │                    #   ctor_dtor/operator/template/inherit/enum/typedef_using/
-│                    #   variable/function/param/lambda/scope/macro/cond/edge）
+│                    #   variable/function/param/lambda/scope/macro/cond/edge/display）
+│                    #   display/ 为展示层三字段边界样例（7 文件）
 ├── extractor/       # Extractor 全场景样例（structural/actions/capture/impl_link）
 ├── resolver/        # 解析样例（calls.cpp / chain.cpp + forms/overload/inherit/
 │                    #   scope/external/lambda_var/cast/throw）

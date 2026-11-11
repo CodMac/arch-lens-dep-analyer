@@ -105,27 +105,65 @@ func (c *Collector) fillDisplayFields(fCtx core.FileContext) {
 		if elem.Kind == model.File {
 			continue
 		}
-		elem.EnclosingQN = entry.ParentQN
-		elem.NamespaceQN = nearestNamespace(fCtx, elem, nsSet)
-		elem.TypeQN = outermostType(fCtx, entry, elem.NamespaceQN)
+		displayQN := normalizeDisplayQN(fCtx, elem.QualifiedName, nsSet)
+		elem.EnclosingQN = displayEnclosingQN(fCtx, entry)
+		elem.NamespaceQN = nearestNamespace(fCtx, entry, nsSet, displayQN)
+		elem.TypeQN = outermostType(fCtx, entry, nsSet, elem.NamespaceQN, displayQN)
 	}
+}
+
+// displayEnclosingQN 返回元素的直接词法外层 QN。
+// 外层是 namespace 时剥离重开消歧后缀（ns$2 -> ns）；外层是类型时保留原始 QN。
+func displayEnclosingQN(fCtx core.FileContext, entry *core.DefinitionEntry) string {
+	if entry.ParentQN == "" {
+		return ""
+	}
+	if parent, ok := fCtx.FindByQualifiedName(entry.ParentQN); ok && parent.Element.Kind == model.Namespace {
+		return stripNamespaceDisambig(entry.ParentQN)
+	}
+	return entry.ParentQN
 }
 
 // nearestNamespace 返回元素所属最近外层 namespace 全 QN。
 // namespace 元素自身取其父 namespace；其余元素取 QN 的最长 namespace 前缀。
-func nearestNamespace(fCtx core.FileContext, elem *model.CodeElement, nsSet map[string]bool) string {
+func nearestNamespace(fCtx core.FileContext, entry *core.DefinitionEntry, nsSet map[string]bool, displayQN string) string {
+	elem := entry.Element
 	if elem.Kind == model.Namespace {
-		return helper.PkgOf(elem.QualifiedName)
+		return helper.PkgOf(displayQN)
 	}
-	parts := helper.SplitQN(elem.QualifiedName)
+	parts := helper.SplitQN(displayQN)
 	for i := len(parts) - 1; i > 0; i-- {
 		cand := strings.Join(parts[:i], helper.QNSep)
-		if nsSet[cand] {
+		if isNamespaceQN(fCtx, cand, nsSet) {
 			return cand
 		}
-		if entry, ok := fCtx.FindByQualifiedName(cand); ok && entry.Element.Kind == model.Namespace {
-			return cand
+	}
+	// 跨文件类外定义（源文件不写 namespace 块，仅限定定义）：本文件查不到
+	// namespace 定义，沿父链回退推导。
+	if p := entry.ParentQN; p != "" {
+		if parent, ok := fCtx.FindByQualifiedName(p); ok {
+			// 父级在本文件可见：递归取其 namespace（父级可能是函数/块/类型）。
+			return nearestNamespace(fCtx, parent, nsSet,
+				normalizeDisplayQN(fCtx, parent.Element.QualifiedName, nsSet))
 		}
+		return namespaceFromQNStruct(p)
+	}
+	return ""
+}
+
+// namespaceFromQNStruct 在父级定义不可见时按 QN 结构推导 namespace：
+// 函数签名段（含括号）上溯到其宿主，多段 QN 视为「namespace::类型」取前缀；
+// 单段无法区分全局类型与 namespace，按类型处理返回空。
+// 例：ool_no_block::Remote::method(int) -> ool_no_block；GlobalCls -> ""。
+func namespaceFromQNStruct(qn string) string {
+	if qn == "" {
+		return ""
+	}
+	if strings.Contains(qn, "(") {
+		return namespaceFromQNStruct(helper.PkgOf(qn))
+	}
+	if strings.Contains(qn, helper.QNSep) {
+		return helper.PkgOf(qn)
 	}
 	return ""
 }
@@ -133,9 +171,9 @@ func nearestNamespace(fCtx core.FileContext, elem *model.CodeElement, nsSet map[
 // outermostType 返回元素所属最外层具名类型 QN（展示层 L2 宿主）。
 // 类型元素（Class/Struct/Enum）取自身命名空间前缀之后的第一段；
 // 成员/方法/局部元素沿父链上溯到类型，再取该类型所在的最外层类型。
-func outermostType(fCtx core.FileContext, entry *core.DefinitionEntry, nsQN string) string {
+func outermostType(fCtx core.FileContext, entry *core.DefinitionEntry, nsSet map[string]bool, nsQN, displayQN string) string {
 	if isCppTypeKind(entry.Element.Kind) {
-		return topTypeSegment(entry.Element.QualifiedName, nsQN)
+		return topTypeSegment(displayQN, nsQN)
 	}
 	parentQN := entry.ParentQN
 	for parentQN != "" {
@@ -143,14 +181,58 @@ func outermostType(fCtx core.FileContext, entry *core.DefinitionEntry, nsQN stri
 		if !ok {
 			// 跨文件类外定义（impl_a.cpp 的 impl::Service::member）：父级类型定义
 			// 在头文件，本文件上下文查不到，按 QN 结构回退推导。
-			return typeFromQN(entry.Element.QualifiedName, nsQN)
+			return typeFromQN(displayQN, nsQN)
 		}
 		if isCppTypeKind(parent.Element.Kind) {
-			return topTypeSegment(parent.Element.QualifiedName, nsQN)
+			parentDisplayQN := normalizeDisplayQN(fCtx, parent.Element.QualifiedName, nsSet)
+			return topTypeSegment(parentDisplayQN, nsQN)
 		}
 		parentQN = parent.ParentQN
 	}
 	return ""
+}
+
+// normalizeDisplayQN 将 QN 中 namespace 段的重开消歧后缀（$N）剥离，
+// 仅用于展示层字段；元素自身的 QualifiedName 保持原样。
+func normalizeDisplayQN(fCtx core.FileContext, qn string, nsSet map[string]bool) string {
+	parts := helper.SplitQN(qn)
+	raw := make([]string, 0, len(parts))
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		raw = append(raw, p)
+		seg := p
+		if isNamespaceQN(fCtx, strings.Join(raw, helper.QNSep), nsSet) {
+			seg = stripNamespaceDisambig(p)
+		}
+		out = append(out, seg)
+	}
+	return strings.Join(out, helper.QNSep)
+}
+
+// isNamespaceQN 判定 QN 是否指向 namespace 元素。
+func isNamespaceQN(fCtx core.FileContext, qn string, nsSet map[string]bool) bool {
+	if nsSet[qn] {
+		return true
+	}
+	if e, ok := fCtx.FindByQualifiedName(qn); ok && e.Element.Kind == model.Namespace {
+		return true
+	}
+	return false
+}
+
+// stripNamespaceDisambig 剥离 QN 末段的数字消歧后缀：ns$2 -> ns。
+// 匿名 namespace（$anon）与 lambda/block（$1 但非 namespace）不受影响。
+func stripNamespaceDisambig(seg string) string {
+	i := strings.LastIndex(seg, "$")
+	if i <= 0 || i == len(seg)-1 {
+		return seg
+	}
+	for _, c := range seg[i+1:] {
+		if c < '0' || c > '9' {
+			return seg
+		}
+	}
+	return seg[:i]
 }
 
 // typeFromQN 在父级定义不可见时，按 QN 结构推导最外层类型：
@@ -191,6 +273,11 @@ func topTypeSegment(qn, nsQN string) string {
 		return ""
 	}
 	first := parts[0]
+	// 首段是函数签名（含括号）说明宿主是函数/局部作用域，无具名宿主类型。
+	// 例：freeFnWithLocal()::LocalInFree -> ""。
+	if strings.Contains(first, "(") {
+		return ""
+	}
 	if nsQN != "" {
 		return nsQN + helper.QNSep + first
 	}

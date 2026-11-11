@@ -70,6 +70,34 @@ C 与 C++ **共用同一套实现**（`x/cpp/`），仅 Parser 层按扩展名�
 - `BaseGlobalContext` 的全量索引键为 `QN + "|" + Kind`，两者不互相吞并。
 - `FindByQualifiedName` **定义优先**：先注册声明、后注册定义时定义覆盖声明；纯声明（无定义）仍可命中。
 
+### 2.4 展示层三字段（NamespaceQN / EnclosingQN / TypeQN）
+
+Collector 末尾（Step 5，全部定义注册与 namespace 汇总之后）统一填充，仅用于展示，不参与符号解析：
+
+| 字段 | 取值规则 | 示例 |
+|---|---|---|
+| `NamespaceQN` | 元素所属**最近外层 namespace** 全 QN；无 namespace 为空 | `ns::Outer::Inner::field` → `ns` |
+| `EnclosingQN` | 元素**直接词法外层**（即 `ParentQN`） | `ns::Outer::Inner::field` → `ns::Outer::Inner` |
+| `TypeQN` | 元素所属**最外层具名宿主类型**（Class/Struct/Enum）；类型元素取自身所在最外层类型 | `ns::Outer::Inner::field` → `ns::Outer` |
+
+关键规则：
+
+- **File 元素三字段恒空**。
+- **类型元素**（Class/Struct/Enum）的 `TypeQN` 取自身所在的最外层类型：`ns::L1::L2::L3` → `ns::L1`。
+- **函数/方法**的 `TypeQN` 为空（函数不是类型）；自由函数内的局部类型 `TypeQN` 也为空。
+- **重开 namespace** 的 QN 消歧后缀 `$N` 仅在展示层剥离：`ns_reopen$2::Second` → `NamespaceQN=ns_reopen`、`TypeQN=ns_reopen::Second`；元素自身 `QualifiedName` 保持 `ns_reopen$2::Second` 不变。
+- **跨文件类外定义**（源文件不写 `namespace {}` 块，仅限定定义）沿父链回退推导：`ool_no_block::Remote::method(int)` → `NamespaceQN=ool_no_block`、`TypeQN=ool_no_block::Remote`。
+- **匿名 namespace**（`$anon`）与具名 namespace 同等对待，可作为 `NamespaceQN`。
+
+已知边界：
+
+| # | 边界 | 说明 |
+|---|---|---|
+| E1 | typedef 承载的匿名 struct | `typedef struct { int x; } Point;` 的字段 `Point::x` 的 `TypeQN` 为空（typedef 不是具名类型 kind） |
+| E2 | 变量承载的匿名 struct | `struct { int x; } obj;` 的字段 `obj::x` 的 `TypeQN` 为空 |
+| E3 | 跨文件嵌套类型 | 类外定义且本文件不可见父类型链时，`TypeQN` 只能取 QN 结构可判定的层级 |
+| E4 | 单段限定定义的宿主歧义 | `GlobalCls::method(int)` 这类单段前缀无法区分「全局类型」与「namespace」，按类型处理（`NamespaceQN` 留空） |
+
 ## 3. 关系覆盖（DependencyRelation）
 
 ### 3.1 结构关系
@@ -258,9 +286,9 @@ type expr struct {
 ## 9. 测试现状
 
 - 三层测试 + e2e 黄金回归集，全部位于 `x/cpp/test/`。
-- e2e 基线：`x/cpp/testdata/e2e/baseline.golden.jsonl`（1242 元素 + 2402 关系，LevelBalanced）。
-- 元素覆盖（基线实测）：FILE 67 / NAMESPACE 26 / CLASS 21 / STRUCT 80 / ENUM 17 / ENUM_CONSTANT 38 / TYPE 29 / MACRO 41 / FIELD 130 / FUNCTION 121 / FUNCTION_DECL 42 / METHOD 62 / METHOD_DECL 75 / VARIABLE 439 / SCOPE_BLOCK 28 / LAMBDA 26。
-- 关系覆盖（基线实测）：CONTAIN 1480 / USE 328 / ASSIGN 164 / TYPE_ARG 106 / CALL 88 / IMPL_LINK 57 / PARAMETER 45 / RETURN 32 / IMPORT 31 / EXTEND 24 / CAPTURE 20 / CAST 14 / CREATE 7 / THROW 6。
+- e2e 基线：`x/cpp/testdata/e2e/baseline.golden.jsonl`（1417 元素 + 2699 关系，LevelBalanced）。
+- 元素覆盖（基线实测）：FILE 74 / NAMESPACE 40 / CLASS 22 / STRUCT 111 / ENUM 21 / ENUM_CONSTANT 45 / TYPE 30 / MACRO 44 / FIELD 166 / FUNCTION 127 / FUNCTION_DECL 45 / METHOD 82 / METHOD_DECL 86 / VARIABLE 468 / SCOPE_BLOCK 29 / LAMBDA 27。
+- 关系覆盖（基线实测）：CONTAIN 1721 / USE 345 / ASSIGN 167 / TYPE_ARG 118 / CALL 90 / IMPL_LINK 69 / PARAMETER 50 / RETURN 35 / IMPORT 33 / EXTEND 24 / CAPTURE 20 / CAST 14 / CREATE 7 / THROW 6。
 - 基线（LevelBalanced）中 PARAMETER/RETURN 大幅减少，是因为当前样例的参数/返回类型多为基本类型（`int`/`void`），被外部符号降噪过滤；CONTAIN/USE/ASSIGN 等指向源码符号的关系不受影响。
 - 测试用例：
   | 测试 | 覆盖 |
@@ -318,6 +346,8 @@ type expr struct {
   | `TestResolverCppScope` | 相对限定名补全、短名作用域上溯、嵌套类成员、块内遮蔽 |
   | `TestResolverCppExternal` | 外部类型方法归属（`std::string::size`）、模板变量不产依赖、基本类型 PRIMITIVE、外部类型 NamespaceQN |
   | `TestCollectorCppDisplayFields` | 展示层三字段：namespace 层级、嵌套类型 TypeQN、自由函数无宿主、跨文件类外定义、File 三字段空 |
+  | `TestCollectorCppDisplayFieldsEdge` | 展示层三字段边界：三层 namespace / C++17 嵌套 / inline / 匿名 / 重开 `$N` 归并、三层嵌套类型、union/enum、模板嵌套、typedef 与匿名承载、局部类型（方法内/自由函数/块/lambda/局部套局部）、跨文件类外定义（有/无 namespace 块）、纯 C、`extern "C"`、运算符、`= default` |
+  | `TestCollectorCppDisplayFieldsInvariant` | 横切不变量（遍历全部 collector 样例 785 元素）：File 三字段空、NamespaceQN 必为真实 namespace、EnclosingQN == ParentQN（namespace 侧剥离 `$N`）、TypeQN 必为具名类型且是展示层 QN 的段边界前缀、TypeQN 不得是函数 QN |
   | `TestResolverCppLambdaVar` | lambda 变量调用、立即调用 lambda |
   | `TestResolverCppCast` | C 风格 + static/dynamic/const/reinterpret_cast、`(void)` 抑制 |
   | `TestResolverCppThrow` | throw new T / throw T(...) / throw var |
