@@ -80,8 +80,130 @@ func (c *Collector) CollectDefinitions(src coreast.SourceFile) (core.FileContext
 	// Step 4: 汇总命名空间列表（C++ 多 namespace）
 	c.collectNamespaces(fCtx)
 
+	// Step 5: 展示层字段（NamespaceQN / EnclosingQN / TypeQN）
+	c.fillDisplayFields(fCtx)
+
 	c.releaseCondStack(fCtx.FilePath())
 	return fCtx, nil
+}
+
+// fillDisplayFields 填充展示层三字段：
+//   - NamespaceQN：元素所属最近外层 namespace 全 QN（无则空）
+//   - EnclosingQN：元素直接词法外层（即 ParentQN）
+//   - TypeQN：元素所属最外层具名类型（类型元素取自身所在的最外层类型）
+//
+// 必须在全部定义注册、ParentQN 最终确定、namespace 列表汇总后执行。
+func (c *Collector) fillDisplayFields(fCtx core.FileContext) {
+	nsSet := make(map[string]bool)
+	if nfc, ok := fCtx.(cppctx.NamespaceAware); ok {
+		for _, ns := range nfc.Namespaces() {
+			nsSet[ns] = true
+		}
+	}
+	for _, entry := range fCtx.Definitions() {
+		elem := entry.Element
+		if elem.Kind == model.File {
+			continue
+		}
+		elem.EnclosingQN = entry.ParentQN
+		elem.NamespaceQN = nearestNamespace(fCtx, elem, nsSet)
+		elem.TypeQN = outermostType(fCtx, entry, elem.NamespaceQN)
+	}
+}
+
+// nearestNamespace 返回元素所属最近外层 namespace 全 QN。
+// namespace 元素自身取其父 namespace；其余元素取 QN 的最长 namespace 前缀。
+func nearestNamespace(fCtx core.FileContext, elem *model.CodeElement, nsSet map[string]bool) string {
+	if elem.Kind == model.Namespace {
+		return helper.PkgOf(elem.QualifiedName)
+	}
+	parts := helper.SplitQN(elem.QualifiedName)
+	for i := len(parts) - 1; i > 0; i-- {
+		cand := strings.Join(parts[:i], helper.QNSep)
+		if nsSet[cand] {
+			return cand
+		}
+		if entry, ok := fCtx.FindByQualifiedName(cand); ok && entry.Element.Kind == model.Namespace {
+			return cand
+		}
+	}
+	return ""
+}
+
+// outermostType 返回元素所属最外层具名类型 QN（展示层 L2 宿主）。
+// 类型元素（Class/Struct/Enum）取自身命名空间前缀之后的第一段；
+// 成员/方法/局部元素沿父链上溯到类型，再取该类型所在的最外层类型。
+func outermostType(fCtx core.FileContext, entry *core.DefinitionEntry, nsQN string) string {
+	if isCppTypeKind(entry.Element.Kind) {
+		return topTypeSegment(entry.Element.QualifiedName, nsQN)
+	}
+	parentQN := entry.ParentQN
+	for parentQN != "" {
+		parent, ok := fCtx.FindByQualifiedName(parentQN)
+		if !ok {
+			// 跨文件类外定义（impl_a.cpp 的 impl::Service::member）：父级类型定义
+			// 在头文件，本文件上下文查不到，按 QN 结构回退推导。
+			return typeFromQN(entry.Element.QualifiedName, nsQN)
+		}
+		if isCppTypeKind(parent.Element.Kind) {
+			return topTypeSegment(parent.Element.QualifiedName, nsQN)
+		}
+		parentQN = parent.ParentQN
+	}
+	return ""
+}
+
+// typeFromQN 在父级定义不可见时，按 QN 结构推导最外层类型：
+// 去掉 namespace 前缀后，若首段是类型名（非函数签名）且后续还有段，则首段即宿主类型。
+// 例：ns=impl, qn=impl::Service::member(int) -> impl::Service；
+//
+//	ns=impl, qn=impl::split_a(int)::x -> ""（首段是函数，不是类型）。
+func typeFromQN(qn, nsQN string) string {
+	rest := qn
+	if nsQN != "" {
+		prefix := nsQN + helper.QNSep
+		if strings.HasPrefix(qn, prefix) {
+			rest = qn[len(prefix):]
+		}
+	}
+	parts := helper.SplitQN(rest)
+	if len(parts) < 2 || strings.Contains(parts[0], "(") {
+		return ""
+	}
+	if nsQN != "" {
+		return nsQN + helper.QNSep + parts[0]
+	}
+	return parts[0]
+}
+
+// topTypeSegment 去掉 namespace 前缀后取第一段类型 QN。
+// 例：ns=a, qn=a::Outer::Inner -> a::Outer；qn=a::Outer -> a::Outer。
+func topTypeSegment(qn, nsQN string) string {
+	rest := qn
+	if nsQN != "" {
+		prefix := nsQN + helper.QNSep
+		if strings.HasPrefix(qn, prefix) {
+			rest = qn[len(prefix):]
+		}
+	}
+	parts := helper.SplitQN(rest)
+	if len(parts) == 0 {
+		return ""
+	}
+	first := parts[0]
+	if nsQN != "" {
+		return nsQN + helper.QNSep + first
+	}
+	return first
+}
+
+// isCppTypeKind 判定是否为具名类型（可作展示层 L2 宿主）。
+func isCppTypeKind(k model.ElementKind) bool {
+	switch k {
+	case model.Class, model.Struct, model.Enum:
+		return true
+	}
+	return false
 }
 
 // =============================================================================

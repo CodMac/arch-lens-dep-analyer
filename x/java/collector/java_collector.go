@@ -67,7 +67,58 @@ func (c *Collector) CollectDefinitions(src coreast.SourceFile) (core.FileContext
 	// Step 5: 语法糖处理 (Records, Enums, Constructors, Lombok)
 	c.applySyntacticSugar(fCtx)
 
+	// Step 6: 展示层字段（NamespaceQN / EnclosingQN / TypeQN）
+	c.fillDisplayFields(fCtx)
+
 	return fCtx, nil
+}
+
+// fillDisplayFields 填充展示层三字段：
+//   - NamespaceQN：元素所属包（Java 文件内所有元素同包）
+//   - EnclosingQN：元素直接词法外层（即 ParentQN）
+//   - TypeQN：元素所属最外层具名类型（类型元素取自身所在的最外层类型）
+//
+// 必须在全部定义（含 desugar 新增）注册、ParentQN 最终确定后执行。
+func (c *Collector) fillDisplayFields(fCtx core.FileContext) {
+	pkg := helper.PackageNameOf(fCtx)
+	for _, entry := range fCtx.Definitions() {
+		elem := entry.Element
+		if elem.Kind == model.File {
+			continue
+		}
+		elem.NamespaceQN = pkg
+		elem.EnclosingQN = entry.ParentQN
+		elem.TypeQN = outermostNamedType(fCtx, entry)
+	}
+}
+
+// outermostNamedType 沿词法父链取最外层具名类型 QN；无具名类型祖先则返回空。
+func outermostNamedType(fCtx core.FileContext, entry *core.DefinitionEntry) string {
+	var outermost string
+	if isNamedTypeKind(entry.Element.Kind) {
+		outermost = entry.Element.QualifiedName
+	}
+	parentQN := entry.ParentQN
+	for parentQN != "" {
+		parent, ok := fCtx.FindByQualifiedName(parentQN)
+		if !ok {
+			break
+		}
+		if isNamedTypeKind(parent.Element.Kind) {
+			outermost = parent.Element.QualifiedName
+		}
+		parentQN = parent.ParentQN
+	}
+	return outermost
+}
+
+// isNamedTypeKind 判定是否为具名类型（可作展示层 L2 宿主）。
+func isNamedTypeKind(k model.ElementKind) bool {
+	switch k {
+	case model.Class, model.Interface, model.Enum, model.KAnnotation:
+		return true
+	}
+	return false
 }
 
 // =============================================================================

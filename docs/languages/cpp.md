@@ -218,7 +218,7 @@ type expr struct {
 
 - 基本类型（`int`/`double`/`size_t`/… 及 `auto`）→ 产 `PRIMITIVE` 元素。
 - 模板类型变量（单大写字母 `T`/`E`/`S`/`K`/`V`）→ 不产外部元素。
-- 其余 → 外部符号，`PackageName` 按 `::` 拆分取前缀，无 `::` 归 `<external>`。
+- 其余 → 外部符号，`NamespaceQN` 按 `::` 拆分取前缀，无 `::` 归 `<external>`。
   不复用 `model.NewExternalElement`（其按点号拆分，C++ QN 会拆错），使用 `x/cpp/helper.NewExternalElement`。
 
 ## 7. 已知边界与限制
@@ -316,7 +316,8 @@ type expr struct {
   | `TestResolverCppOverload` | 按实参个数挑选重载（自由函数 + 成员方法，0/1/2 参） |
   | `TestResolverCppInherit` | 继承链查找：直接成员/一级基类/二级基类（菱形）/覆盖命中派生类 |
   | `TestResolverCppScope` | 相对限定名补全、短名作用域上溯、嵌套类成员、块内遮蔽 |
-  | `TestResolverCppExternal` | 外部类型方法归属（`std::string::size`）、模板变量不产依赖、基本类型 PRIMITIVE、外部类型 PackageName |
+  | `TestResolverCppExternal` | 外部类型方法归属（`std::string::size`）、模板变量不产依赖、基本类型 PRIMITIVE、外部类型 NamespaceQN |
+  | `TestCollectorCppDisplayFields` | 展示层三字段：namespace 层级、嵌套类型 TypeQN、自由函数无宿主、跨文件类外定义、File 三字段空 |
   | `TestResolverCppLambdaVar` | lambda 变量调用、立即调用 lambda |
   | `TestResolverCppCast` | C 风格 + static/dynamic/const/reinterpret_cast、`(void)` 抑制 |
   | `TestResolverCppThrow` | throw new T / throw T(...) / throw var |

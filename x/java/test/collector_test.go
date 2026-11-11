@@ -1223,3 +1223,247 @@ func TestCollectorS10DedupBlindspot(t *testing.T) {
 	AssertNoDef(t, gc, pkg+".Inner$1")
 	AssertNoDef(t, gc, pkg+".Config$1")
 }
+
+// =============================================================================
+// S11 展示层字段：NamespaceQN / EnclosingQN / TypeQN
+// =============================================================================
+
+// TestCollectorS11DisplayFields 覆盖展示层三字段：
+// L1 NamespaceQN（包名）、L2 EnclosingQN（直接词法外层）、L2 TypeQN（最外层具名宿主类型）。
+func TestCollectorS11DisplayFields(t *testing.T) {
+	t.Run("包内顶层类与成员", func(t *testing.T) {
+		gc := RunCollection(t, "x/java/testdata", ResolvePaths(t, "collector/base"))
+
+		pkg := "com.example.base"
+		// 顶层类：TypeQN 取自身，EnclosingQN=包
+		AssertDisplayFields(t, gc, pkg+".User", pkg, pkg, pkg+".User")
+		// 字段 / 方法：EnclosingQN=类，TypeQN=类
+		AssertDisplayFields(t, gc, pkg+".User.id", pkg, pkg+".User", pkg+".User")
+		AssertDisplayFields(t, gc, pkg+".User.getId()", pkg, pkg+".User", pkg+".User")
+		// 方法内局部变量：EnclosingQN=方法，TypeQN=宿主类
+		AssertDisplayFields(t, gc, pkg+".AbstractBaseEntity.setId(ID).id",
+			pkg, pkg+".AbstractBaseEntity.setId(ID)", pkg+".AbstractBaseEntity")
+	})
+
+	t.Run("嵌套类与局部类", func(t *testing.T) {
+		gc := RunCollection(t, "x/java/testdata", ResolvePaths(t, "collector/class"))
+
+		pkg := "com.example.base"
+		// 内部类：TypeQN 取最外层具名类型
+		AssertDisplayFields(t, gc, pkg+".OuterClass.InnerClass", pkg, pkg+".OuterClass", pkg+".OuterClass")
+		// 内部类成员：EnclosingQN=直接宿主，TypeQN=最外层
+		AssertDisplayFields(t, gc, pkg+".OuterClass.InnerClass.display()",
+			pkg, pkg+".OuterClass.InnerClass", pkg+".OuterClass")
+		// 方法内局部类：EnclosingQN=方法，TypeQN=最外层具名类
+		AssertDisplayFields(t, gc, pkg+".OuterClass.scopeTest().LocalClass",
+			pkg, pkg+".OuterClass.scopeTest()", pkg+".OuterClass")
+		// 局部类成员：EnclosingQN=局部类，TypeQN=最外层
+		AssertDisplayFields(t, gc, pkg+".OuterClass.scopeTest().LocalClass.action()",
+			pkg, pkg+".OuterClass.scopeTest().LocalClass", pkg+".OuterClass")
+	})
+
+	t.Run("匿名类内部元素归属外层具名类型", func(t *testing.T) {
+		gc := RunCollection(t, "x/java/testdata", ResolvePaths(t, "collector/base"))
+
+		pkg := "com.example.base"
+		anon := pkg + ".CallbackManager.register().anonymousClass$1"
+		// 匿名类自身：EnclosingQN=方法，TypeQN=外层具名类
+		AssertDisplayFields(t, gc, anon, pkg, pkg+".CallbackManager.register()", pkg+".CallbackManager")
+		// 匿名类方法：TypeQN 跳过匿名层，取外层具名类
+		AssertDisplayFields(t, gc, anon+".run()", pkg, anon, pkg+".CallbackManager")
+	})
+
+	t.Run("File 元素三字段为空", func(t *testing.T) {
+		gc := RunCollection(t, "x/java/testdata", ResolvePaths(t, "collector/base"))
+		for _, def := range gc.Definitions() {
+			if def.Element.Kind != model.File {
+				continue
+			}
+			if def.Element.NamespaceQN != "" || def.Element.EnclosingQN != "" || def.Element.TypeQN != "" {
+				t.Errorf("File %s display fields should be empty, got NS=%q ENC=%q TYPE=%q",
+					def.Element.QualifiedName, def.Element.NamespaceQN, def.Element.EnclosingQN, def.Element.TypeQN)
+			}
+		}
+	})
+}
+
+// =============================================================================
+// S12 展示层字段边界：NamespaceQN / EnclosingQN / TypeQN 全场景
+// =============================================================================
+
+// TestCollectorS12DisplayFieldsEdge 逐场景断言展示层三字段的边界行为。
+func TestCollectorS12DisplayFieldsEdge(t *testing.T) {
+	const pkg = "com.example.display"
+	load := func(t *testing.T) core.GlobalContext {
+		t.Helper()
+		return RunCollection(t, "x/java/testdata", ResolvePaths(t, "collector/display"))
+	}
+
+	t.Run("五层链", func(t *testing.T) {
+		gc := load(t)
+		p := pkg + ".DisplayPackage"
+
+		// 顶层类：TypeQN 取自身，EnclosingQN=包
+		AssertDisplayFields(t, gc, p, pkg, pkg, p)
+		AssertDisplayFields(t, gc, p+".topField", pkg, p, p)
+		AssertDisplayFields(t, gc, p+".topMethod()", pkg, p, p)
+		// 嵌套静态类：TypeQN 仍为最外层
+		AssertDisplayFields(t, gc, p+".Nested", pkg, p, p)
+		AssertDisplayFields(t, gc, p+".Nested.nestedField", pkg, p+".Nested", p)
+		AssertDisplayFields(t, gc, p+".Nested.nestedMethod()", pkg, p+".Nested", p)
+		AssertDisplayFields(t, gc, p+".Nested.nestedMethod().nestedLocal", pkg, p+".Nested.nestedMethod()", p)
+		// 内部类
+		AssertDisplayFields(t, gc, p+".Inner", pkg, p, p)
+		AssertDisplayFields(t, gc, p+".Inner.innerField", pkg, p+".Inner", p)
+		AssertDisplayFields(t, gc, p+".Inner.innerMethod().innerLocal", pkg, p+".Inner.innerMethod()", p)
+		// 方法内局部变量
+		AssertDisplayFields(t, gc, p+".topMethod().methodLocal", pkg, p+".topMethod()", p)
+		// 局部类：EnclosingQN=方法，TypeQN=最外层
+		AssertDisplayFields(t, gc, p+".topMethod().Local", pkg, p+".topMethod()", p)
+		AssertDisplayFields(t, gc, p+".topMethod().Local.localField", pkg, p+".topMethod().Local", p)
+		AssertDisplayFields(t, gc, p+".topMethod().Local.localMethod().localMethodLocal",
+			pkg, p+".topMethod().Local.localMethod()", p)
+		// 匿名类：EnclosingQN=方法，TypeQN=最外层
+		AssertDisplayFields(t, gc, p+".topMethod().anonymousClass$1", pkg, p+".topMethod()", p)
+		AssertDisplayFields(t, gc, p+".topMethod().anonymousClass$1.run()",
+			pkg, p+".topMethod().anonymousClass$1", p)
+		AssertDisplayFields(t, gc, p+".topMethod().anonymousClass$1.run().anonLocal",
+			pkg, p+".topMethod().anonymousClass$1.run()", p)
+		// lambda：EnclosingQN=方法，TypeQN=最外层
+		AssertDisplayFields(t, gc, p+".topMethod().lambda$2", pkg, p+".topMethod()", p)
+		AssertDisplayFields(t, gc, p+".topMethod().lambda$2.lambdaLocal", pkg, p+".topMethod().lambda$2", p)
+		// 作用域块
+		AssertDisplayFields(t, gc, p+".topMethod().block$1", pkg, p+".topMethod()", p)
+		AssertDisplayFields(t, gc, p+".topMethod().block$1.blockLocal", pkg, p+".topMethod().block$1", p)
+	})
+
+	t.Run("默认包", func(t *testing.T) {
+		gc := load(t)
+		AssertDisplayFields(t, gc, "DisplayDefaultPackage", "", "", "DisplayDefaultPackage")
+		AssertDisplayFields(t, gc, "DisplayDefaultPackage.field", "", "DisplayDefaultPackage", "DisplayDefaultPackage")
+		AssertDisplayFields(t, gc, "DisplayDefaultPackage.method()", "", "DisplayDefaultPackage", "DisplayDefaultPackage")
+		AssertDisplayFields(t, gc, "DisplayDefaultPackage.method().local", "", "DisplayDefaultPackage.method()", "DisplayDefaultPackage")
+		AssertDisplayFields(t, gc, "DisplayDefaultPackage.Nested", "", "DisplayDefaultPackage", "DisplayDefaultPackage")
+		AssertDisplayFields(t, gc, "DisplayDefaultPackage.Nested.nestedField", "", "DisplayDefaultPackage.Nested", "DisplayDefaultPackage")
+	})
+
+	t.Run("接口", func(t *testing.T) {
+		gc := load(t)
+		i := pkg + ".DisplayInterface"
+
+		AssertDisplayFields(t, gc, i, pkg, pkg, i)
+		// 常量 / 抽象方法 / 默认方法 / 静态方法
+		AssertDisplayFields(t, gc, i+".CONST", pkg, i, i)
+		AssertDisplayFields(t, gc, i+".run()", pkg, i, i)
+		AssertDisplayFields(t, gc, i+".def()", pkg, i, i)
+		AssertDisplayFields(t, gc, i+".identity(U)", pkg, i, i)
+		AssertDisplayFields(t, gc, i+".identity(U).u", pkg, i+".identity(U)", i)
+		// 嵌套 class / interface / enum / annotation：TypeQN 均为接口
+		AssertDisplayFields(t, gc, i+".Impl", pkg, i, i)
+		AssertDisplayFields(t, gc, i+".Impl.implField", pkg, i+".Impl", i)
+		AssertDisplayFields(t, gc, i+".Impl.implMethod()", pkg, i+".Impl", i)
+		AssertDisplayFields(t, gc, i+".Sub", pkg, i, i)
+		AssertDisplayFields(t, gc, i+".Sub.subMethod()", pkg, i+".Sub", i)
+		AssertDisplayFields(t, gc, i+".Mode", pkg, i, i)
+		AssertDisplayFields(t, gc, i+".Mode.A", pkg, i+".Mode", i)
+		AssertDisplayFields(t, gc, i+".Marker", pkg, i, i)
+		AssertDisplayFields(t, gc, i+".Marker.value()", pkg, i+".Marker", i)
+	})
+
+	t.Run("注解", func(t *testing.T) {
+		gc := load(t)
+		a := pkg + ".DisplayAnnotation"
+
+		AssertDisplayFields(t, gc, a, pkg, pkg, a)
+		AssertDisplayFields(t, gc, a+".value()", pkg, a, a)
+		AssertDisplayFields(t, gc, a+".count()", pkg, a, a)
+		AssertDisplayFields(t, gc, a+".InnerAnno", pkg, a, a)
+		AssertDisplayFields(t, gc, a+".InnerAnno.n()", pkg, a+".InnerAnno", a)
+		AssertDisplayFields(t, gc, a+".Level", pkg, a, a)
+		AssertDisplayFields(t, gc, a+".Level.LOW", pkg, a+".Level", a)
+	})
+
+	t.Run("record", func(t *testing.T) {
+		gc := load(t)
+		r := pkg + ".DisplayRecord"
+
+		AssertDisplayFields(t, gc, r, pkg, pkg, r)
+		// 组件字段
+		AssertDisplayFields(t, gc, r+".x", pkg, r, r)
+		AssertDisplayFields(t, gc, r+".y", pkg, r, r)
+		// 紧凑构造器块：EnclosingQN=record（已知边界：未单独建模构造器）
+		AssertDisplayFields(t, gc, r+".block$1", pkg, r, r)
+		// 嵌套类
+		AssertDisplayFields(t, gc, r+".Helper", pkg, r, r)
+		AssertDisplayFields(t, gc, r+".Helper.helperField", pkg, r+".Helper", r)
+		// 显式方法 + 隐式生成方法
+		AssertDisplayFields(t, gc, r+".sum()", pkg, r, r)
+		AssertDisplayFields(t, gc, r+".x()", pkg, r, r)
+		AssertDisplayFields(t, gc, r+".DisplayRecord(int,int)", pkg, r, r)
+	})
+
+	t.Run("枚举常量类体", func(t *testing.T) {
+		gc := load(t)
+		e := pkg + ".DisplayEnumBody"
+
+		AssertDisplayFields(t, gc, e, pkg, pkg, e)
+		AssertDisplayFields(t, gc, e+".ADD", pkg, e, e)
+		AssertDisplayFields(t, gc, e+".SUB", pkg, e, e)
+		// 常量类体内的字段/方法当前挂到枚举本身（已知边界）
+		AssertDisplayFields(t, gc, e+".addBodyField", pkg, e, e)
+		AssertDisplayFields(t, gc, e+".apply(int,int)", pkg, e, e)
+		// 枚举内嵌套类
+		AssertDisplayFields(t, gc, e+".Meta", pkg, e, e)
+		AssertDisplayFields(t, gc, e+".Meta.metaField", pkg, e+".Meta", e)
+	})
+
+	t.Run("嵌套匿名与局部类", func(t *testing.T) {
+		gc := load(t)
+		c := pkg + ".DisplayNestedAnon"
+
+		// 匿名类套匿名类
+		outerAnon := c + ".nestedAnon().anonymousClass$1"
+		innerAnon := outerAnon + ".run().anonymousClass$1"
+		AssertDisplayFields(t, gc, outerAnon, pkg, c+".nestedAnon()", c)
+		AssertDisplayFields(t, gc, outerAnon+".run()", pkg, outerAnon, c)
+		AssertDisplayFields(t, gc, innerAnon, pkg, outerAnon+".run()", c)
+		AssertDisplayFields(t, gc, innerAnon+".run()", pkg, innerAnon, c)
+		// 匿名类内局部类
+		inAnon := c + ".anonWithLocal().anonymousClass$1.run().InAnon"
+		AssertDisplayFields(t, gc, inAnon, pkg, c+".anonWithLocal().anonymousClass$1.run()", c)
+		AssertDisplayFields(t, gc, inAnon+".inAnonField", pkg, inAnon, c)
+		// lambda 内局部类
+		inLambda := c + ".lambdaWithLocal().lambda$1.InLambda"
+		AssertDisplayFields(t, gc, inLambda, pkg, c+".lambdaWithLocal().lambda$1", c)
+		AssertDisplayFields(t, gc, inLambda+".inLambdaField", pkg, inLambda, c)
+		// 局部类套局部类
+		outerLocal := c + ".localNest().OuterLocal"
+		innerLocal := outerLocal + ".f().InnerLocal"
+		AssertDisplayFields(t, gc, outerLocal, pkg, c+".localNest()", c)
+		AssertDisplayFields(t, gc, innerLocal, pkg, outerLocal+".f()", c)
+		AssertDisplayFields(t, gc, innerLocal+".innerLocalField", pkg, innerLocal, c)
+	})
+
+	t.Run("初始化块与字段初始化", func(t *testing.T) {
+		gc := load(t)
+		c := pkg + ".DisplayInitializers"
+
+		// 字段初始化 lambda / 匿名类 / 方法引用
+		AssertDisplayFields(t, gc, c+".lambdaField", pkg, c, c)
+		AssertDisplayFields(t, gc, c+".lambda$1", pkg, c, c)
+		AssertDisplayFields(t, gc, c+".anonField", pkg, c, c)
+		AssertDisplayFields(t, gc, c+".anonymousClass$1", pkg, c, c)
+		AssertDisplayFields(t, gc, c+".anonymousClass$1.run()", pkg, c+".anonymousClass$1", c)
+		AssertDisplayFields(t, gc, c+".ctorField", pkg, c, c)
+		AssertDisplayFields(t, gc, c+".method_ref$1", pkg, c, c)
+		// 静态 / 实例初始化块内局部类
+		AssertDisplayFields(t, gc, c+".$static$1", pkg, c, c)
+		AssertDisplayFields(t, gc, c+".$static$1.InStaticBlock", pkg, c+".$static$1", c)
+		AssertDisplayFields(t, gc, c+".$static$1.InStaticBlock.staticBlockField",
+			pkg, c+".$static$1.InStaticBlock", c)
+		AssertDisplayFields(t, gc, c+".$instance$1", pkg, c, c)
+		AssertDisplayFields(t, gc, c+".$instance$1.InInstanceBlock", pkg, c+".$instance$1", c)
+		AssertDisplayFields(t, gc, c+".$instance$1.InInstanceBlock.instanceBlockField",
+			pkg, c+".$instance$1.InInstanceBlock", c)
+	})
+}

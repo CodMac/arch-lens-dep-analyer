@@ -1016,3 +1016,76 @@ func TestCollectorCppEdge(t *testing.T) {
 	AssertDef(t, gc, "FAKE_CLASS", model.Macro)
 	AssertNoDef(t, gc, "FakeClass")
 }
+
+// =============================================================================
+// 19. 展示层字段（NamespaceQN / EnclosingQN / TypeQN）
+// =============================================================================
+
+// TestCollectorCppDisplayFields 覆盖展示层三字段：
+// L1 NamespaceQN（最近外层 namespace）、L2 EnclosingQN（直接词法外层）、
+// L2 TypeQN（最外层具名宿主类型）。
+func TestCollectorCppDisplayFields(t *testing.T) {
+	t.Run("namespace 与嵌套类型", func(t *testing.T) {
+		gc := collectCpp(t, "namespace")
+
+		// namespace 元素：NamespaceQN 取父 namespace
+		AssertDisplayFields(t, gc, "outer", "", "", "")
+		AssertDisplayFields(t, gc, "outer::middle", "outer", "outer", "")
+		AssertDisplayFields(t, gc, "outer::middle::inner", "outer::middle", "outer::middle", "")
+		// namespace 内类型：L1=最近 namespace，L2 宿主=自身
+		AssertDisplayFields(t, gc, "outer::middle::inner::Deep",
+			"outer::middle::inner", "outer::middle::inner", "outer::middle::inner::Deep")
+		AssertDisplayFields(t, gc, "modern::sub::Modern",
+			"modern::sub", "modern::sub", "modern::sub::Modern")
+	})
+
+	t.Run("嵌套类与成员", func(t *testing.T) {
+		gc := collectCpp(t, "class")
+
+		// 顶层类型：TypeQN 取自身
+		AssertDisplayFields(t, gc, "Outer", "", "", "Outer")
+		// 嵌套类型：TypeQN 取最外层具名类型
+		AssertDisplayFields(t, gc, "Outer::Inner", "", "Outer", "Outer")
+		AssertDisplayFields(t, gc, "Outer::NestedStruct", "", "Outer", "Outer")
+		// 成员：EnclosingQN=直接宿主，TypeQN=最外层
+		AssertDisplayFields(t, gc, "Outer::Inner::deep", "", "Outer::Inner", "Outer")
+		AssertDisplayFields(t, gc, "Outer::pub_method()", "", "Outer", "Outer")
+		AssertDisplayFields(t, gc, "Outer::static_field", "", "Outer", "Outer")
+	})
+
+	t.Run("自由函数与全局变量无宿主类型", func(t *testing.T) {
+		gc := collectCpp(t, "function")
+
+		AssertDisplayFields(t, gc, "factorial(int)", "", "", "")
+		// 局部变量：EnclosingQN=函数，TypeQN 空
+		elem := FindDef(t, gc, "factorial(int)")
+		if elem.TypeQN != "" {
+			t.Errorf("factorial TypeQN = %q, want empty", elem.TypeQN)
+		}
+		// 函数参数变量：EnclosingQN=函数
+		AssertDisplayFields(t, gc, "factorial(int)::n", "", "factorial(int)", "")
+	})
+
+	t.Run("跨文件类外定义", func(t *testing.T) {
+		paths := ResolveTree(t, "extractor/impl_link")
+		gc, _ := RunExtraction(t, "x/cpp/testdata", paths)
+
+		// 类外定义在 impl_a.cpp：父类型定义在头文件，TypeQN 仍按 QN 结构推导
+		AssertDisplayFields(t, gc, "impl::Service::member(int)", "impl", "impl::Service", "impl::Service")
+		// 普通自由函数：无宿主类型
+		AssertDisplayFields(t, gc, "impl::split_a(int)", "impl", "impl", "")
+	})
+
+	t.Run("File 元素三字段为空", func(t *testing.T) {
+		gc := collectCpp(t, "base")
+		for _, def := range gc.Definitions() {
+			if def.Element.Kind != model.File {
+				continue
+			}
+			if def.Element.NamespaceQN != "" || def.Element.EnclosingQN != "" || def.Element.TypeQN != "" {
+				t.Errorf("File %s display fields should be empty, got NS=%q ENC=%q TYPE=%q",
+					def.Element.QualifiedName, def.Element.NamespaceQN, def.Element.EnclosingQN, def.Element.TypeQN)
+			}
+		}
+	})
+}

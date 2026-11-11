@@ -425,3 +425,18 @@ func ChildQNs(t *testing.T, gc core.GlobalContext, parentQN string) map[string]b
 	}
 	return out
 }
+
+// AssertDisplayFields 断言元素展示层三字段。
+func AssertDisplayFields(t *testing.T, gc core.GlobalContext, qn, wantNS, wantEnc, wantType string) {
+	t.Helper()
+	elem := FindDef(t, gc, qn)
+	if elem.NamespaceQN != wantNS {
+		t.Errorf("%s NamespaceQN = %q, want %q", qn, elem.NamespaceQN, wantNS)
+	}
+	if elem.EnclosingQN != wantEnc {
+		t.Errorf("%s EnclosingQN = %q, want %q", qn, elem.EnclosingQN, wantEnc)
+	}
+	if elem.TypeQN != wantType {
+		t.Errorf("%s TypeQN = %q, want %q", qn, elem.TypeQN, wantType)
+	}
+}

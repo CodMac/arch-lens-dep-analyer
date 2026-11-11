@@ -285,8 +285,8 @@ func TestResolverCppExternal(t *testing.T) {
 	if ext == nil || !ext.IsFormExternal || ext.QualifiedName != "std::string" {
 		t.Errorf("ResolveType(std::string) = %v, want external std::string", ext)
 	}
-	if ext != nil && ext.PackageName != "std" {
-		t.Errorf("ResolveType(std::string) PackageName = %q, want std", ext.PackageName)
+	if ext != nil && ext.NamespaceQN != "std" {
+		t.Errorf("ResolveType(std::string) NamespaceQN = %q, want std", ext.NamespaceQN)
 	}
 }
 

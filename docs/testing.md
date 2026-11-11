@@ -143,6 +143,10 @@ C/C++ 不使用 Java 的「源码注释期望块」模式，改用**显式断言
 | `TestExtractorCppActions` | C++ 全形态 Call/Create/Cast/Assign/Use/Throw |
 | `TestExtractorCppCapture` | C++ Lambda 捕获推导全形态 |
 | `TestExtractorCppImplLink` | C++ 1 头多源/static/只声明/类内 inline 配对边界 |
+| `TestCollectorS11DisplayFields` | Java 展示层三字段：包内成员/嵌套类/局部类/匿名类内部/File 空 |
+| `TestCollectorS12DisplayFieldsEdge` | Java 展示层三字段边界：五层链/默认包/接口嵌套/注解嵌套/record/枚举常量类体/嵌套匿名与局部类/初始化块 |
+| `TestCollectorDisplayFieldsInvariant` | Java 展示层三字段全量不变量（全部 collector 样例，841 元素） |
+| `TestCollectorCppDisplayFields` | C++ 展示层三字段：namespace/嵌套类型/自由函数/跨文件类外定义/File 空 |
 | `TestResolverCppForms` | C++ 段 1 六种 exprForm + 段 2 分派 |
 | `TestResolverCppOverload` | C++ 重载按实参个数挑选 |
 | `TestResolverCppInherit` | C++ 继承链成员查找（含菱形、覆盖） |
@@ -157,6 +161,7 @@ C/C++ 不使用 Java 的「源码注释期望块」模式，改用**显式断言
 ```
 x/java/testdata/
 ├── collector/       # Collector 测试样例（base/enum/class/generic/metrics/sugar/lombok/...）
+│                    #   display/ 为展示层三字段边界样例（8 文件）
 ├── extractor/       # Extractor 测试样例（call/assign/cast/create/throw/use/...）
 └── e2e/             # 端到端黄金基线（baseline.golden.jsonl）
 

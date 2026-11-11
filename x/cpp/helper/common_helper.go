@@ -111,7 +111,7 @@ func IsTypeVariable(name string) bool {
 }
 
 // NewExternalElement 构造 C/C++ 外部符号（IsFormExternal=true）。
-// PackageName 按 :: 拆分取前缀；无 :: 归 <external>。
+// NamespaceQN 按 :: 拆分取前缀；无 :: 归 <external>。
 // 不复用 model.NewExternalElement（其按点号拆分，C++ QN 会拆错）。
 func NewExternalElement(kind model.ElementKind, name, qualifiedName string) *model.CodeElement {
 	pkg := "<external>"
@@ -122,7 +122,7 @@ func NewExternalElement(kind model.ElementKind, name, qualifiedName string) *mod
 		Kind:           kind,
 		Name:           name,
 		QualifiedName:  qualifiedName,
-		PackageName:    pkg,
+		NamespaceQN:    pkg,
 		IsFormExternal: true,
 	}
 }

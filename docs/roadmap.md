@@ -25,6 +25,7 @@
 | M4 C/C++ 两段式解析（2026-11-10） | `x/cpp/symbol_resolver` 归一为两段式：段 1 `normalize` 把动作 AST 折叠为统一 `expr`（吸收 `field_expression`/`qualified_identifier`/`call_expression`/`new_expression`/`cast_expression` 等形态），段 2 `resolveExpr` 按 `wantValue`/`wantFunc`/`wantType` 查找；`ResolveVar`/`ResolveFunc` 公开 SPI 也走同一路径；删除 12 个分散动作函数（golden 语义不变，仅新增 chain.cpp 用例） |
 | M5 C++ Collector 全量测试（2026-11-10） | 新增 `testdata/collector/cpp/` 18 组场景 + `collector_cpp_test.go`（base/namespace/decl_def/class/ctor_dtor/operator/template/inherit/enum/typedef_using/variable/function/param/lambda/scope/macro/cond/edge）；同步修复 8 个 collector 缺陷（reference_declarator 名称丢失、转换运算符、friend 误当成员、struct 继承、模板特化 QN、模板参数误产变量、默认实参进入签名、结构化绑定/range-for 变量缺失） |
 | M6 C++ Extractor/Resolver 全量测试（2026-11-10） | 新增 `testdata/extractor/`（structural/actions/capture/impl_link）与 `testdata/resolver/`（forms/overload/inherit/scope/external/lambda_var/cast/throw）8 组场景 + `extractor_cpp_test.go`（4 个）/`resolver_cpp_test.go`（8 个）；同步修复 5 个 resolver 缺陷（可调用对象 `obj()` 误产外部函数、临时对象构造器调用、`throw T(...)` 取类型、外部接收者类型方法归属 `std::string::size`、立即调用 lambda）；e2e 基线 2286 → 3644 行 |
+| M7 展示层字段重构（2026-11-10） | `CodeElement.PackageName` → `NamespaceQN`（语义从 Java 包泛化为逻辑命名空间），新增 `EnclosingQN`（L2 直接词法外层）与 `TypeQN`（L2 最外层具名宿主类型）；Java/C++ Collector 末尾 `fillDisplayFields` 统一填充；新增 `TestCollectorS11DisplayFields` / `TestCollectorCppDisplayFields` |
 
 ## 2. 分阶段路标
 

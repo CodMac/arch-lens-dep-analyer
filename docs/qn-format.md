@@ -455,7 +455,7 @@ int app::Box<int>::twice(int x) {} // → app::Box::twice(int)
 
 - 基本类型（含 `auto`）→ `PRIMITIVE`，QN 保留原名。
 - 模板类型变量（单大写字母）→ 不产外部元素。
-- 其余 → 外部符号，`PackageName` 按 `::` 拆分取前缀，无 `::` 归 `<external>`；**不补 `std::` 等前缀**（`std::vector` 的 QN 保留原文）。
+- 其余 → 外部符号，`NamespaceQN` 按 `::` 拆分取前缀，无 `::` 归 `<external>`；**不补 `std::` 等前缀**（`std::vector` 的 QN 保留原文）。
 
 ## 附：QN 快速速查表
 

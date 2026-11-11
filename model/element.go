@@ -72,8 +72,10 @@ type CodeElement struct {
 	IsFormSource   bool        `json:"IsFormSource"`        // 源码产生的实体
 	IsFormSugar    bool        `json:"IsFormSugar"`         // 语法糖产生的实体
 	IsFormExternal bool        `json:"IsFormExternal"`      // 外部导入产生的实体
-	// PackageName 元素所属包：内部元素=包 QN；外部元素=import 包前缀或 <external>。
-	PackageName string `json:"PackageName,omitempty"`
+
+	NamespaceQN string `json:"NamespaceQN,omitempty"` // NamespaceQN 元素所属的逻辑命名空间/包/模块（展示层 L1）： 内部元素=包/namespace QN；外部元素=包前缀或 <external>
+	EnclosingQN string `json:"EnclosingQN,omitempty"` // EnclosingQN 元素的直接词法外层（展示层 L2 的父节点）：如内部类的宿主类、方法、匿名类、作用域块；无外层则为空。
+	TypeQN      string `json:"TypeQN,omitempty"`      // TypeQN 元素所属的最外层具名类型（展示层 L2 的宿主类）：类型元素取自身所在的最外层类型 QN；无宿主类型则为空。
 }
 
 // Extra 是 CodeElement 的额外信息，包含跨语言通用的关键元数据。
@@ -84,7 +86,7 @@ type Extra struct {
 }
 
 // NewExternalElement 构造一个外部/虚拟符号（IsFormExternal=true），用于兜底节点。
-// PackageName 依据 qualifiedName 提取：有点号取包前缀，否则归 <external>。
+// NamespaceQN 依据 qualifiedName 提取：有点号取包前缀，否则归 <external>。
 func NewExternalElement(kind ElementKind, name, qualifiedName string) *CodeElement {
 	pkg := "<external>"
 	if i := strings.LastIndex(qualifiedName, "."); i > 0 {
@@ -94,7 +96,7 @@ func NewExternalElement(kind ElementKind, name, qualifiedName string) *CodeEleme
 		Kind:           kind,
 		Name:           name,
 		QualifiedName:  qualifiedName,
-		PackageName:    pkg,
+		NamespaceQN:    pkg,
 		IsFormExternal: true,
 	}
 }

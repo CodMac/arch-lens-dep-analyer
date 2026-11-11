@@ -135,7 +135,7 @@ func (r *SymbolResolver) ResolveAction(gc core.GlobalContext, fc core.FileContex
 				Kind:          model.Method,
 				Name:          t.Name,
 				QualifiedName: helper.BuildQN(t.QualifiedName, t.Name),
-				PackageName:   t.PackageName,
+				NamespaceQN:   t.NamespaceQN,
 			}
 		}
 		// 兜底：外部函数（保持原有 QN 形态：接收者原文::函数名）。

@@ -44,7 +44,7 @@ func (r *SymbolResolver) IsPrimitive(typeName string) bool {
 
 // ResolveType 解析结构体符号，上下文未找到则返回指定 kind 的外部实体。
 // 分类处理：基本类型产 PRIMITIVE 元素；泛型类型变量/通配符不产外部（非类型依赖）；
-// 其余外部符号按 import 表分配 PackageName（无 import 则归 <external>）。
+// 其余外部符号按 import 表分配 NamespaceQN（无 import 则归 <external>）。
 func (r *SymbolResolver) ResolveType(gc core.GlobalContext, fc core.FileContext, symbol string, kind model.ElementKind) *model.CodeElement {
 	symbol = helper.Clean(symbol)
 	if symbol == "" || symbol == "?" {
@@ -72,7 +72,7 @@ func (r *SymbolResolver) ResolveType(gc core.GlobalContext, fc core.FileContext,
 		qualifiedName = imps[0].RawImportPath
 		pkg = helper.PkgOf(qualifiedName)
 	}
-	return &model.CodeElement{Name: symbol, QualifiedName: qualifiedName, PackageName: pkg, Kind: kind, IsFormExternal: true}
+	return &model.CodeElement{Name: symbol, QualifiedName: qualifiedName, NamespaceQN: pkg, Kind: kind, IsFormExternal: true}
 }
 
 // ResolveVar 处理变量查找（本地作用域回溯 + 类成员继承查找）。
@@ -188,7 +188,7 @@ func (r *SymbolResolver) ResolveFunc(gc core.GlobalContext, fc core.FileContext,
 	}
 	if container == nil {
 		// 无容器兜底：方法名裸符号，归 <external>（与 ResolveType 外部兜底一致）。
-		return &model.CodeElement{Name: symbol, QualifiedName: symbol, PackageName: "<external>", Kind: model.Method, IsFormExternal: true}
+		return &model.CodeElement{Name: symbol, QualifiedName: symbol, NamespaceQN: "<external>", Kind: model.Method, IsFormExternal: true}
 	}
 
 	// 2. 实参信息（重载匹配）。
@@ -585,11 +585,11 @@ func (r *SymbolResolver) alignElementWithRelType(gc core.GlobalContext, fc core.
 		case model.Method, model.MethodRef, model.Lambda:
 			return elem
 		case model.Class, model.Interface, model.AnonymousClass, model.Enum:
-			// 未注册构造的实例化：类型元素校正为 Method 时保留包归属（外部符号 PackageName 不可丢）。
+			// 未注册构造的实例化：类型元素校正为 Method 时保留包归属（外部符号 NamespaceQN 不可丢）。
 			return &model.CodeElement{
 				Name:           elem.Name,
 				QualifiedName:  elem.QualifiedName,
-				PackageName:    elem.PackageName,
+				NamespaceQN:    elem.NamespaceQN,
 				Kind:           model.Method,
 				IsFormExternal: elem.IsFormExternal,
 			}
@@ -677,7 +677,7 @@ func (r *SymbolResolver) generateContextualFallback(gc core.GlobalContext, fc co
 	return &model.CodeElement{
 		Name:           base,
 		QualifiedName:  qualified,
-		PackageName:    pkg,
+		NamespaceQN:    pkg,
 		Kind:           kind,
 		IsFormExternal: true,
 	}

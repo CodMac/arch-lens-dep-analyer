@@ -92,8 +92,8 @@ func assertResolve(t *testing.T, gc core.GlobalContext, fc core.FileContext, nod
 	}
 }
 
-// assertResolvePkg 在 assertResolve 基础上追加 PackageName 断言。
-// 用于验证本次缺陷修复：外部裸名符号 PackageName=<external>，import 补全符号带包前缀。
+// assertResolvePkg 在 assertResolve 基础上追加 NamespaceQN 断言。
+// 用于验证本次缺陷修复：外部裸名符号 NamespaceQN=<external>，import 补全符号带包前缀。
 func assertResolvePkg(t *testing.T, gc core.GlobalContext, fc core.FileContext, node coreast.Node, relTyp model.DependencyType, wantQN string, wantKind model.ElementKind, wantExternal bool, wantPkg string) {
 	t.Helper()
 	elem := resolveAction(t, gc, fc, node, relTyp)
@@ -102,8 +102,8 @@ func assertResolvePkg(t *testing.T, gc core.GlobalContext, fc core.FileContext, 
 		return
 	}
 	assertResolve(t, gc, fc, node, relTyp, wantQN, wantKind, wantExternal)
-	if elem.PackageName != wantPkg {
-		t.Errorf("ResolveAction(%s) PackageName = %q, want %q (QN=%q)", relTyp, elem.PackageName, wantPkg, elem.QualifiedName)
+	if elem.NamespaceQN != wantPkg {
+		t.Errorf("ResolveAction(%s) NamespaceQN = %q, want %q (QN=%q)", relTyp, elem.NamespaceQN, wantPkg, elem.QualifiedName)
 	}
 }
 
@@ -832,27 +832,27 @@ func TestResolverNestedTypeName(t *testing.T) {
 	}
 }
 
-// TestResolverPackageName 本次缺陷修复断言：外部符号 PackageName 归属 + 基本类型 PRIMITIVE + 泛型变量不产外部。
+// TestResolverNamespaceQN 本次缺陷修复断言：外部符号 NamespaceQN 归属 + 基本类型 PRIMITIVE + 泛型变量不产外部。
 // 覆盖：
-//  1. 未 import 裸名（String/RuntimeException）-> PackageName=<external>（不猜 java.lang）
-//  2. import 补全符号（List/SQLException）-> PackageName=包前缀
-//  3. 基本类型（int）-> Kind=PRIMITIVE，PackageName 为空（非外部类，无包归属）
+//  1. 未 import 裸名（String/RuntimeException）-> NamespaceQN=<external>（不猜 java.lang）
+//  2. import 补全符号（List/SQLException）-> NamespaceQN=包前缀
+//  3. 基本类型（int）-> Kind=PRIMITIVE，NamespaceQN 为空（非外部类，无包归属）
 //  4. 泛型类型变量（T/E）与通配符（?）-> ResolveType 返回 nil，不产外部 Class
-func TestResolverPackageName(t *testing.T) {
+func TestResolverNamespaceQN(t *testing.T) {
 	// 1. Cast 套件：裸名外部 / import 补全 / 基本类型。
 	xs := resolverSuite(t, "extractor/cast")
-	// L13 (String) -> 未 import 裸名，PackageName=<external>
+	// L13 (String) -> 未 import 裸名，NamespaceQN=<external>
 	assertResolvePkg(t, xs.gc, xs.fc, resolveAtLine(t, xs.src, "cast_expression", 13), model.Cast, "String", model.Class, true, "<external>")
-	// L26 (List<String>) -> import 补全 java.util.List，PackageName=java.util
+	// L26 (List<String>) -> import 补全 java.util.List，NamespaceQN=java.util
 	assertResolvePkg(t, xs.gc, xs.fc, resolveAtLine(t, xs.src, "cast_expression", 26), model.Cast, "java.util.List", model.Class, true, "java.util")
-	// L20 (int) -> PRIMITIVE 专用元素，PackageName 空（非外部类，无包归属）
+	// L20 (int) -> PRIMITIVE 专用元素，NamespaceQN 空（非外部类，无包归属）
 	assertResolvePkg(t, xs.gc, xs.fc, resolveAtLine(t, xs.src, "cast_expression", 20), model.Cast, "int", model.Primitive, true, "")
 
 	// 2. Throw 套件：未 import 裸名 / import 补全。
 	ts := resolverSuite(t, "extractor/throw")
-	// L22 throw new RuntimeException -> 未 import，PackageName=<external>
+	// L22 throw new RuntimeException -> 未 import，NamespaceQN=<external>
 	assertResolvePkg(t, ts.gc, ts.fc, resolveAtLine(t, ts.src, "throw_statement", 22), model.Throw, "RuntimeException", model.Class, true, "<external>")
-	// L16 SQLException -> import java.sql.*，PackageName=java.sql
+	// L16 SQLException -> import java.sql.*，NamespaceQN=java.sql
 	sqlNode := findTypeIdentAtLine(t, ts.src, 16, "SQLException")
 	assertResolvePkg(t, ts.gc, ts.fc, sqlNode, model.Throw, "java.sql.SQLException", model.Class, true, "java.sql")
 
@@ -870,8 +870,8 @@ func TestResolverPackageName(t *testing.T) {
 	ser := gc.Resolver().ResolveType(gc, fc, "Serializable", model.Class)
 	if ser == nil {
 		t.Error("ResolveType(Serializable) = nil, want external Class (real dependency)")
-	} else if ser.QualifiedName != "java.io.Serializable" || ser.PackageName != "java.io" {
-		t.Errorf("ResolveType(Serializable) QN=%q PackageName=%q, want java.io.Serializable / java.io", ser.QualifiedName, ser.PackageName)
+	} else if ser.QualifiedName != "java.io.Serializable" || ser.NamespaceQN != "java.io" {
+		t.Errorf("ResolveType(Serializable) QN=%q NamespaceQN=%q, want java.io.Serializable / java.io", ser.QualifiedName, ser.NamespaceQN)
 	}
 }
 

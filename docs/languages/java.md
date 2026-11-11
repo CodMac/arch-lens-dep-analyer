@@ -29,6 +29,43 @@ Java 是**首个落地**的语言实现（现与 C/C++ 并存，见 [cpp.md](cpp
 
 > 各元素 QN 的完整规则与示例见 [qn-format.md](../qn-format.md) §2。
 
+### 2.1 展示层三字段（NamespaceQN / EnclosingQN / TypeQN）
+
+展示层按 `package → 类型 → 成员` 三层组织，`CodeElement` 提供三个字段支撑：
+
+| 字段 | 层级 | 取值 |
+|---|---|---|
+| `NamespaceQN` | L1 | 文件声明的 package；默认包为空 |
+| `EnclosingQN` | L2 父 | 元素直接词法外层，即 `DefinitionEntry.ParentQN` |
+| `TypeQN` | L2 宿主 | 沿词法父链取**最外层**具名类型（Class/Interface/Enum/Annotation）；类型元素取自身所在的最外层类型 |
+
+填充时机：`CollectDefinitions` 末尾 Step 6 `fillDisplayFields`（在语法糖处理之后，确保 desugar 元素也覆盖）。
+
+**取值规则**：
+
+| 元素 | NamespaceQN | EnclosingQN | TypeQN |
+|---|---|---|---|
+| File | 空 | 空 | 空 |
+| Package 元素 | 空 | 空 | 空 |
+| 顶层类型（class/interface/enum/annotation） | package | package | 自身 QN |
+| 嵌套类型 | package | 外层类型 QN | 最外层类型 QN |
+| 局部类（方法内） | package | 方法 QN | 最外层类型 QN |
+| 匿名类 | package | 所在方法/字段 QN | 最外层**具名**类型（跳过匿名层） |
+| lambda / method_ref | package | 所在方法/字段 QN | 最外层具名类型 |
+| ScopeBlock（`block$N` / `$static$N` / `$instance$N`） | package | 所在方法或类 QN | 最外层具名类型 |
+| 方法 / 构造器 | package | 宿主类型 QN | 最外层具名类型 |
+| 字段 / 枚举常量 | package | 宿主类型 QN | 最外层具名类型 |
+| 局部变量 | package | 所在方法/lambda/块 QN | 最外层具名类型 |
+
+**已知边界**：
+
+| # | 边界 | 说明 |
+|---|---|---|
+| D1 | **枚举常量带类体** | `enum E { A { int f; void m(){} } }` 的类体成员当前挂到枚举本身（`E.f`、`E.m()`），不建匿名子类；`TypeQN=E` 仍正确 |
+| D2 | **record 紧凑构造器块** | 紧凑构造器体收集为 `Record.block$N`（`EnclosingQN=record`），未单独建模为构造器方法 |
+| D3 | **默认包** | 无 `package` 声明时 `NamespaceQN=""`，其余字段不受影响 |
+| D4 | **外部符号** | resolver 兜底的外部元素只有 `NamespaceQN`（包前缀或 `<external>`），`EnclosingQN`/`TypeQN` 为空（无源码词法上下文） |
+
 ## 3. 关系覆盖（DependencyRelation）
 
 ### 3.1 结构关系（无 Location，raw 文本入 Mores）
@@ -108,14 +145,14 @@ Java 是**首个落地**的语言实现（现与 C/C++ 并存，见 [cpp.md](cpp
 
 1. **基本类型** → 产 `PRIMITIVE` 元素（`int`/`long`/`boolean`/…），QN 保留原名。
 2. **泛型类型变量**（单大写字母 `T`/`E`/`S`/`K`/`V`）与**通配符 `?`** → 不产外部元素（非真实类型依赖）。
-3. **有 import** → 升级为完整 QN（`List` → `java.util.List`），`PackageName` = import 包前缀。
-4. **无 import**（含同包符号、隐式 java.lang）→ QN 保留原文（裸名），`PackageName` 归 `<external>`，不补 `java.lang.*` 前缀。
+3. **有 import** → 升级为完整 QN（`List` → `java.util.List`），`NamespaceQN` = import 包前缀。
+4. **无 import**（含同包符号、隐式 java.lang）→ QN 保留原文（裸名），`NamespaceQN` 归 `<external>`，不补 `java.lang.*` 前缀。
 
 以下 5 类缺陷/现象均来自 spring-master 50 个最复杂文件的逐文件审计（LevelRaw 全量抽取值核对）。
 
 | # | 缺陷模式 | 现象 | 案例 |
 |---|---|---|---|
-| E1 | 方法引用目标裸名（最系统） | 方法引用 `A::b` 的目标 QN 退化为裸 `b()`，仅 `PackageName` 保留接收者类型原文 | 6.2.1 |
+| E1 | 方法引用目标裸名（最系统） | 方法引用 `A::b` 的目标 QN 退化为裸 `b()`，仅 `NamespaceQN` 保留接收者类型原文 | 6.2.1 |
 | E2 | 文本块字面量接收者污染 | 文本块 `"""...""".formatted()` 的接收者取整段字面量，目标 QN 含换行/缩进 | 6.2.2 |
 | E3 | 泛型参数逗号截断 | 带泛型 receiver 的方法调用，实参含嵌套逗号时按逗号错位分割，QN 混入 `>` 截断垃圾 | 6.2.3 |
 | E4 | 外部接口嵌套类型构造器裸名 | 外部接口的嵌套类型 `new Entry()` 解析为裸 `Entry()`，丢失外层接口 QN | 6.2.4 |
@@ -127,7 +164,7 @@ Java 是**首个落地**的语言实现（现与 C/C++ 并存，见 [cpp.md](cpp
 
 1. **命中源码符号库**（同文件/同包类在源码树中）→ 解析为完整 QN（如 `C8FullProbe::matches` → `com.example.rel.C8FullProbe.matches()`、`MergedAnnotation::isPresent` → `com.example.rel.MergedAnnotation.isPresent()`）。
 2. **外部类且有显式 import** → 按 import 升级完整 QN（如 `acceptedMediaType::isCompatibleWith` → `org.springframework.util.MimeType.isCompatibleWith(MimeType)`、`AnnotationUtils::invokeAnnotationMethod` → `org.springframework.core.annotation.AnnotationUtils.invokeAnnotationMethod(Method,Object)`）。
-3. **同包但无显式 import 的外部类** → 兜底生成**裸名**，`PackageName=<external>`，无法与同名/重载方法区分。
+3. **同包但无显式 import 的外部类** → 兜底生成**裸名**，`NamespaceQN=<external>`，无法与同名/重载方法区分。
 
 裸名案例（spring-master 已审计文件，行号为源码）：
 
@@ -138,7 +175,7 @@ Java 是**首个落地**的语言实现（现与 C/C++ 并存，见 [cpp.md](cpp
 
 #### 6.2.2 文本块字面量接收者污染（E2）
 
-Java 15 文本块 `"""..."""` 作为字符串字面量被当作调用接收者，目标 QN 取整段字面量原文（含换行/制表符），`PackageName` 同样被污染；与相邻的 `IllegalArgumentException()` 构造调用并列产出两条 CALL。
+Java 15 文本块 `"""..."""` 作为字符串字面量被当作调用接收者，目标 QN 取整段字面量原文（含换行/制表符），`NamespaceQN` 同样被污染；与相邻的 `IllegalArgumentException()` 构造调用并列产出两条 CALL。
 
 案例：
 
@@ -150,7 +187,7 @@ throw new IllegalArgumentException("""
         .formatted(context.metadata.operation));
 ```
 
-产出：目标 QN `"""...""".formatted()`，`PackageName` 为整段文本块；同时 L705 正常产出 `IllegalArgumentException()` 构造 CALL。同型案例：`AnnotationTypeMapping.java:325`、`ConfigurationClassPostProcessor.java:694`。
+产出：目标 QN `"""...""".formatted()`，`NamespaceQN` 为整段文本块；同时 L705 正常产出 `IllegalArgumentException()` 构造 CALL。同型案例：`AnnotationTypeMapping.java:325`、`ConfigurationClassPostProcessor.java:694`。
 
 #### 6.2.3 泛型参数逗号截断（E3）
 
@@ -165,7 +202,7 @@ private final MultiValueMap<Class<? extends CacheOperation>, CacheOperationConte
 this.contexts.add(op.getClass(), getOperationContext(op, method, args, target, targetClass));
 ```
 
-`contexts` 类型实参 `Class<? extends CacheOperation>` 内嵌套逗号（`? extends CacheOperation` 与下一实参分隔），解析错位后目标 QN 为 `CacheOperation>, CacheOperationContext.add()`，`PackageName` = `CacheOperation>, CacheOperationContext`。
+`contexts` 类型实参 `Class<? extends CacheOperation>` 内嵌套逗号（`? extends CacheOperation` 与下一实参分隔），解析错位后目标 QN 为 `CacheOperation>, CacheOperationContext.add()`，`NamespaceQN` = `CacheOperation>, CacheOperationContext`。
 
 #### 6.2.4 外部接口嵌套类型构造器裸名（E4）
 
@@ -194,7 +231,7 @@ uriBuilder.append(getScheme()).append(':');
 uriBuilder.append(this.userInfo).append('@');
 ```
 
-外层 `.append(':')` 的 receiver 为内层表达式 `uriBuilder.append(getScheme())`，目标 QN = `StringBuilder.append.append()`，`PackageName` = `StringBuilder.append`（接收者类型未沿链式返回类型解析）。
+外层 `.append(':')` 的 receiver 为内层表达式 `uriBuilder.append(getScheme())`，目标 QN = `StringBuilder.append.append()`，`NamespaceQN` = `StringBuilder.append`（接收者类型未沿链式返回类型解析）。
 
 ### 6.3 合理裸名（非缺陷）
 
@@ -226,5 +263,11 @@ uriBuilder.append(this.userInfo).append('@');
 ## 8. 测试现状
 
 - 三层单测 + e2e 黄金回归集（见 [testing.md](../testing.md)）。
-- e2e 基线：`x/java/testdata/e2e/baseline.golden.jsonl`（1458 元素 + 2954 关系，LevelBalanced）。
+- e2e 基线：`x/java/testdata/e2e/baseline.golden.jsonl`（1613 元素 + 3197 关系，LevelBalanced）。
 - 覆盖关系类型：Call/Create/Assign/Cast/Use/Extend/Implement/Parameter/Return/Throw/Annotation/TypeArg/Capture 共 13 类。
+- 展示层三字段测试：
+  | 测试 | 覆盖 |
+  |---|---|
+  | `TestCollectorS11DisplayFields` | 包内成员 / 嵌套类 / 局部类 / 匿名类内部 / File 三字段空 |
+  | `TestCollectorS12DisplayFieldsEdge` | 8 组边界样例（`collector/display/`）：五层链、默认包、接口嵌套、注解嵌套、record、枚举常量类体、嵌套匿名与局部类、初始化块与字段初始化 |
+  | `TestCollectorDisplayFieldsInvariant` | 全量不变量（52 文件 / 841 元素）：File 空、NamespaceQN=package、EnclosingQN=ParentQN、TypeQN 存在且为具名类型、TypeQN 是 QN 段边界前缀 |

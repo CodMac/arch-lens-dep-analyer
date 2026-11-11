@@ -447,7 +447,7 @@ func (ac *actionCtx) constructorOf(t *model.CodeElement) *model.CodeElement {
 			Kind:           model.Method,
 			Name:           t.Name,
 			QualifiedName:  helper.BuildQN(t.QualifiedName, t.Name),
-			PackageName:    t.PackageName,
+			NamespaceQN:    t.NamespaceQN,
 			IsFormExternal: t.IsFormExternal,
 		}
 	}

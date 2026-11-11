@@ -170,6 +170,18 @@ type GlobalContextRules struct {
 
 **声明/定义成对 kind（2026-11-06）**：`FunctionDecl`（`FUNCTION_DECL`）与 `MethodDecl`（`METHOD_DECL`）用于 C/C++ 等声明/实现分离语言，与 `Function`/`Method` 成对，QN 相同、Kind 不同。
 
+**展示层三字段（2026-11-10）**：`CodeElement` 提供 `NamespaceQN` / `EnclosingQN` / `TypeQN`，供展示层按 `namespace|package|module → 类型 → 成员` 三层组织：
+
+| 字段 | 层级 | 含义 | 取值 |
+|---|---|---|---|
+| `NamespaceQN` | L1 | 元素所属逻辑命名空间 | Java=package；C++=最近外层 namespace 全 QN；外部元素=包前缀或 `<external>` |
+| `EnclosingQN` | L2 父 | 元素直接词法外层 | 即 `DefinitionEntry.ParentQN`（内部类/方法/匿名类/作用域块） |
+| `TypeQN` | L2 宿主 | 元素所属最外层具名类型 | 类型元素取自身所在的最外层类型；无宿主类型为空 |
+
+- 由各语言 Collector 在收集流程末尾统一填充（`fillDisplayFields`），此时 `ParentQN` 已最终确定、语法糖元素已注册。
+- `File` 元素三字段恒为空；外部符号只有 `NamespaceQN`（无源码词法上下文）。
+- 原 `PackageName` 字段已更名为 `NamespaceQN`（语义从「Java 包」泛化为「任意语言的逻辑命名空间」）。
+
 **关键约束**：
 - 零依赖，可被任何层 import。
 - Mores 是 `map[string]interface{}`，语言无关 key 定义于 model 层，语言特化 key 定义于各语言 constants 包，避免散落魔法字符串。
