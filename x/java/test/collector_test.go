@@ -930,6 +930,11 @@ func TestCollectorS7Lombok(t *testing.T) {
 			// 数组字段 setter
 			{"com.example.lombok.EdgeCases.setIntArray(int[])", []string{"int[] intArray"}},
 			{"com.example.lombok.EdgeCases.setStringArray(String[])", []string{"String[] stringArray"}},
+			// 泛型字段 setter：QN 剥泛型实参，MethodParameters 保留原始类型
+			{"com.example.lombok.EdgeCases.setGenericList(java.util.List)", []string{"java.util.List<String> genericList"}},
+			{"com.example.lombok.EdgeCases.setGenericMap(java.util.Map)", []string{"java.util.Map<String, java.util.List<Integer>> genericMap"}},
+			// 泛型数组：剥泛型实参但保留 []
+			{"com.example.lombok.EdgeCases.setGenericArray(Class[])", []string{"Class<?>[] genericArray"}},
 		}
 		for _, c := range cases {
 			AssertDef(t, gc, c.qn, model.Method)

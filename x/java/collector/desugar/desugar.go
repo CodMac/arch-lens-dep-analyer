@@ -404,11 +404,14 @@ func (c *DeSugar) lombokSetter(elem *model.CodeElement, node coreast.Node, fCtx 
 
 		setterName := "set" + strings.ToUpper(fieldName[:1]) + fieldName[1:]
 
-		if c.checkMethodExists(elem.QualifiedName, setterName, "("+fieldType+")", fCtx) {
+		// QN 参数列表剥泛型实参（保留 []/...），与源码方法规则一致；
+		// Signature / MethodParameters 仍用原始类型（含泛型），供展示与类型解析。
+		paramType := helper.StripGenericArgs(fieldType)
+		if c.checkMethodExists(elem.QualifiedName, setterName, "("+paramType+")", fCtx) {
 			continue
 		}
 
-		setterQN := c.resolver.BuildQualifiedName(elem.QualifiedName, setterName+"("+fieldType+")")
+		setterQN := c.resolver.BuildQualifiedName(elem.QualifiedName, setterName+"("+paramType+")")
 
 		addDef(fCtx, &model.CodeElement{
 			Kind:          model.Method,
@@ -756,7 +759,8 @@ func (c *DeSugar) lombokBuilder(elem *model.CodeElement, node coreast.Node, fCtx
 		fieldName := field.Element.Name
 		fieldType, _ := field.Element.Extra.Mores[constants.FieldRawType].(string)
 
-		setterQN := c.resolver.BuildQualifiedName(builderQN, fieldName+"("+fieldType+")")
+		// QN 参数列表剥泛型实参（保留 []/...），与源码方法规则一致。
+		setterQN := c.resolver.BuildQualifiedName(builderQN, fieldName+"("+helper.StripGenericArgs(fieldType)+")")
 		if _, ok := fCtx.FindByQualifiedName(setterQN); !ok {
 			addDef(fCtx, &model.CodeElement{
 				Kind:          model.Method,

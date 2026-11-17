@@ -120,7 +120,7 @@ Java 的默认包是真实存在的 unnamed package，不是「无归属」。�
 | 枚举 `values()` | `values()` | `Status.values()` |
 | 枚举 `valueOf(String)` | `valueOf(String)` | `Status.valueOf(String)` |
 | Lombok `@Slf4j` | 字段 `log` | `Clazz.log` |
-| Lombok getter/setter | `getX()` / `setX(类型)` | `getName()`、`setName(String)` |
+| Lombok getter/setter | `getX()` / `setX(类型)` | `getName()`、`setName(String)`；泛型字段 QN 剥泛型实参（`setGenericList(java.util.List)`），`Signature` 保留原始类型 |
 | Lombok Builder 内部类 | `父QN.Builder` | `ChainedCallExample.Builder` |
 | Lombok Builder 链式 setter | `Builder.字段名(类型)` | `Builder.name(String)` |
 | Lombok Builder `build()` | `Builder.build()` | `Builder.build()` |

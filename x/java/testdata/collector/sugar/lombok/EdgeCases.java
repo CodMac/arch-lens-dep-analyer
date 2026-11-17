@@ -23,8 +23,11 @@ public class EdgeCases {
     private int[] intArray;
     private String[] stringArray;
 
-    // 泛型集合（可能需要特殊处理）
-    // private java.util.List<String> genericList;
+    // 泛型集合：setter/getter 的 QN 参数剥泛型实参（setGenericList(List)），
+    // Signature / MethodParameters 仍保留原始类型（List<String>）。
+    private java.util.List<String> genericList;
+    private java.util.Map<String, java.util.List<Integer>> genericMap;
+    private Class<?>[] genericArray;
 
     // 静态字段（不应该生成getter/setter）
     private static String staticField = "static";

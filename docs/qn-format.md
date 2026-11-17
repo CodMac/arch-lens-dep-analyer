@@ -201,6 +201,7 @@ com.example.base.ScopeTest.test().lambda$1.a
 | 枚举 `valueOf(String)` | `valueOf(String)` | `com.example.app.Status.valueOf(String)` |
 | Lombok `@Slf4j` | 字段 `log` | `...Clazz.log` |
 | Lombok getter/setter | `getX()` / `setX(类型)` | `com.example.lombok.DataComprehensive.getName()`、`setName(String)` |
+| Lombok setter 泛型字段 | QN 参数剥泛型实参（与源码方法一致） | `EdgeCases.setGenericList(java.util.List)`（`Signature` 仍为 `setGenericList(java.util.List<String>)`） |
 | Lombok Builder 内部类 | `父QN.Builder` | `com.example.chained.ChainedCallExample.Builder` |
 | Lombok Builder 链式 setter | `Builder.字段名(类型)` | `com.example.chained.ChainedCallExample.Builder.name(String)` |
 | Lombok Builder `build()` | `Builder.build()` | `com.example.chained.ChainedCallExample.Builder.build()` |
@@ -213,6 +214,8 @@ com.example.chained.ChainedCallExample.Builder.name(String)
 com.example.chained.ChainedCallExample.Builder.build()
 com.example.chained.ChainedCallExample.Builder.age(int).age   ← Builder 方法内变量
 ```
+
+Builder 链式 setter 的参数类型同样**剥泛型实参、保留 `[]`/`...`**：字段 `List<Long> destDetails` → `Builder.destDetails(java.util.List)`。
 
 ## 3. 关系中的 QN 语义
 
