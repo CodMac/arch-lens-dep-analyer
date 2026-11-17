@@ -348,7 +348,18 @@ void consume(Class<?>... types)    →  Class.consume(Class...) // ... 必须保
 `new Runnable(){}` 匿名类：
 - 元素 QN：`方法QN.anonymousClass$1`。
 - 结构关系：**EXTEND** `-> Runnable`（不是 IMPLEMENT，见 `extractStructural` 对 AnonymousClass 的处理）。
-- 同时产生 CREATE `-> Runnable` 与 CALL `-> Runnable()`（构造调用）。
+- 同时产生 CREATE `-> Runnable`。
+- **不产生 CALL**：接口/注解类型没有构造器，`resolveConstructor` 对 Interface/KAnnotation 返回 nil，避免产出悬空的 `Runnable.Runnable()`。匿名类自身若有构造器语义的父类（class），仍按普通 `new` 产生 CALL。
+
+### 5.5.1 构造引用 `Type::new` 的 CALL 目标
+
+`Type::new` 与 `new Type(...)` 走同一条构造器消解路径，CALL 目标是**真实构造器元素** `类QN.类名(参数)`：
+
+- 无参构造：`Inner::new` → `com.example.rel.NewRefProbe.Inner.Inner()`。
+- 仅带参构造：`Function<String, OnlyArg> f = OnlyArg::new` → `com.example.rel.NewRefProbe.OnlyArg.OnlyArg(String)`（按函数式接口实参类型推断）。
+- 无法推断且类型无匹配构造器时不回退成 `类QN.类名()` 悬空符号。
+
+tree-sitter 对 `::new` 不提供 `object`/`name` 字段（子节点为 `identifier / :: / new`），因此 `expression_segmenter` 手工取 `::` 前的类型节点产出 `HeadNewExpr`，`node_context_resolver` 亦需把该接收者 identifier 爬升到 `method_reference` 节点。
 
 ### 5.6 作用域容器与变量归属
 

@@ -36,7 +36,26 @@ class NewRefProbe {
         Inner() {}
         Inner(int x) {}
     }
+    static class OnlyArg {
+        OnlyArg(String s) {}
+    }
+    interface Handler {
+        void handle();
+    }
     java.util.function.Supplier<Inner> d() {
         return Inner::new;
+    }
+    // 构造引用指向只有带参构造器的类：必须按实参推断到 Inner(String)，
+    // 不能退化成悬空的 OnlyArg.OnlyArg()。
+    java.util.function.Function<String, OnlyArg> e() {
+        return OnlyArg::new;
+    }
+    // 接口匿名类实例化：接口没有构造器，CALL 应被降噪（不产悬空的 Handler.Handler()）。
+    Handler f() {
+        return new Handler() {
+            @Override
+            public void handle() {
+            }
+        };
     }
 }

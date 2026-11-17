@@ -316,11 +316,18 @@ func TestExtractorC8TypeNameReceiver(t *testing.T) {
 			wantSource: "com.example.rel.MethodRefProbe.a(boolean)",
 			wantTarget: "com.example.rel.MergedAnnotation.isPresent()", wantKind: model.Method, wantLine: 19,
 		},
-		// Form 1：Inner::new -> 构造引用保留，目标 Inner() 构造器（MethodRefProbe.java:40）
+		// Form 1：Inner::new -> 构造引用保留，目标 Inner() 构造器（MethodRefProbe.java:46）
 		{
 			wantType:   model.Call,
 			wantSource: "com.example.rel.NewRefProbe.d()",
-			wantTarget: "com.example.rel.NewRefProbe.Inner.Inner()", wantKind: model.Method, wantLine: 40,
+			wantTarget: "com.example.rel.NewRefProbe.Inner.Inner()", wantKind: model.Method, wantLine: 46,
+		},
+		// Form 1：OnlyArg::new -> 按函数式接口实参推断到带参构造器 OnlyArg(String)，
+		// 不能退化成悬空的 OnlyArg.OnlyArg()（MethodRefProbe.java:51）
+		{
+			wantType:   model.Call,
+			wantSource: "com.example.rel.NewRefProbe.e()",
+			wantTarget: "com.example.rel.NewRefProbe.OnlyArg.OnlyArg(String)", wantKind: model.Method, wantLine: 51,
 		},
 		// Form 2：AnnoFilter.PLAIN.length() -> USE 接口常量 Field（C8FullProbe.java:30）
 		{

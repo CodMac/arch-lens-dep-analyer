@@ -298,7 +298,11 @@ func (cr *ChainResolver) resolveSegment(curr *model.CodeElement, seg ExpressionS
 }
 
 // resolveConstructor 在目标类型及其父类链上查找构造器元素（含重载消解）。
-// 未命中时返回类型元素本身，交由调用方按旧语义兜底。
+// 未命中时：
+//   - Interface / Annotation 不可能有构造器（如匿名类实例化 `new Iface(){}`），返回 nil，
+//     交由调用方兜底为外部符号（Balanced 下被降噪），避免产出悬空的 `Iface.Iface()`；
+//   - Class / Enum 返回类型元素本身，交由 alignElementWithRelType 补构造器名段
+//     （源码类但构造器未被收集时的旧语义兜底）。
 func (cr *ChainResolver) resolveConstructor(typeElem *model.CodeElement, argCount int, inferredTypes []string) *model.CodeElement {
 	if typeElem == nil {
 		return nil
@@ -306,6 +310,9 @@ func (cr *ChainResolver) resolveConstructor(typeElem *model.CodeElement, argCoun
 	mr := NewMemberResolver(cr.gc, cr.fc)
 	if elem := cr.resolveCtorOnType(mr, typeElem, typeElem.Name, argCount, inferredTypes); elem != nil {
 		return elem
+	}
+	if typeElem.Kind == model.Interface || typeElem.Kind == model.KAnnotation {
+		return nil
 	}
 	return typeElem
 }

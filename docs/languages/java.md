@@ -153,6 +153,8 @@ Java 的默认包是真实存在的 unnamed package，不是「无归属」。�
 | 5 | 外部符号兜底 | 未命中源码符号库时由 `SymbolResolver` 兜底：基本类型产 PRIMITIVE 元素；泛型类型变量（单大写字母）/通配符 `?` 不产外部；其余按 import 表升级完整 QN 并分配包归属（无 import 归 `<external>`）。不补 `java.lang.*` 前缀，隐式 java.lang 符号 QN 保留裸名。详见 6.2 |
 | 6 | 未实现语法糖 | Java 14+ 模式匹配完整语义、泛型通配符推断未覆盖；record 的 `equals/hashCode/toString` 合成**已实现**（`desugar.go:195-230`）；`sealed`/`permits` 等新语法未覆盖 |
 | 7 | 注解处理器 | 不执行编译期注解处理器；仅按源码注解文本识别 Lombok 等 |
+| 8 | 构造引用 `Type::new` | 与 `new Type(...)` 同路径消解为真实构造器元素（`OnlyArg::new` → `OnlyArg.OnlyArg(String)`）；tree-sitter 对 `::new` 无 `object`/`name` 字段，由 segmenter 手工取 `::` 前类型节点 |
+| 9 | 接口/注解匿名类实例化 | `new Iface(){}` 只产 CREATE，不产 CALL（接口无构造器，`resolveConstructor` 返回 nil），避免悬空 `Iface.Iface()` |
 
 ### 6.2 外部符号兜底行为（2026-11-05 重评估）
 

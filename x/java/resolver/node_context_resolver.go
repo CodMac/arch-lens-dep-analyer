@@ -82,6 +82,12 @@ func (r *NodeContextResolver) findCoreChain(node coreast.Node) coreast.Node {
 					curr = p
 					continue
 				}
+				// 构造引用 Type::new：tree-sitter 无 name 字段，接收者 identifier 必须
+				// 爬升到 method_reference，否则 segmenter 收到裸 identifier 而丢失 `::new` 语义。
+				if p.Kind() == "method_reference" && isCtorRefNode(p) {
+					curr = p
+					continue
+				}
 			}
 			return curr
 		}
@@ -190,4 +196,18 @@ func (r *NodeContextResolver) resolveForCast(node coreast.Node) ContextResult {
 		return ContextResult{ExpressNode: node, ContextNode: r.findOuterBoundary(node)}
 	}
 	return ContextResult{ExpressNode: node, ContextNode: r.findOuterBoundary(node)}
+}
+
+// isCtorRefNode 判断 method_reference 是否为构造引用 `Type::new`
+// （tree-sitter 的 `::new` 无 name 字段，子节点含未命名 token "new"）。
+func isCtorRefNode(node coreast.Node) bool {
+	if node == nil || node.Kind() != "method_reference" {
+		return false
+	}
+	for i := 0; i < node.ChildCount(); i++ {
+		if node.Child(i).Kind() == "new" {
+			return true
+		}
+	}
+	return false
 }

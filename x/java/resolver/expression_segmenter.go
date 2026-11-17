@@ -114,6 +114,19 @@ func (es *ExpressionSegmenter) split(node coreast.Node) (*ExpressionHead, []Expr
 				RawText: name.Utf8Text(es.src),
 			})
 		}
+		// 构造引用 Type::new：tree-sitter 不为 `::new` 提供 object/name 字段
+		// （子节点是 identifier / :: / new），需手工取 `::` 前的接收者作为类型头。
+		// 否则会退化成裸标识符 "Type::new"，解析失败后被 align 补成 "类QN()" 悬空。
+		if refType := es.methodRefCtorType(node); refType != nil {
+			// 用 HeadNewExpr 而非 HeadType：构造引用的 CALL 目标应是真实构造器元素
+			// （`类QN.类名(参数)`），与 `new Type(...)` 走同一条构造器消解路径。
+			return &ExpressionHead{
+				Type:    HeadNewExpr,
+				Name:    refType.Utf8Text(es.src),
+				ASTNode: refType,
+				RawText: refType.Utf8Text(es.src),
+			}, nil
+		}
 		// 无法拆解：整体作为 Ident
 		return &ExpressionHead{
 			Type:    HeadIdent,
@@ -270,4 +283,30 @@ func (es *ExpressionSegmenter) castTypeName(node coreast.Node) string {
 		}
 	}
 	return strings.TrimSpace(node.Utf8Text(es.src))
+}
+
+// methodRefCtorType 提取构造引用 `Type::new` 的接收者类型节点。
+// tree-sitter 对 `::new` 不提供 object/name 字段，子节点为 identifier / :: / new，
+// 因此取 `::` 之前的第一个具名子节点作为类型。非 `::new` 形态返回 nil。
+func (es *ExpressionSegmenter) methodRefCtorType(node coreast.Node) coreast.Node {
+	isCtorRef := false
+	for i := 0; i < node.ChildCount(); i++ {
+		if node.Child(i).Kind() == "new" {
+			isCtorRef = true
+			break
+		}
+	}
+	if !isCtorRef {
+		return nil
+	}
+	for i := 0; i < node.ChildCount(); i++ {
+		c := node.Child(i)
+		if c.Kind() == "::" {
+			break
+		}
+		if c.IsNamed() {
+			return c
+		}
+	}
+	return nil
 }
