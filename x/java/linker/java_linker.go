@@ -8,6 +8,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 	"github.com/CodMac/arch-lens-dep-analyer/x/java/helper"
 )
 
@@ -30,19 +31,21 @@ func (l *Linker) LinkHierarchy(gc core.GlobalContext) []*model.DependencyRelatio
 
 	for _, fCtx := range gc.FileContexts() {
 		// --- 1. 处理 Package 层级 ---
+		// 默认包（无 package 声明）用哨兵 QN 归属，与 Collector 的 NamespaceQN 一致。
 		pkgName := helper.PackageNameOf(fCtx)
-		if pkgName != "" {
-			// A. Package -> File
-			l.addRel(relMap, model.Package, pkgName, model.File, fCtx.FilePath())
+		if pkgName == "" {
+			pkgName = constants.DefaultPackageQN
+		}
+		// A. Package -> File
+		l.addRel(relMap, model.Package, pkgName, model.File, fCtx.FilePath())
 
-			// B. Package -> SubPackage (递归拆解包名)
-			// 如 "com.example.util" -> "com", "com.example", "com.example.util"
-			parts := strings.Split(pkgName, ".")
-			for i := len(parts) - 1; i > 0; i-- {
-				parentPkg := strings.Join(parts[:i], ".")
-				subPkg := strings.Join(parts[:i+1], ".")
-				l.addRel(relMap, model.Package, parentPkg, model.Package, subPkg)
-			}
+		// B. Package -> SubPackage (递归拆解包名)
+		// 如 "com.example.util" -> "com", "com.example", "com.example.util"
+		parts := strings.Split(pkgName, ".")
+		for i := len(parts) - 1; i > 0; i-- {
+			parentPkg := strings.Join(parts[:i], ".")
+			subPkg := strings.Join(parts[:i+1], ".")
+			l.addRel(relMap, model.Package, parentPkg, model.Package, subPkg)
 		}
 
 		// --- 2. 处理 File -> TopLevelElements ---

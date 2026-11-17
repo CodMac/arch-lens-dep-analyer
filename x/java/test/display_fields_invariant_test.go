@@ -9,6 +9,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 )
 
 // TestCollectorDisplayFieldsInvariant 对全部 collector 样例断言展示层三字段的通用不变量。
@@ -27,6 +28,10 @@ func TestCollectorDisplayFieldsInvariant(t *testing.T) {
 		pkg := ""
 		if pfc, ok := fc.(core.PackageAwareFileContext); ok {
 			pkg = pfc.PackageName()
+		}
+		// 默认包（无 package 声明）归属哨兵 QN。
+		if pkg == "" {
+			pkg = constants.DefaultPackageQN
 		}
 		for _, entry := range fc.Definitions() {
 			elem := entry.Element

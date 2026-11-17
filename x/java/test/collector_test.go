@@ -1343,12 +1343,15 @@ func TestCollectorS12DisplayFieldsEdge(t *testing.T) {
 
 	t.Run("默认包", func(t *testing.T) {
 		gc := load(t)
-		AssertDisplayFields(t, gc, "DisplayDefaultPackage", "", "", "DisplayDefaultPackage")
-		AssertDisplayFields(t, gc, "DisplayDefaultPackage.field", "", "DisplayDefaultPackage", "DisplayDefaultPackage")
-		AssertDisplayFields(t, gc, "DisplayDefaultPackage.method()", "", "DisplayDefaultPackage", "DisplayDefaultPackage")
-		AssertDisplayFields(t, gc, "DisplayDefaultPackage.method().local", "", "DisplayDefaultPackage.method()", "DisplayDefaultPackage")
-		AssertDisplayFields(t, gc, "DisplayDefaultPackage.Nested", "", "DisplayDefaultPackage", "DisplayDefaultPackage")
-		AssertDisplayFields(t, gc, "DisplayDefaultPackage.Nested.nestedField", "", "DisplayDefaultPackage.Nested", "DisplayDefaultPackage")
+		// 默认包是真实存在的 unnamed package：NamespaceQN 用哨兵 QN 归属。
+		AssertDisplayFields(t, gc, "DisplayDefaultPackage", "(default)", "", "DisplayDefaultPackage")
+		AssertDisplayFields(t, gc, "DisplayDefaultPackage.field", "(default)", "DisplayDefaultPackage", "DisplayDefaultPackage")
+		AssertDisplayFields(t, gc, "DisplayDefaultPackage.method()", "(default)", "DisplayDefaultPackage", "DisplayDefaultPackage")
+		AssertDisplayFields(t, gc, "DisplayDefaultPackage.method().local", "(default)", "DisplayDefaultPackage.method()", "DisplayDefaultPackage")
+		AssertDisplayFields(t, gc, "DisplayDefaultPackage.Nested", "(default)", "DisplayDefaultPackage", "DisplayDefaultPackage")
+		AssertDisplayFields(t, gc, "DisplayDefaultPackage.Nested.nestedField", "(default)", "DisplayDefaultPackage.Nested", "DisplayDefaultPackage")
+		// 默认包 PACKAGE 元素本身存在。
+		AssertDef(t, gc, constants.DefaultPackageQN, model.Package)
 	})
 
 	t.Run("接口", func(t *testing.T) {

@@ -80,7 +80,12 @@ func (c *Collector) CollectDefinitions(src coreast.SourceFile) (core.FileContext
 //
 // 必须在全部定义（含 desugar 新增）注册、ParentQN 最终确定后执行。
 func (c *Collector) fillDisplayFields(fCtx core.FileContext) {
+	// 默认包（无 package 声明）是真实存在的 unnamed package，用哨兵 QN 归属，
+	// 否则元素既无 NamespaceQN 也不在任何 PACKAGE 节点下。
 	pkg := helper.PackageNameOf(fCtx)
+	if pkg == "" {
+		pkg = constants.DefaultPackageQN
+	}
 	for _, entry := range fCtx.Definitions() {
 		elem := entry.Element
 		if elem.Kind == model.File {

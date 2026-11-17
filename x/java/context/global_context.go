@@ -5,6 +5,7 @@ import (
 
 	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
+	"github.com/CodMac/arch-lens-dep-analyer/x/java/constants"
 )
 
 // GlobalContext 是 Java 的全局符号上下文。
@@ -27,7 +28,11 @@ func NewGlobalContext(resolver core.SymbolResolver, builder core.SymbolBuilder) 
 // RegisterFileContext 先注册包层级，再登记文件内定义。
 func (gc *GlobalContext) RegisterFileContext(fc core.FileContext) {
 	if pfc, ok := fc.(core.PackageAwareFileContext); ok {
-		gc.registerPackage(pfc.PackageName())
+		if name := pfc.PackageName(); name != "" {
+			gc.registerPackage(name)
+		} else {
+			gc.registerDefaultPackage()
+		}
 	}
 	gc.BaseGlobalContext.RegisterFileContext(fc)
 }
@@ -42,10 +47,26 @@ func (gc *GlobalContext) registerPackage(packageName string) {
 		}
 		current = append(current, part)
 		pkgQN := strings.Join(current, ".")
-		if _, ok := gc.FindByQualifiedName(pkgQN); !ok {
-			gc.AddDefinition(&core.DefinitionEntry{
-				Element: &model.CodeElement{Kind: model.Package, Name: part, QualifiedName: pkgQN, IsFormSource: true},
-			})
-		}
+		gc.addPackageElem(part, pkgQN)
 	}
+}
+
+// registerDefaultPackage 为默认包（无 package 声明）注册哨兵 PACKAGE 元素。
+func (gc *GlobalContext) registerDefaultPackage() {
+	gc.addPackageElem(constants.DefaultPackageQN, constants.DefaultPackageQN)
+}
+
+// addPackageElem 注册一个 PACKAGE 元素（幂等）。
+func (gc *GlobalContext) addPackageElem(name, pkgQN string) {
+	if _, ok := gc.FindByQualifiedName(pkgQN); ok {
+		return
+	}
+	gc.AddDefinition(&core.DefinitionEntry{
+		Element: &model.CodeElement{
+			Kind:          model.Package,
+			Name:          name,
+			QualifiedName: pkgQN,
+			IsFormSource:  true,
+		},
+	})
 }

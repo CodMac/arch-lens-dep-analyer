@@ -6,7 +6,7 @@
 
 ## 1. 总体状态
 
-Java 是**首个落地**的语言实现（现与 C/C++ 并存，见 [cpp.md](cpp.md)）。全部 9 个 SPI（Parser / Collector / Binder / Extractor / Linker / NoiseFilter / SymbolResolver / SymbolBuilder / ParserFactory）均已实现并经 `x/java/init.go` 注册。行为契约由 `x/java/testdata/e2e/baseline.golden.jsonl`（4714 行 = 1618 元素 + 3096 关系，LevelBalanced）锚定。
+Java 是**首个落地**的语言实现（现与 C/C++ 并存，见 [cpp.md](cpp.md)）。全部 9 个 SPI（Parser / Collector / Binder / Extractor / Linker / NoiseFilter / SymbolResolver / SymbolBuilder / ParserFactory）均已实现并经 `x/java/init.go` 注册。行为契约由 `x/java/testdata/e2e/baseline.golden.jsonl`（4716 行 = 1619 元素 + 3097 关系，LevelBalanced）锚定。
 
 > **上下文接口化影响（2026-11-06）**：`FileContext`/`GlobalContext` 改为接口后，Java 全量实现做了机械适配（字段访问 → 方法调用），**语义不变**，e2e 基线内容不变（仅换行符噪声）。
 >
@@ -35,7 +35,7 @@ Java 是**首个落地**的语言实现（现与 C/C++ 并存，见 [cpp.md](cpp
 
 | 字段 | 层级 | 取值 |
 |---|---|---|
-| `NamespaceQN` | L1 | 文件声明的 package；默认包为空 |
+| `NamespaceQN` | L1 | 文件声明的 package；无 `package` 声明时取哨兵 QN `(default)` |
 | `EnclosingQN` | L2 父 | 元素直接词法外层，即 `DefinitionEntry.ParentQN` |
 | `TypeQN` | L2 宿主 | 沿词法父链取**最外层**具名类型（Class/Interface/Enum/Annotation）；类型元素取自身所在的最外层类型 |
 
@@ -63,8 +63,20 @@ Java 是**首个落地**的语言实现（现与 C/C++ 并存，见 [cpp.md](cpp
 |---|---|---|
 | D1 | **枚举常量带类体** | `enum E { A { int f; void m(){} } }` 的类体成员当前挂到枚举本身（`E.f`、`E.m()`），不建匿名子类；`TypeQN=E` 仍正确 |
 | D2 | **record 紧凑构造器块** | 紧凑构造器体收集为 `Record.block$N`（`EnclosingQN=record`），未单独建模为构造器方法 |
-| D3 | **默认包** | 无 `package` 声明时 `NamespaceQN=""`，其余字段不受影响 |
+| D3 | **默认包** | 无 `package` 声明时 `NamespaceQN="(default)"`（哨兵 QN，见下）；其余字段不受影响 |
 | D4 | **外部符号** | resolver 兜底的外部元素只有 `NamespaceQN`（包前缀或 `<external>`），`EnclosingQN`/`TypeQN` 为空（无源码词法上下文） |
+
+**默认包（`(default)`）**：
+
+Java 的默认包是真实存在的 unnamed package，不是「无归属」。无 `package` 声明的文件：
+
+- Collector 把该文件全部元素的 `NamespaceQN` 填为 `constants.DefaultPackageQN`（`"(default)"`）。
+- `GlobalContext.RegisterFileContext` 注册一个 `Kind=PACKAGE`、`QualifiedName="(default)"` 的元素。
+- Linker 产出 `Package("(default)") → File` 的 CONTAIN 边。
+
+类 QN 本身**不含** `(default)` 前缀（仍为 `OperationDataTest`），`helper.PackageNameOf` 与 `helper.GetRealPackage` 保持返回空串，默认包内互相可见的语义不变。
+
+> 与 C++ 的 `(global)` 语义不同：C++ 全局作用域符号的 `namespace_qn` 为空是**正确语义**（不存在全局命名空间实体），因此 C++ 侧不做哨兵填充；Java 的默认包是需要归属的真实包。
 
 ## 3. 关系覆盖（DependencyRelation）
 
@@ -259,18 +271,18 @@ uriBuilder.append(this.userInfo).append('@');
 | SymbolResolver | `x/java/symbol_resolver/` | 三段式动作解析 + 类型解析 |
 | SymbolBuilder | `x/java/symbol_builder/` | QN 拼接（点号） |
 | FileContext | `x/java/context/` | 内嵌 `core.BaseFileContext` + 实现 `core.PackageAwareFileContext` |
-| GlobalContext | `x/java/context/` | 内嵌 `core.BaseGlobalContext`；`RegisterFileContext` 内按 `.` 注册 PACKAGE；重载索引只收 `Method` |
+| GlobalContext | `x/java/context/` | 内嵌 `core.BaseGlobalContext`；`RegisterFileContext` 内按 `.` 注册 PACKAGE（默认包注册 `(default)`）；重载索引只收 `Method` |
 
 > SPI 签名中的上下文类型为接口（`core.FileContext` / `core.GlobalContext`），通用索引与锁由 `core.Base*` 提供，Java 专属语义在 `x/java/context` 中实现。
 
 ## 8. 测试现状
 
 - 三层单测 + e2e 黄金回归集（见 [testing.md](../testing.md)）。
-- e2e 基线：`x/java/testdata/e2e/baseline.golden.jsonl`（1618 元素 + 3096 关系，LevelBalanced）。
+- e2e 基线：`x/java/testdata/e2e/baseline.golden.jsonl`（1619 元素 + 3097 关系，LevelBalanced）。
 - 覆盖关系类型：Call/Create/Assign/Cast/Use/Extend/Implement/Parameter/Return/Throw/Annotation/TypeArg/Capture 共 13 类。
 - 展示层三字段测试：
   | 测试 | 覆盖 |
   |---|---|
   | `TestCollectorS11DisplayFields` | 包内成员 / 嵌套类 / 局部类 / 匿名类内部 / File 三字段空 |
-  | `TestCollectorS12DisplayFieldsEdge` | 8 组边界样例（`collector/display/`）：五层链、默认包、接口嵌套、注解嵌套、record、枚举常量类体、嵌套匿名与局部类、初始化块与字段初始化 |
-  | `TestCollectorDisplayFieldsInvariant` | 全量不变量（52 文件 / 841 元素）：File 空、NamespaceQN=package、EnclosingQN=ParentQN、TypeQN 存在且为具名类型、TypeQN 是 QN 段边界前缀 |
+  | `TestCollectorS12DisplayFieldsEdge` | 8 组边界样例（`collector/display/`）：五层链、默认包（`(default)` 归属 + PACKAGE 元素）、接口嵌套、注解嵌套、record、枚举常量类体、嵌套匿名与局部类、初始化块与字段初始化 |
+  | `TestCollectorDisplayFieldsInvariant` | 全量不变量（52 文件 / 841 元素）：File 空、NamespaceQN=package（默认包为 `(default)`）、EnclosingQN=ParentQN、TypeQN 存在且为具名类型、TypeQN 是 QN 段边界前缀 |
