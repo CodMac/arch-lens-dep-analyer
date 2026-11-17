@@ -93,9 +93,13 @@ com.example.base.ScopeTest.test().lambda$1.a
 | 枚举隐式方法（desugar） | `com.example.app.Status.values()`、`com.example.app.Status.valueOf(String)` |
 | 默认构造器（desugar） | `com.example.base.AbstractBaseEntity.AbstractBaseEntity()` |
 
-**参数类型列表规则**（`extractParameterTypesOnly`）：
+**参数类型列表规则**（`extractParameterTypesOnly` + `helper.StripGenericArgs`）：
 - 仅保留**参数类型**，不含参数名。
-- 泛型参数**只取原始类型**（`List<String>` → `List`），截断到 `<`。
+- 泛型参数**只取原始类型**（`List<String>` → `List`），按 `<`/`>` 配对剥离，**保留其后的数组/变长后缀**：
+  - `Class<?>[]` → `Class[]`（不能是 `Class`）
+  - `Class<?>...` → `Class...`
+  - `Map<String,List<Integer>>[]` → `Map[]`
+  - 用 `strings.Split(t, "<")[0]` 会把 `>` 之后的 `[]`/`...` 一并丢掉，导致 `f(Class<?>[])` 与 `f(Class<?>)` 压成同一 QN（重载被压平）。
 - 变长参数保留 `...`（`updateConfigs(String[],Object...)`）。
 - 无参数 → `()`。
 
@@ -309,7 +313,11 @@ class User {
 
 ```java
 void process(List<String> items)   →  Class.process(List)   // 不是 process(List<String>)
+void consume(Class<?>[] types)     →  Class.consume(Class[])  // [] 必须保留
+void consume(Class<?>... types)    →  Class.consume(Class...) // ... 必须保留
 ```
+
+> 剥离算法是「按 `<`/`>` 配对删除」，不是「截断到第一个 `<`」——后者会把 `>` 之后的 `[]`/`...` 一起丢掉，使 `f(Class<?>[])` 与 `f(Class<?>)` 压成同一个 QN。
 
 但**字段/变量的原始类型**保留在 Mores（`FieldRawType`/`VariableRawType`）中，TYPE_ARG 关系从这些原始类型中递归提取泛型实参（`List<String>` → TYPE_ARG `-> String`）。
 

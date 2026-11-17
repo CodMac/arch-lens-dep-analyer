@@ -95,6 +95,34 @@ func ExtractParamType(p string) string {
 	return strings.TrimSpace(strings.Join(kept, " "))
 }
 
+// StripGenericArgs 剥离类型文本中的泛型实参，保留其后的数组/变长后缀。
+//   - List<String>            -> List
+//   - Class<?>[]              -> Class[]
+//   - Class<?>...             -> Class...
+//   - Map<String,List<Int>>[] -> Map[]
+//
+// 不能用 strings.Split(t, "<")[0]：那会把 `>` 之后的 `[]` / `...` 一并丢弃，
+// 导致 `f(Class<?>[])` 与 `f(Class<?>)` 压成同一个 QN（重载被压平）。
+func StripGenericArgs(t string) string {
+	var b strings.Builder
+	depth := 0
+	for _, r := range t {
+		switch r {
+		case '<':
+			depth++
+		case '>':
+			if depth > 0 {
+				depth--
+			}
+		default:
+			if depth == 0 {
+				b.WriteRune(r)
+			}
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
 // Clean 清洗类型/符号文本：去掉 new/extends/super 前缀、泛型、参数括号、数组尾缀等。
 func Clean(s string) string {
 	s = strings.TrimPrefix(s, "@")

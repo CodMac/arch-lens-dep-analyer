@@ -19,7 +19,7 @@ Java 是**首个落地**的语言实现（现与 C/C++ 并存，见 [cpp.md](cpp
 | Package | `包.包.包` | 点号包名逐级拆分（`com`、`com.example` 各是独立元素） |
 | File | `相对路径` | `QualifiedName == Path`，正斜杠 `/` 分隔（跨平台一致） |
 | Class / Interface / Enum / Annotation | `包.类型名` | 含嵌套类（`User.AddonInfo`） |
-| Method / Constructor | `父QN.名(参数类型列表)` | 参数列表区分重载，泛型剥离到 `<`，变长参数保留 `...` |
+| Method / Constructor | `父QN.名(参数类型列表)` | 参数列表区分重载；泛型实参按 `<`/`>` 配对剥离，**保留其后 `[]`/`...`**（`Class<?>[]` → `Class[]`），变长参数保留 `...` |
 | Field / EnumConstant | `父QN.字段名` | 无括号 |
 | Variable | `所在作用域容器QN.变量名` | 容器可为方法/lambda/block/匿名类/构造器/增强 for |
 | AnonymousClass | `容器QN.anonymousClass$N` | 名称恒为 `anonymousClass`，序号从 1 递增 |
@@ -148,7 +148,7 @@ Java 的默认包是真实存在的 unnamed package，不是「无归属」。�
 |---|---|---|
 | 1 | 显式 `super()`/`this()` | 解析为接收者名，Target QN 为 `super`/`this`（外部 Method 符号），不指向具体构造器 |
 | 2 | 重名普通元素 `$N` 消歧 | 同容器重名普通元素（字段/变量/类）追加 `$N` 的规则**代码支持但未被 e2e 基线触发**（属未验证盲区，待补测试） |
-| 3 | 泛型在 QN 中 | 参数类型列表剥离泛型实参只保留原始类型；泛型实参经 TYPE_ARG 关系递归提取 |
+| 3 | 泛型在 QN 中 | 参数类型列表剥离泛型实参只保留原始类型，**保留其后 `[]`/`...`**（`Class<?>[]` → `Class[]`、`Class<?>...` → `Class...`，见 `helper.StripGenericArgs`）；泛型实参经 TYPE_ARG 关系递归提取 |
 | 4 | 文件路径分隔符 | 文件元素 QN/Path 统一为**正斜杠** `/` 相对项目根（`engine/stage.go` 的 `normalizeFilePath` 负责相对化 + `filepath.ToSlash`），跨平台一致；仅 CLI 扫描输入路径可用平台分隔符 |
 | 5 | 外部符号兜底 | 未命中源码符号库时由 `SymbolResolver` 兜底：基本类型产 PRIMITIVE 元素；泛型类型变量（单大写字母）/通配符 `?` 不产外部；其余按 import 表升级完整 QN 并分配包归属（无 import 归 `<external>`）。不补 `java.lang.*` 前缀，隐式 java.lang 符号 QN 保留裸名。详见 6.2 |
 | 6 | 未实现语法糖 | Java 14+ 模式匹配完整语义、泛型通配符推断未覆盖；record 的 `equals/hashCode/toString` 合成**已实现**（`desugar.go:195-230`）；`sealed`/`permits` 等新语法未覆盖 |

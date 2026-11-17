@@ -526,7 +526,9 @@ func (c *Collector) extractParameterTypesOnly(node coreast.Node, src *[]byte) st
 	}
 	var types []string
 	for i := 0; i < pNode.NamedChildCount(); i++ {
-		tStr := strings.Split(c.extractTypeString(pNode.NamedChild(i), src), "<")[0]
+		// 剥泛型实参但保留数组/变长后缀：`Class<?>[]` -> `Class[]`、`Class<?>...` -> `Class...`。
+		// 用 Split("<")[0] 会丢掉 `>` 之后的 `[]`/`...`，把重载压成同一个 QN。
+		tStr := helper.StripGenericArgs(c.extractTypeString(pNode.NamedChild(i), src))
 		types = append(types, strings.TrimSpace(tStr))
 	}
 	return "(" + strings.Join(types, ",") + ")"

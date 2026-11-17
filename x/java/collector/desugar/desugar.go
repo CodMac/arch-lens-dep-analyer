@@ -168,7 +168,7 @@ func (c *DeSugar) DesugarRecordMembers(elem *model.CodeElement, node coreast.Nod
 
 	var pTypes []string
 	for _, comp := range comps {
-		pTypes = append(pTypes, strings.TrimSpace(strings.Split(comp.vType, "<")[0]))
+		pTypes = append(pTypes, strings.TrimSpace(helper.StripGenericArgs(comp.vType)))
 	}
 	cIdentity := fmt.Sprintf("%s(%s)", elem.Name, strings.Join(pTypes, ","))
 	cQN := c.resolver.BuildQualifiedName(elem.QualifiedName, cIdentity)
@@ -584,7 +584,7 @@ func (c *DeSugar) lombokAllArgsConstructor(elem *model.CodeElement, node coreast
 	var paramStrings []string
 	for _, field := range nonStaticFields {
 		fieldType, _ := field.Element.Extra.Mores[constants.FieldRawType].(string)
-		paramType := strings.TrimSpace(strings.Split(fieldType, "<")[0])
+		paramType := strings.TrimSpace(helper.StripGenericArgs(fieldType))
 		paramTypes = append(paramTypes, paramType)
 		paramNames = append(paramNames, field.Element.Name)
 		paramStrings = append(paramStrings, paramType+" "+field.Element.Name)
@@ -641,7 +641,7 @@ func (c *DeSugar) lombokRequiredArgsConstructor(elem *model.CodeElement, node co
 	var paramStrings []string
 	for _, field := range finalFields {
 		fieldType, _ := field.Element.Extra.Mores[constants.FieldRawType].(string)
-		paramType := strings.TrimSpace(strings.Split(fieldType, "<")[0])
+		paramType := strings.TrimSpace(helper.StripGenericArgs(fieldType))
 		paramTypes = append(paramTypes, paramType)
 		paramNames = append(paramNames, field.Element.Name)
 		paramStrings = append(paramStrings, paramType+" "+field.Element.Name)

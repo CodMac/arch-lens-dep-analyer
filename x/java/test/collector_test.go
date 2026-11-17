@@ -384,6 +384,21 @@ func TestCollectorS3Member(t *testing.T) {
 	AssertMores(t, gc, "com.example.base.test.ParameterScopeTest.execute(int,String...).labels", constants.VariableIsParam, true)
 	AssertMores(t, gc, "com.example.base.test.ParameterScopeTest.execute(int,String...).labels", constants.VariableRawType, "String...")
 
+	// --- 泛型数组 / 泛型变长参数：剥泛型实参但保留 [] 与 ... ---
+	// Class<?>[] 与 Class<?> 是两个不同重载，QN 必须区分开。
+	AssertDef(t, gc, "com.example.base.test.ParameterScopeTest.genericArray(Class[])", model.Method)
+	AssertDef(t, gc, "com.example.base.test.ParameterScopeTest.genericArray(Class)", model.Method)
+	AssertMores(t, gc, "com.example.base.test.ParameterScopeTest.genericArray(Class[])", constants.MethodParameters, []string{"Class<?>[] types"})
+	// Class<?>... 保留变长后缀
+	AssertDef(t, gc, "com.example.base.test.ParameterScopeTest.genericVarargs(Class...)", model.Method)
+	AssertMores(t, gc, "com.example.base.test.ParameterScopeTest.genericVarargs(Class...)", constants.MethodParameters, []string{"Class<?>... types"})
+	// 嵌套泛型数组：Map<String,List<Integer>>[] -> Map[]
+	AssertDef(t, gc, "com.example.base.test.ParameterScopeTest.genericNested(List[],Map[])", model.Method)
+	AssertMores(t, gc, "com.example.base.test.ParameterScopeTest.genericNested(List[],Map[])", constants.MethodParameters,
+		[]string{"List<Integer>[] graph", "Map<String, List<Integer>>[] index"})
+	// 嵌套泛型变长：List<Integer>... -> List...
+	AssertDef(t, gc, "com.example.base.test.ParameterScopeTest.genericVarargsNested(List...)", model.Method)
+
 	// 内部类方法参数
 	AssertDef(t, gc, "com.example.base.test.ParameterScopeTest.InnerWorker", model.Class)
 	AssertMores(t, gc, "com.example.base.test.ParameterScopeTest.InnerWorker", constants.ClassIsStatic, false)
