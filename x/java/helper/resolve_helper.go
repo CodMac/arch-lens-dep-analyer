@@ -12,10 +12,13 @@ import (
 )
 
 // IsScopeContainer 是否容器 kind。
+// EnumConstant 也是容器：`A { ... }` 是枚举常量的匿名子类，其成员（字段/方法）
+// 必须挂在常量之下（`枚举.A.方法()`），而不是平铺到枚举上再靠 `$N` 消歧。
 func IsScopeContainer(k model.ElementKind) bool {
 	switch k {
 	case model.Class, model.Interface, model.Enum, model.KAnnotation,
-		model.Method, model.Lambda, model.ScopeBlock, model.AnonymousClass:
+		model.Method, model.Lambda, model.ScopeBlock, model.AnonymousClass,
+		model.EnumConstant:
 		return true
 	}
 	return false

@@ -455,8 +455,10 @@ func (c *Collector) identifyBlockType(node coreast.Node) (model.ElementKind, []s
 
 func (c *Collector) applyUniqueQN(elem *model.CodeElement, node coreast.Node, parentQN string, occurrences map[string]int, src *[]byte) {
 	identity := elem.Name
+	params := ""
 	if elem.Kind == model.Method && (node.Kind() == "method_declaration" || node.Kind() == "constructor_declaration" || node.Kind() == "annotation_type_element_declaration") {
-		identity += c.extractParameterTypesOnly(node, src)
+		params = c.extractParameterTypesOnly(node, src)
+		identity += params
 	}
 
 	if elem.Kind == model.AnonymousClass || elem.Kind == model.Lambda || elem.Kind == model.ScopeBlock || elem.Kind == model.MethodRef {
@@ -465,7 +467,10 @@ func (c *Collector) applyUniqueQN(elem *model.CodeElement, node coreast.Node, pa
 	} else {
 		occurrences[identity]++
 		if occurrences[identity] > 1 {
-			identity = fmt.Sprintf("%s$%d", identity, occurrences[identity])
+			// 序号必须插在参数列表之前：`名$N(参数)`。
+			// 若拼在末尾（`名(参数)$N`）会破坏 QN 契约「括号是参数签名、QN 以 ) 结尾」，
+			// 并被 CallEnricher 误判为「缺参数列表」再补一个 `()`（`名(参数)$N()`）。
+			identity = fmt.Sprintf("%s$%d%s", elem.Name, occurrences[identity], params)
 		}
 	}
 	elem.QualifiedName = c.resolver.BuildQualifiedName(parentQN, identity)

@@ -61,7 +61,7 @@ Java 是**首个落地**的语言实现（现与 C/C++ 并存，见 [cpp.md](cpp
 
 | # | 边界 | 说明 |
 |---|---|---|
-| D1 | **枚举常量带类体** | `enum E { A { int f; void m(){} } }` 的类体成员当前挂到枚举本身（`E.f`、`E.m()`），不建匿名子类；`TypeQN=E` 仍正确 |
+| D1 | ~~**枚举常量带类体**~~ **已修复** | `enum E { A { int f; void m(){} } }` 的类体成员挂到常量之下（`E.A.f`、`E.A.m()`），`EnclosingQN=E.A`、`TypeQN=E`；`enum_constant` 已纳入作用域容器 |
 | D2 | **record 紧凑构造器块** | 紧凑构造器体收集为 `Record.block$N`（`EnclosingQN=record`），未单独建模为构造器方法 |
 | D3 | **默认包** | 无 `package` 声明时 `NamespaceQN="(default)"`（哨兵 QN，见下）；其余字段不受影响 |
 | D4 | **外部符号** | resolver 兜底的外部元素只有 `NamespaceQN`（包前缀或 `<external>`），`EnclosingQN`/`TypeQN` 为空（无源码词法上下文） |

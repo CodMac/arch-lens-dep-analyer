@@ -33,9 +33,15 @@ func (e *CallEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 		return
 	}
 
-	// 补全方法名括号，使其符合 collector 规范
-	if rel.Target != nil && rel.Target.Kind == model.Method && !strings.HasSuffix(rel.Target.QualifiedName, ")") {
-		rel.Target.QualifiedName += "()"
+	// 补全方法名括号，使其符合 collector 规范。
+	// 判定依据是「是否已带参数列表」，不能只看是否以 `)` 结尾：
+	// 消歧序号可能落在参数列表之后（旧格式 `名(参数)$2`），此时以 `)` 结尾判断会漏补，
+	// 而以 `)` 结尾判断的补丁会把 `名(参数)$2` 补成 `名(参数)$2()`。
+	// 关系 Target 与元素表共享同一指针，改写前必须复制，否则会污染元素定义。
+	if rel.Target != nil && rel.Target.Kind == model.Method && !hasParameterList(rel.Target.QualifiedName) {
+		copied := *rel.Target
+		copied.QualifiedName += "()"
+		rel.Target = &copied
 	}
 
 	// 定位调用的真实 AST 容器节点
@@ -139,6 +145,32 @@ func (e *CallEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 			}
 		}
 	}
+}
+
+// hasParameterList 判断 QN 是否已带参数列表（如 `方法(String)`、`方法$2()`）。
+// 参数类型里可能含点号（`f(java.util.Collection,Class)`），不能按最后一个点切段；
+// 改为从末尾 `)` 反向配对 `(`，并要求括号前不是 `.`（否则是链式调用的中间段）。
+func hasParameterList(qn string) bool {
+	// 兼容历史格式 `名(参数)$N`：先剥掉末尾序号再判断。
+	if i := strings.LastIndex(qn, "$"); i >= 0 && i > strings.LastIndex(qn, ")") {
+		qn = qn[:i]
+	}
+	if !strings.HasSuffix(qn, ")") {
+		return false
+	}
+	depth := 0
+	for i := len(qn) - 1; i >= 0; i-- {
+		switch qn[i] {
+		case ')':
+			depth++
+		case '(':
+			depth--
+			if depth == 0 {
+				return i > 0 && qn[i-1] != '.'
+			}
+		}
+	}
+	return false
 }
 
 // _normalizeReceiverText 标准化receiver文本（去除换行符和多余空格）

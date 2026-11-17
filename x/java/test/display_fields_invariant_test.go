@@ -85,6 +85,49 @@ func TestCollectorDisplayFieldsInvariant(t *testing.T) {
 	}
 }
 
+// TestCollectorMethodQNFormat 断言全部 collector 样例的方法 QN 符合 qn-format.md 契约：
+//   - 方法/构造器 QN 以参数列表结尾（`名(参数)`），不得出现 `名(参数)$N` 这种序号落在括号后的形态；
+//   - 消歧序号必须插在参数列表之前（`名$N(参数)`）；
+//   - 字段/变量 QN 末段不得带括号。
+func TestCollectorMethodQNFormat(t *testing.T) {
+	paths := resolveJavaTree(t, "collector")
+	gc := RunCollection(t, "x/java/testdata", paths)
+
+	checked, disambiguated := 0, 0
+	for _, entry := range gc.Definitions() {
+		elem := entry.Element
+		qn := elem.QualifiedName
+
+		switch elem.Kind {
+		case model.Method:
+			checked++
+			if !strings.HasSuffix(qn, ")") {
+				t.Errorf("方法 QN 未以参数列表结尾: %s (kind=%s)", qn, elem.Kind)
+				continue
+			}
+			// 末段形如 `名$N(参数)` 或 `名(参数)`；参数列表之后不得再出现 `$N`。
+			head := qn[:strings.LastIndex(qn, "(")]
+			if i := strings.LastIndex(head, "$"); i >= 0 && i > strings.LastIndex(head, ".") {
+				disambiguated++
+			}
+		case model.Field, model.Variable, model.EnumConstant:
+			checked++
+			last := qn
+			if i := strings.LastIndex(last, "."); i >= 0 {
+				last = last[i+1:]
+			}
+			if strings.Contains(last, "(") {
+				t.Errorf("%s QN 末段不应带括号: %s", elem.Kind, qn)
+			}
+		}
+	}
+
+	if checked < 500 {
+		t.Errorf("only %d elements checked, expected a broad sweep (>=500)", checked)
+	}
+	t.Logf("checked %d method/field/variable QNs, %d disambiguated methods", checked, disambiguated)
+}
+
 // isNamedTypeKindForTest 复刻 Collector 的具名类型判定（测试侧独立定义，避免依赖内部函数）。
 func isNamedTypeKindForTest(k model.ElementKind) bool {
 	switch k {

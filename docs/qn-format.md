@@ -109,6 +109,7 @@ com.example.base.ScopeTest.test().lambda$1.a
 | record 组件字段（desugar） | `com.example.sugar.User.id`、`com.example.sugar.User.name` |
 | 枚举常量 | `com.example.app.Status.ACTIVE`、`com.example.sugar.Color.RED` |
 | 内部类内枚举常量 | `com.example.base.test.AnonymousClassTest.Inner.Color.RED` |
+| **枚举常量类体内的成员** | 常量是匿名子类，成员挂在常量之下：`...DisplayEnumBody.ADD.apply(int,int)`、`...DisplayEnumBody.ADD.addBodyField` |
 
 ### 2.6 Variable（局部变量/形参）
 
@@ -257,7 +258,7 @@ com.example.chained.ChainedCallExample.Builder.age(int).age   ← Builder 方法
 
 ## 4. 消歧：`$N` 序号后缀
 
-`applyUniqueQN`（`java_collector.go:366`）负责同容器内同名元素的 QN 消歧：
+`applyUniqueQN`（`java_collector.go`）负责同容器内同名元素的 QN 消歧：
 
 ### 4.1 强制序号（匿名/作用域类元素）
 
@@ -281,7 +282,8 @@ test().lambda$1   test().lambda$2   test().lambda$3 ...
 普通元素（字段、变量、类等）**只在同容器内重名时**追加 `$N`（`applyUniqueQN` 中 `occurrences[identity] > 1` 时触发）：
 
 - 首个出现**不带** `$N`，从第 2 个开始 `$2`、`$3`…
-- **方法/构造器不会触发条件序号**：因为参数列表已区分重载，`identity` 含参数签名，同容器内方法签名唯一。
+- **方法/构造器只在签名完全相同时才触发条件序号**。序号**必须插在参数列表之前**：`apply$2(int,int)`，而不是 `apply(int,int)$2`——后者破坏「QN 以参数列表结尾」的契约，并会被 `CallEnricher` 误判为缺参数列表再补一个 `()`（`apply(int,int)$2()`）。
+- 枚举常量类体（`enum_constant`）是**独立作用域容器**，其成员挂在常量之下（`E.A.apply(int,int)`），因此不同常量里的同名方法**不会互相触发消歧**。
 - 序号计数**每个作用域容器独立**（`childOccurrences` 在进入容器时重置，见 `collectBasicDefinitions`）。
 
 > ✅ **已覆盖**：`collector/dup/DupNameTest.java`（S10 盲区用例）真实触发该规则并断言——同容器内嵌套类与同名字段（`DupNameTest.Inner` 与 `DupNameTest.Inner$2`、`DupNameTest.Config` 与 `DupNameTest.Config$2`）。不同容器（`block$1.dup` / `block$2.dup`）各自独立计数，不触发。断言见 `TestCollectorS10DedupBlindspot`。
@@ -339,7 +341,7 @@ void process(List<String> items)   →  Class.process(List)   // 不是 process(
 
 ### 5.6 作用域容器与变量归属
 
-- 方法、lambda、block、匿名类都是**作用域容器**，变量挂在其下。
+- 方法、lambda、block、匿名类、**枚举常量类体**都是**作用域容器**，变量挂在其下。
 - `refineVariableScopes` 会把 for/try/catch/if 内的变量**重定位**到最近的 block：
   - `for(String s : list)` → `block$N.s`
   - `try(...)`/`catch(...)` → `block$N.e`
@@ -468,6 +470,7 @@ int app::Box<int>::twice(int x) {} // → app::Box::twice(int)
 | Constructor | `包.类.类(参数)` | `com.example.app.MyClass.MyClass(String)` |
 | Field | `包.类.字段` | `com.example.base.User.AddonInfo.tableName` |
 | EnumConstant | `包.枚举.常量` | `com.example.app.Status.ACTIVE` |
+| 枚举常量类体成员 | `包.枚举.常量.成员` | `...DisplayEnumBody.ADD.apply(int,int)` |
 | Variable | `容器QN.变量` | `com.example.Main.main(String[]).args` |
 | AnonymousClass | `容器QN.anonymousClass$N` | `...register().anonymousClass$1` |
 | Lambda | `容器QN.lambda$N` | `...test().lambda$1` |

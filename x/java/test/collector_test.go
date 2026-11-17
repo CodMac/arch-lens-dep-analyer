@@ -1416,8 +1416,11 @@ func TestCollectorS12DisplayFieldsEdge(t *testing.T) {
 		AssertDisplayFields(t, gc, e, pkg, pkg, e)
 		AssertDisplayFields(t, gc, e+".ADD", pkg, e, e)
 		AssertDisplayFields(t, gc, e+".SUB", pkg, e, e)
-		// 常量类体内的字段/方法当前挂到枚举本身（已知边界）
-		AssertDisplayFields(t, gc, e+".addBodyField", pkg, e, e)
+		// 枚举常量类体 = 常量的匿名子类，成员挂在常量之下（不再平铺到枚举上）。
+		AssertDisplayFields(t, gc, e+".ADD.addBodyField", pkg, e+".ADD", e)
+		AssertDisplayFields(t, gc, e+".ADD.apply(int,int)", pkg, e+".ADD", e)
+		AssertDisplayFields(t, gc, e+".SUB.apply(int,int)", pkg, e+".SUB", e)
+		// 枚举自身声明的抽象方法（不参与常量类体消歧）。
 		AssertDisplayFields(t, gc, e+".apply(int,int)", pkg, e, e)
 		// 枚举内嵌套类
 		AssertDisplayFields(t, gc, e+".Meta", pkg, e, e)
