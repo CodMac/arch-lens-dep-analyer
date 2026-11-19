@@ -92,7 +92,9 @@ var actionKinds = []struct {
 
 ### 2.4 C/C++ 三层测试（x/cpp/test/）
 
-C/C++ 不使用 Java 的「源码注释期望块」模式，改用**显式断言函数**（`FindRel` + 谓词），逐条校验关系：
+C/C++ 不使用 Java 的「源码注释期望块」模式，改用**显式断言函数**（`FindRel` + 谓词），逐条校验关系。
+
+测试文件按语言归属拆分：`*_base_test.go`（C/C++ 共享）、`*_c_test.go`（C 独有）、`*_cpp_test.go`（C++ 独有）；共享断言与收集辅助集中在 `assert_helper.go`。
 
 | 测试 | 覆盖 |
 |---|---|
@@ -129,7 +131,7 @@ C/C++ 不使用 Java 的「源码注释期望块」模式，改用**显式断言
 | `TestCollectorCppEdge` | 重名消歧、匿名 struct/union 承载、类型引用负例、前向声明、空 struct/函数、无名参数 |
 | `TestCollectorCppDisplayFieldsEdge` | 展示层三字段边界：namespace 全形态（嵌套/C++17/inline/匿名/重开 `$N`）、类型全形态（三层嵌套/union/enum/模板）、局部类型、跨文件类外定义、纯 C、杂项（`collector/cpp/display`） |
 | `TestCollectorCppDisplayFieldsInvariant` | 展示层三字段横切不变量：遍历全部 collector/cpp 样例（785 元素）断言 File 空、NamespaceQN 真实、EnclosingQN==ParentQN、TypeQN 为具名类型且是 QN 段边界前缀、TypeQN 非函数 QN |
-| `TestCollectorConditional` | 条件编译分支标注（`collector/cond` 基础样例） |
+| `TestCollectorConditional` | 条件编译分支标注（`collector/c/cond` 精简样例） |
 | `TestExtractorStructural` | Import/Contain/Extend/Parameter/Return/TypeArg |
 | `TestExtractorActions` | Call/Assign/Use/Cast |
 | `TestExtractorImplLink` | 跨文件签名配对、static 不配对、类外定义配对 |
@@ -141,6 +143,7 @@ C/C++ 不使用 Java 的「源码注释期望块」模式，改用**显式断言
 | `TestResolverFieldInitializer` | 构造器成员初始化列表 `: a(x)` |
 | `TestResolverCapture` | Lambda 捕获 |
 | `TestResolverChain` | 链式接收者类型传播：`f()->g()` / `a.b.c` / `this->f()->g()` / 自由函数返回值 / 同名方法区分 |
+| `TestResolverAnonymousTypedefField` | 匿名 struct 承载 typedef 的字段解析（`typedef struct{...} Point` 的 `p.x` 绑定到 `Point::x`） |
 | `TestExtractorCppStructural` | C++ 全形态 Import/Contain/Extend/Parameter/Return/TypeArg |
 | `TestExtractorCppActions` | C++ 全形态 Call/Create/Cast/Assign/Use/Throw |
 | `TestExtractorCppCapture` | C++ Lambda 捕获推导全形态 |
@@ -170,16 +173,16 @@ x/java/testdata/
 └── e2e/             # 端到端黄金基线（baseline.golden.jsonl）
 
 x/cpp/testdata/
-├── collector/base/  # C/C++ 基础样例（basic.c / basic.cpp / basic.h）
-├── collector/cond/  # 条件编译样例（cond.c）
+├── collector/base/  # C/C++ 基础样例（basic.c / basic.cpp / basic.h，唯一跨语言共享 fixture）
 ├── collector/c/     # C 全场景元素提取样例（11 组：base/func/decl_def/struct/
 │                    #   enum/typedef/macro/variable/param/cond/edge）
 ├── collector/cpp/   # C++ 全场景元素提取样例（19 组：base/namespace/decl_def/class/
 │                    #   ctor_dtor/operator/template/inherit/enum/typedef_using/
 │                    #   variable/function/param/lambda/scope/macro/cond/edge/display）
 │                    #   display/ 为展示层三字段边界样例（7 文件）
-├── extractor/       # Extractor 全场景样例（structural/actions/capture/impl_link）
-├── resolver/        # 解析样例（calls.cpp / chain.cpp + forms/overload/inherit/
+├── extractor/cpp/   # Extractor 全场景样例（structural/actions/capture/impl_link）
+├── resolver/c/      # C 解析样例（anonymous_typedef.c）
+├── resolver/cpp/    # C++ 解析样例（calls.cpp / chain.cpp + forms/overload/inherit/
 │                    #   scope/external/lambda_var/cast/throw）
 └── e2e/             # 端到端黄金基线（baseline.golden.jsonl）
 ```

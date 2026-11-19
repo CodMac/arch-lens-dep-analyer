@@ -157,25 +157,3 @@ func TestExtractorImplLink(t *testing.T) {
 		return r.Type == model.ImplLink && r.Source.QualifiedName == "app::Box::twice(int)"
 	})
 }
-
-// TestExtractorContainNamespace 覆盖 namespace 层级拓扑。
-func TestExtractorContainNamespace(t *testing.T) {
-	paths := ResolvePaths(t, "collector/base", "*.cpp", "*.h")
-	ec := RunPipeline(t, "x/cpp/testdata", paths, core.LevelRaw)
-
-	// Namespace → SubNamespace
-	FindRel(t, ec.Relations, func(r *model.DependencyRelation) bool {
-		return r.Type == model.Contain && r.Source.Kind == model.Namespace &&
-			r.Source.QualifiedName == "app" && r.Target.QualifiedName == "app::core"
-	})
-	// Namespace → File
-	FindRel(t, ec.Relations, func(r *model.DependencyRelation) bool {
-		return r.Type == model.Contain && r.Source.Kind == model.Namespace &&
-			r.Source.QualifiedName == "app" && r.Target.Kind == model.File
-	})
-	// File → 顶层元素
-	FindRel(t, ec.Relations, func(r *model.DependencyRelation) bool {
-		return r.Type == model.Contain && r.Source.Kind == model.File &&
-			r.Target.QualifiedName == "app::Box"
-	})
-}

@@ -3,9 +3,9 @@ package test
 import (
 	"testing"
 
-	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/cpp/constants"
+	cppctx "github.com/CodMac/arch-lens-dep-analyer/x/cpp/context"
 )
 
 // =============================================================================
@@ -13,13 +13,6 @@ import (
 // 每组场景对应 testdata/collector/cpp/<group>/ 下的独立样例。
 // 断言目标是「正确行为」而非当前实现现状。
 // =============================================================================
-
-// collectCpp 收集指定 C++ 场景目录下的全部源文件。
-func collectCpp(t *testing.T, group string) core.GlobalContext {
-	t.Helper()
-	paths := ResolvePaths(t, "collector/cpp/"+group, "*.c", "*.h", "*.cpp", "*.hpp")
-	return RunCollection(t, "x/cpp/testdata", paths)
-}
 
 // =============================================================================
 // 1. 基准元素：16 种 ElementKind 冒烟
@@ -1067,7 +1060,7 @@ func TestCollectorCppDisplayFields(t *testing.T) {
 	})
 
 	t.Run("跨文件类外定义", func(t *testing.T) {
-		paths := ResolveTree(t, "extractor/impl_link")
+		paths := ResolveTree(t, "extractor/cpp/impl_link")
 		gc, _ := RunExtraction(t, "x/cpp/testdata", paths)
 
 		// 类外定义在 impl_a.cpp：父类型定义在头文件，TypeQN 仍按 QN 结构推导
@@ -1088,4 +1081,71 @@ func TestCollectorCppDisplayFields(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestCollectorCpp 覆盖 C++ 元素收集：namespace/class/继承/模板/纯虚/访问级别。
+func TestCollectorCpp(t *testing.T) {
+	paths := ResolvePaths(t, "collector/base", "*.cpp", "*.h")
+	gc := RunCollection(t, "x/cpp/testdata", paths)
+
+	// --- 命名空间层级 ---
+	AssertDef(t, gc, "app", model.Namespace)
+	AssertDef(t, gc, "app::core", model.Namespace)
+
+	// --- 类与成员 ---
+	AssertDef(t, gc, "app::core::Base", model.Class)
+	AssertDef(t, gc, "app::core::Base::K", model.Field)
+	AssertDef(t, gc, "app::core::Base::m_val", model.Field)
+	// 声明元素（qnPrimary 定义优先，故直接查文件上下文）
+	assertDeclInFile(t, gc, "collector/base/basic.cpp", "app::core::Base::run(int)", model.MethodDecl)
+	assertDeclInFile(t, gc, "collector/base/basic.cpp", "app::core::Base::helper()", model.MethodDecl)
+
+	// 纯虚函数
+	AssertMores(t, gc, "app::core::Base::run(int)", constants.FunctionIsPureVirtual, true)
+	AssertMores(t, gc, "app::core::Base::run(int)", constants.FunctionIsVirtual, true)
+
+	// 访问级别
+	AssertMores(t, gc, "app::core::Base::K", constants.Visibility, "public")
+	AssertMores(t, gc, "app::core::Base::m_val", constants.Visibility, "protected")
+	assertDeclMores(t, gc, "collector/base/basic.cpp", "app::core::Base::helper()", constants.Visibility, "private")
+
+	// static 字段
+	AssertMores(t, gc, "app::core::Base::K", constants.FieldIsStatic, true)
+
+	// --- 类外定义（out-of-line）挂到类下：定义优先命中 METHOD ---
+	if elem := FindDef(t, gc, "app::core::Base::helper()"); elem.Kind != model.Method {
+		t.Errorf("Base::helper() should resolve to definition METHOD, got %s", elem.Kind)
+	}
+	AssertDef(t, gc, "app::core::Base::helper_impl", model.Variable)
+
+	// --- 继承 ---
+	AssertMores(t, gc, "app::Box", constants.ClassSuperClass, []string{"core::Base"})
+
+	// --- 模板 ---
+	AssertMores(t, gc, "app::Box", constants.TemplateParams, "<typename T>")
+	AssertDef(t, gc, "app::Box::value", model.Field)
+	AssertDef(t, gc, "app::Box::run(int)", model.Method)
+
+	// --- enum class ---
+	AssertDef(t, gc, "app::Scoped", model.Enum)
+	AssertMores(t, gc, "app::Scoped", constants.EnumIsScoped, true)
+	AssertDef(t, gc, "app::Scoped::A", model.EnumConstant)
+
+	// --- 普通 struct ---
+	AssertDef(t, gc, "app::Point3", model.Struct)
+	AssertDef(t, gc, "app::Point3::x", model.Field)
+
+	// --- 命名空间列表 ---
+	fc, ok := gc.FileContext("collector/base/basic.cpp")
+	if !ok {
+		t.Fatalf("file context not found")
+	}
+	nfc, ok := fc.(cppctx.NamespaceAware)
+	if !ok {
+		t.Fatalf("file context should implement cppctx.NamespaceAware")
+	}
+	ns := nfc.Namespaces()
+	if len(ns) != 2 || ns[0] != "app" || ns[1] != "app::core" {
+		t.Errorf("Namespaces = %v, want [app app::core]", ns)
+	}
 }

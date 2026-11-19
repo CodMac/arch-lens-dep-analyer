@@ -10,7 +10,7 @@ import (
 
 // TestExtractorCppStructural Import / Contain / Extend / Parameter / Return / TypeArg 全形态。
 func TestExtractorCppStructural(t *testing.T) {
-	paths := ResolveTree(t, "extractor/structural")
+	paths := ResolveTree(t, "extractor/cpp/structural")
 	// File → 顶层元素的 Contain 由 Linker 产出，故跑完整流水线。
 	ec := RunPipeline(t, "x/cpp/testdata", paths, core.LevelRaw)
 	rels := ec.Relations
@@ -18,14 +18,14 @@ func TestExtractorCppStructural(t *testing.T) {
 	// --- Import：项目内头文件（同目录）---
 	FindRel(t, rels, func(r *model.DependencyRelation) bool {
 		return r.Type == model.Import &&
-			r.Source.QualifiedName == "extractor/structural/structural.h" &&
-			r.Target.QualifiedName == "extractor/structural/structural_dep.h" &&
+			r.Source.QualifiedName == "extractor/cpp/structural/structural.h" &&
+			r.Target.QualifiedName == "extractor/cpp/structural/structural_dep.h" &&
 			!r.Target.IsFormExternal
 	})
 	// --- Import：系统头归外部符号 ---
 	sys := FindRel(t, rels, func(r *model.DependencyRelation) bool {
 		return r.Type == model.Import &&
-			r.Source.QualifiedName == "extractor/structural/structural.cpp" &&
+			r.Source.QualifiedName == "extractor/cpp/structural/structural.cpp" &&
 			r.Target.QualifiedName == "vector"
 	})
 	if !sys.Target.IsFormExternal {
@@ -37,8 +37,8 @@ func TestExtractorCppStructural(t *testing.T) {
 	// --- Import：嵌套路径头文件（路径后缀匹配）---
 	nested := FindRel(t, rels, func(r *model.DependencyRelation) bool {
 		return r.Type == model.Import &&
-			r.Source.QualifiedName == "extractor/structural/structural.cpp" &&
-			r.Target.QualifiedName == "extractor/structural/nested/deep.h"
+			r.Source.QualifiedName == "extractor/cpp/structural/structural.cpp" &&
+			r.Target.QualifiedName == "extractor/cpp/structural/nested/deep.h"
 	})
 	if nested.Target.IsFormExternal {
 		t.Errorf("nested/deep.h should resolve to project File element, got external")
@@ -63,7 +63,7 @@ func TestExtractorCppStructural(t *testing.T) {
 	})
 	// Contain 去重（单文件内）：声明/定义同 QN 只产一条。
 	impl := CppImpl(t)
-	oneFile, err := impl.Extractor.Extract("extractor/structural/structural.cpp", ec.GC)
+	oneFile, err := impl.Extractor.Extract("extractor/cpp/structural/structural.cpp", ec.GC)
 	if err != nil {
 		t.Fatalf("extract structural.cpp: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestExtractorCppStructural(t *testing.T) {
 
 // TestExtractorCppActions Call / Create / Cast / Assign / Use / Throw 全形态。
 func TestExtractorCppActions(t *testing.T) {
-	paths := ResolveTree(t, "extractor/actions")
+	paths := ResolveTree(t, "extractor/cpp/actions")
 	_, rels := RunExtraction(t, "x/cpp/testdata", paths)
 
 	// --- Call：自由函数重载按实参个数 ---
@@ -273,7 +273,7 @@ func TestExtractorCppActions(t *testing.T) {
 
 // TestExtractorCppCapture Lambda 捕获推导全形态。
 func TestExtractorCppCapture(t *testing.T) {
-	paths := ResolveTree(t, "extractor/capture")
+	paths := ResolveTree(t, "extractor/cpp/capture")
 	_, rels := RunExtraction(t, "x/cpp/testdata", paths)
 
 	caps := RelFilter(rels, model.Capture)
@@ -323,22 +323,22 @@ func TestExtractorCppCapture(t *testing.T) {
 
 // TestExtractorCppImplLink 声明-实现链接：1 头多源 / static / 只声明 / 类外定义。
 func TestExtractorCppImplLink(t *testing.T) {
-	paths := ResolveTree(t, "extractor/impl_link")
+	paths := ResolveTree(t, "extractor/cpp/impl_link")
 	ec := RunPipeline(t, "x/cpp/testdata", paths, core.LevelRaw)
 
 	// 1 头 ↔ 多源：split_a 与 split_b 分散在两个源文件
 	a := FindRel(t, ec.Relations, func(r *model.DependencyRelation) bool {
 		return r.Type == model.ImplLink && r.Source.QualifiedName == "impl::split_a(int)"
 	})
-	if a.Source.Path != "extractor/impl_link/impl_a.cpp" ||
-		a.Target.Path != "extractor/impl_link/impl.h" {
+	if a.Source.Path != "extractor/cpp/impl_link/impl_a.cpp" ||
+		a.Target.Path != "extractor/cpp/impl_link/impl.h" {
 		t.Errorf("split_a ImplLink paths = %s -> %s", a.Source.Path, a.Target.Path)
 	}
 	b := FindRel(t, ec.Relations, func(r *model.DependencyRelation) bool {
 		return r.Type == model.ImplLink && r.Source.QualifiedName == "impl::split_b(int)"
 	})
-	if b.Source.Path != "extractor/impl_link/impl_b.cpp" ||
-		b.Target.Path != "extractor/impl_link/impl.h" {
+	if b.Source.Path != "extractor/cpp/impl_link/impl_b.cpp" ||
+		b.Target.Path != "extractor/cpp/impl_link/impl.h" {
 		t.Errorf("split_b ImplLink paths = %s -> %s", b.Source.Path, b.Target.Path)
 	}
 
@@ -373,4 +373,26 @@ func TestExtractorCppImplLink(t *testing.T) {
 	}) {
 		t.Errorf("inline member should not be ImplLink-paired")
 	}
+}
+
+// TestExtractorContainNamespace 覆盖 namespace 层级拓扑。
+func TestExtractorContainNamespace(t *testing.T) {
+	paths := ResolvePaths(t, "collector/base", "*.cpp", "*.h")
+	ec := RunPipeline(t, "x/cpp/testdata", paths, core.LevelRaw)
+
+	// Namespace → SubNamespace
+	FindRel(t, ec.Relations, func(r *model.DependencyRelation) bool {
+		return r.Type == model.Contain && r.Source.Kind == model.Namespace &&
+			r.Source.QualifiedName == "app" && r.Target.QualifiedName == "app::core"
+	})
+	// Namespace → File
+	FindRel(t, ec.Relations, func(r *model.DependencyRelation) bool {
+		return r.Type == model.Contain && r.Source.Kind == model.Namespace &&
+			r.Source.QualifiedName == "app" && r.Target.Kind == model.File
+	})
+	// File → 顶层元素
+	FindRel(t, ec.Relations, func(r *model.DependencyRelation) bool {
+		return r.Type == model.Contain && r.Source.Kind == model.File &&
+			r.Target.QualifiedName == "app::Box"
+	})
 }

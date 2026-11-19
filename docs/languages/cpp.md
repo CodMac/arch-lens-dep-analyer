@@ -286,9 +286,10 @@ type expr struct {
 ## 9. 测试现状
 
 - 三层测试 + e2e 黄金回归集，全部位于 `x/cpp/test/`。
-- e2e 基线：`x/cpp/testdata/e2e/baseline.golden.jsonl`（1417 元素 + 2699 关系，LevelBalanced）。
-- 元素覆盖（基线实测）：FILE 74 / NAMESPACE 40 / CLASS 22 / STRUCT 111 / ENUM 21 / ENUM_CONSTANT 45 / TYPE 30 / MACRO 44 / FIELD 166 / FUNCTION 127 / FUNCTION_DECL 45 / METHOD 82 / METHOD_DECL 86 / VARIABLE 468 / SCOPE_BLOCK 29 / LAMBDA 27。
-- 关系覆盖（基线实测）：CONTAIN 1721 / USE 345 / ASSIGN 167 / TYPE_ARG 118 / CALL 90 / IMPL_LINK 69 / PARAMETER 50 / RETURN 35 / IMPORT 33 / EXTEND 24 / CAPTURE 20 / CAST 14 / CREATE 7 / THROW 6。
+- 测试文件按语言归属拆分：`*_base_test.go`（C/C++ 共享）、`*_c_test.go`（C 独有）、`*_cpp_test.go`（C++ 独有）；共享断言集中在 `assert_helper.go`。
+- e2e 基线：`x/cpp/testdata/e2e/baseline.golden.jsonl`（1418 元素 + 2709 关系，LevelBalanced）。
+- 元素覆盖（基线实测）：FILE 74 / NAMESPACE 40 / CLASS 22 / STRUCT 111 / ENUM 21 / ENUM_CONSTANT 45 / TYPE 30 / MACRO 44 / FIELD 166 / FUNCTION 127 / FUNCTION_DECL 45 / METHOD 82 / METHOD_DECL 86 / VARIABLE 469 / SCOPE_BLOCK 29 / LAMBDA 27。
+- 关系覆盖（基线实测）：CONTAIN 1726 / USE 347 / ASSIGN 169 / TYPE_ARG 119 / CALL 90 / IMPL_LINK 69 / PARAMETER 50 / RETURN 35 / IMPORT 33 / EXTEND 24 / CAPTURE 20 / CAST 14 / CREATE 7 / THROW 6。
 - 基线（LevelBalanced）中 PARAMETER/RETURN 大幅减少，是因为当前样例的参数/返回类型多为基本类型（`int`/`void`），被外部符号降噪过滤；CONTAIN/USE/ASSIGN 等指向源码符号的关系不受影响。
 - 测试用例：
   | 测试 | 覆盖 |
@@ -339,6 +340,7 @@ type expr struct {
   | `TestResolverCast` | C 风格强转 + `static_cast` |
   | `TestResolverFieldInitializer` | 构造器成员初始化列表 |
   | `TestResolverCapture` | Lambda 捕获 |
+  | `TestResolverAnonymousTypedefField` | 匿名 struct 承载 typedef 的字段解析（`typedef struct{...} Point` 的 `p.x` 绑定到 `Point::x`） |
   | `TestResolverChain` | 链式接收者类型传播：`f()->g()` / `a.b.c` / `this->f()->g()` / 自由函数返回值 / 同名方法区分 |
   | `TestResolverCppForms` | 段 1 六种 exprForm：formIdent/formMember/formScoped/formCall/formNew/formCast |
   | `TestResolverCppOverload` | 按实参个数挑选重载（自由函数 + 成员方法，0/1/2 参） |

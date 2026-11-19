@@ -1,10 +1,8 @@
 package test
 
 import (
-	"sort"
 	"testing"
 
-	"github.com/CodMac/arch-lens-dep-analyer/core"
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 	"github.com/CodMac/arch-lens-dep-analyer/x/cpp/constants"
 )
@@ -14,111 +12,6 @@ import (
 // 每组场景对应 testdata/collector/c/<group>/ 下的独立样例。
 // 断言目标是「正确行为」而非当前实现现状。
 // =============================================================================
-
-// collectC 收集指定 C 场景目录下的全部 .c/.h 文件。
-func collectC(t *testing.T, group string) core.GlobalContext {
-	t.Helper()
-	paths := ResolvePaths(t, "collector/c/"+group, "*.c", "*.h")
-	return RunCollection(t, "x/cpp/testdata", paths)
-}
-
-// AssertMods 断言元素携带指定修饰符（如 static/inline/extern）。
-func AssertMods(t *testing.T, gc core.GlobalContext, qn, mod string) {
-	t.Helper()
-	elem := AssertDef(t, gc, qn, "")
-	if elem == nil {
-		return
-	}
-	if elem.Extra == nil || !containsStr(elem.Extra.Modifiers, mod) {
-		var got []string
-		if elem.Extra != nil {
-			got = elem.Extra.Modifiers
-		}
-		t.Errorf("%s modifiers = %v, want contains %q", qn, got, mod)
-	}
-}
-
-// AssertNoMores 断言元素不带指定 Mores 键（或值为 false 视为未标记）。
-func AssertNoMores(t *testing.T, gc core.GlobalContext, qn, key string) {
-	t.Helper()
-	elem := AssertDef(t, gc, qn, "")
-	if elem == nil {
-		return
-	}
-	if v, ok := elem.GetMores()[key]; ok {
-		if b, isBool := v.(bool); isBool && !b {
-			return
-		}
-		t.Errorf("%s Mores[%s] should be absent, got %v", qn, key, v)
-	}
-}
-
-// AssertNoKind 断言指定 kind 下不存在该 QN 的元素。
-func AssertNoKind(t *testing.T, gc core.GlobalContext, qn string, kind model.ElementKind) {
-	t.Helper()
-	for _, def := range gc.Definitions() {
-		if def.Element.QualifiedName == qn && def.Element.Kind == kind {
-			t.Errorf("%s should NOT exist as kind %s", qn, kind)
-			return
-		}
-	}
-}
-
-// AssertFieldsOf 断言某承载实体的字段名集合完全匹配（排序后比较）。
-func AssertFieldsOf(t *testing.T, gc core.GlobalContext, parentQN string, want []string) {
-	t.Helper()
-	var got []string
-	for _, def := range gc.Definitions() {
-		if def.ParentQN == parentQN && def.Element.Kind == model.Field {
-			got = append(got, def.Element.Name)
-		}
-	}
-	sort.Strings(got)
-	sortedWant := append([]string(nil), want...)
-	sort.Strings(sortedWant)
-	if !moresEqual(got, sortedWant) {
-		t.Errorf("%s fields = %v, want %v", parentQN, got, sortedWant)
-	}
-}
-
-// AssertSignature 断言函数元素的参数签名 Mores（类型 + 参数名列表）。
-func AssertSignature(t *testing.T, gc core.GlobalContext, qn string, want []string) {
-	t.Helper()
-	AssertMores(t, gc, qn, constants.FunctionParameters, want)
-}
-
-// assertElemInFile 在指定文件上下文中按 QN + kind 查找元素（声明/定义共存时按 kind 区分）。
-func assertElemInFile(t *testing.T, gc core.GlobalContext, filePath, qn string, kind model.ElementKind) *model.CodeElement {
-	t.Helper()
-	fc, ok := gc.FileContext(filePath)
-	if !ok {
-		t.Fatalf("file context not found: %s", filePath)
-	}
-	for _, def := range fc.Definitions() {
-		if def.Element.QualifiedName == qn && def.Element.Kind == kind {
-			return def.Element
-		}
-	}
-	return nil
-}
-
-// AssertMoresInFile 断言指定文件上下文中某元素的 Mores。
-func AssertMoresInFile(t *testing.T, gc core.GlobalContext, filePath, qn string, kind model.ElementKind, key string, want interface{}) {
-	t.Helper()
-	elem := assertElemInFile(t, gc, filePath, qn, kind)
-	if elem == nil {
-		t.Errorf("%s (kind=%s) not found in %s", qn, kind, filePath)
-		return
-	}
-	got, exists := elem.GetMores()[key]
-	if !exists {
-		t.Errorf("%s Mores[%s] missing in %s", qn, key, filePath)
-		return
-	}
-	if want != nil && !moresEqual(got, want) {
-		t.Errorf("%s Mores[%s] = %v, want %v", qn, key, got, want)
-	}
-}
 
 // =============================================================================
 // 1. 基准元素
@@ -554,4 +447,87 @@ func TestCollectorCEdge(t *testing.T) {
 	// 顶层具名结构体只产一次
 	AssertDef(t, gc, "Tag", model.Struct)
 	AssertFieldsOf(t, gc, "Tag", []string{"v"})
+}
+
+// TestCollectorC 覆盖 C 语言元素收集：函数/声明/结构体/枚举/typedef/宏/全局与局部变量。
+func TestCollectorC(t *testing.T) {
+	paths := ResolvePaths(t, "collector/base", "*.c", "*.h")
+	gc := RunCollection(t, "x/cpp/testdata", paths)
+
+	// --- 函数定义与声明成对 ---
+	AssertDef(t, gc, "add(int,int)", model.Function)
+	AssertDef(t, gc, "internal_helper(int)", model.Function)
+	AssertDef(t, gc, "process()", model.Function)
+
+	// 声明（头文件原型）与定义共存：FindByQualifiedName 定义优先。
+	if entry, ok := gc.FindByQualifiedName("add(int,int)"); !ok || entry.Element.Kind != model.Function {
+		t.Errorf("add(int,int) should resolve to definition, got %v", entry)
+	}
+
+	// --- 结构体与字段 ---
+	AssertDef(t, gc, "Node", model.Struct)
+	AssertDef(t, gc, "Node::value", model.Field)
+	AssertDef(t, gc, "Node::next", model.Field)
+
+	// --- 匿名 struct 承载实体：typedef struct {...} Point → 字段挂 Point ---
+	AssertDef(t, gc, "Point", model.Type)
+	AssertDef(t, gc, "Point::x", model.Field)
+	AssertDef(t, gc, "Point::y", model.Field)
+
+	// --- typedef 别名 ---
+	AssertDef(t, gc, "ulong_t", model.Type)
+	AssertMores(t, gc, "ulong_t", constants.TypeUnderlying, "unsigned long")
+
+	// --- 枚举 ---
+	AssertDef(t, gc, "Color", model.Enum)
+	AssertDef(t, gc, "Color::RED", model.EnumConstant)
+	AssertDef(t, gc, "Color::GREEN", model.EnumConstant)
+	AssertDef(t, gc, "Color::BLUE", model.EnumConstant)
+
+	// --- 宏（含函数式宏） ---
+	AssertDef(t, gc, "MAX_SIZE", model.Macro)
+	AssertMores(t, gc, "MAX_SIZE", constants.MacroBody, "100")
+	AssertMores(t, gc, "MAX_SIZE", constants.MacroIsFunctionLike, false)
+	AssertDef(t, gc, "SQUARE", model.Macro)
+	AssertMores(t, gc, "SQUARE", constants.MacroIsFunctionLike, true)
+
+	// --- 全局变量与局部变量 ---
+	// 注：头文件 extern 声明与源文件定义同 QN 同 kind，跨文件注册顺序不定，
+	// 故按文件上下文分别校验（basic.c 的定义必须标记 is_global）。
+	AssertDef(t, gc, "global_counter", model.Variable)
+	if fc, ok := gc.FileContext("collector/base/basic.c"); ok {
+		if entry, found := fc.FindByQualifiedName("global_counter"); found {
+			if !isTrue(entry.Element.GetMores()[constants.VariableIsGlobal]) {
+				t.Errorf("basic.c global_counter should be marked is_global")
+			}
+		} else {
+			t.Errorf("basic.c global_counter not found")
+		}
+	}
+	AssertDef(t, gc, "add(int,int)::local", model.Variable)
+
+	// --- 局部类型引用不应产元素（struct Node n; / enum Color c;） ---
+	AssertNoDef(t, gc, "process()::Node")
+	AssertNoDef(t, gc, "process()::Color")
+
+	// --- 参数作为变量元素 ---
+	AssertDef(t, gc, "add(int,int)::a", model.Variable)
+	AssertDef(t, gc, "add(int,int)::b", model.Variable)
+
+	// --- static 函数不参与 ImplLink，但元素存在且带 static 修饰符 ---
+	AssertDef(t, gc, "internal_helper(int)", model.Function)
+	if elem := FindDef(t, gc, "internal_helper(int)"); elem.Extra == nil || !containsStr(elem.Extra.Modifiers, "static") {
+		t.Errorf("internal_helper should carry static modifier, got %v", elem.Extra)
+	}
+}
+
+// TestCollectorConditional 覆盖条件编译分支标注。
+func TestCollectorConditional(t *testing.T) {
+	paths := ResolvePaths(t, "collector/c/cond", "*.c")
+	gc := RunCollection(t, "x/cpp/testdata", paths)
+
+	AssertMores(t, gc, "cond_a", constants.Condition, "#ifdef FOO")
+	AssertMores(t, gc, "cond_b", constants.Condition, "#elif defined(BAR)")
+	AssertMores(t, gc, "cond_c", constants.Condition, "#else")
+	AssertMores(t, gc, "cond_d()", constants.Condition, "#ifndef BAZ")
 }

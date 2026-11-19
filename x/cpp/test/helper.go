@@ -79,7 +79,7 @@ func ResolvePaths(t *testing.T, dir string, exts ...string) []string {
 }
 
 // ResolveTree 递归收集 testdata 子目录下指定扩展名的源文件。
-// 用于包含嵌套子目录的样例组（如 extractor/structural/nested/）。
+// 用于包含嵌套子目录的样例组（如 extractor/cpp/structural/nested/）。
 func ResolveTree(t *testing.T, dir string, exts ...string) []string {
 	t.Helper()
 	if len(exts) == 0 {
