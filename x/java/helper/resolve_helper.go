@@ -210,12 +210,33 @@ func isTypeKind(k model.ElementKind) bool {
 }
 
 // GetBestElement 根据 node 所在行与 kinds，匹配合适的 Element。
+//
+// 选择规则：行跨度最小者优先；跨度相同时取定义树更深者。
+// 嵌套 lambda 与外层容器可能共享同一行范围（`-> () -> {...}` 的两层 lambda
+// 起止行完全相同），此时必须取内层，否则作用域链从外层起步，内层声明的变量
+// 解析不到，会退化成外部符号（悬空 CAPTURE 的根因之一）。
+// 深度按 ParentQN 链计算（不能用 QN 长度：外层字段名可能比内层 lambda 更长）。
 func GetBestElement(fc core.FileContext, node coreast.Node, kinds []model.ElementKind) *model.CodeElement {
 	if node == nil {
 		return nil
 	}
+	parentOf := make(map[string]string, len(fc.Definitions()))
+	for _, entry := range fc.Definitions() {
+		parentOf[entry.Element.QualifiedName] = entry.ParentQN
+	}
+	depthOf := func(qn string) int {
+		d := 0
+		for p := parentOf[qn]; p != ""; p = parentOf[p] {
+			d++
+			if d > 64 { // 防御异常环
+				break
+			}
+		}
+		return d
+	}
+
 	var best *model.CodeElement
-	var minSize = 1 << 30
+	var minSize, bestDepth = 1 << 30, -1
 	row := int(node.StartPoint().Row + 1)
 	for _, entry := range fc.Definitions() {
 		if slices.Contains(kinds, entry.Element.Kind) {
@@ -224,6 +245,13 @@ func GetBestElement(fc core.FileContext, node coreast.Node, kinds []model.Elemen
 				size := loc.EndLine - loc.StartLine
 				if size < minSize {
 					minSize, best = size, entry.Element
+					bestDepth = depthOf(entry.Element.QualifiedName)
+					continue
+				}
+				if size == minSize {
+					if d := depthOf(entry.Element.QualifiedName); d > bestDepth {
+						best, bestDepth = entry.Element, d
+					}
 				}
 			}
 		}

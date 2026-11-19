@@ -76,8 +76,13 @@ func (e *AssignEnricher) EnrichMetadata(rel *model.DependencyRelation) {
 
 		isSubScope := strings.Contains(qn, "lambda$") || strings.Contains(qn, ".anonymousClass")
 		isTargetField := rel.Target != nil && rel.Target.Kind == model.Field
+		// 字段初始化器/自引用（Source 与 Target 同一元素）不是跨作用域捕获。
+		isSelfRef := rel.Target != nil && rel.Source.QualifiedName == rel.Target.QualifiedName
 
-		if isSubScope && isTargetField {
+		// 与 use_enricher 口径一致：外部字段（System.out 等）是全局符号，
+		// 不是跨作用域捕获的变量。若在此误标 is_capture，会派生出 target 为
+		// 外部裸名的 CAPTURE（源 ASSIGN 又被降噪丢弃），最终成为悬空关系。
+		if isSubScope && isTargetField && !rel.Target.IsFormExternal && !isSelfRef {
 			rel.Mores[constants.RelAssignIsCapture] = true
 		}
 	}

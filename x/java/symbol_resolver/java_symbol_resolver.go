@@ -124,7 +124,13 @@ func (r *SymbolResolver) ResolveVar(gc core.GlobalContext, fc core.FileContext, 
 	// 会退化为外层方法，跨过 lambda 层，导致 lambda 体内变量解析失败。
 	// （此前依赖 resolveIdent 的类型名兜底 FindByShortName 兜住，Bug B 修复
 	// 拒绝非类型短名后必须在此正确解析。）
-	container := helper.GetBestElement(fc, node, []model.ElementKind{model.Method, model.Class, model.ScopeBlock, model.Lambda})
+	// AnonymousClass / Field 也是作用域容器：匿名类的字段初始化器
+	// （`new X(){ private String visited = ""; }`）与类字段初始化器内没有
+	// 方法容器，若不在 kinds 中会跳到外层方法，导致字段自身引用解析落空。
+	container := helper.GetBestElement(fc, node, []model.ElementKind{
+		model.Method, model.Class, model.ScopeBlock, model.Lambda,
+		model.AnonymousClass, model.Field,
+	})
 	if container == nil {
 		return nil
 	}
