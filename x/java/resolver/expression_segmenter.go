@@ -103,15 +103,18 @@ func (es *ExpressionSegmenter) split(node coreast.Node) (*ExpressionHead, []Expr
 
 	case "method_reference":
 		// 形如 System.out::println / this::foo / Type::new
-		receiver := node.ChildByFieldName("object")
-		name := node.ChildByFieldName("name")
-		if receiver != nil && name != nil {
+		// 注意：tree-sitter-java 的 method_reference 不提供 object/name 字段
+		// （子节点是 [接收者, "::", 可选的 type_arguments, 名称]），必须按子节点手工切分。
+		// 否则整串 "b::getSomeField" 会退化为裸标识符，被解析成同名变量/字段，
+		// 产出 target 为 VARIABLE/FIELD 的伪 CALL。
+		if receiver, name := es.splitMethodRef(node); receiver != nil && name != nil {
 			head, segs := es.split(receiver)
 			return head, append(segs, ExpressionSegment{
-				Kind:    SegmentMethod,
-				Name:    name.Utf8Text(es.src),
-				ASTNode: name,
-				RawText: name.Utf8Text(es.src),
+				Kind:        SegmentMethod,
+				Name:        name.Utf8Text(es.src),
+				ASTNode:     name,
+				RawText:     name.Utf8Text(es.src),
+				IsMethodRef: true,
 			})
 		}
 		// 构造引用 Type::new：tree-sitter 不为 `::new` 提供 object/name 字段
@@ -283,6 +286,51 @@ func (es *ExpressionSegmenter) castTypeName(node coreast.Node) string {
 		}
 	}
 	return strings.TrimSpace(node.Utf8Text(es.src))
+}
+
+// splitMethodRef 按子节点切分方法引用 `receiver::name`（可带 type_arguments）。
+// tree-sitter-java 的 method_reference 无 object/name 字段，子节点为
+// [接收者, "::", 可选 type_arguments, 名称]。非 `::new` 且结构完整时返回接收者与名称节点。
+func (es *ExpressionSegmenter) splitMethodRef(node coreast.Node) (receiver, name coreast.Node) {
+	var sepIdx = -1
+	for i := 0; i < node.ChildCount(); i++ {
+		if node.Child(i).Kind() == "::" {
+			sepIdx = i
+			break
+		}
+	}
+	if sepIdx <= 0 {
+		return nil, nil
+	}
+	// `::new` 是构造引用，走 methodRefCtorType 分支。
+	for i := sepIdx + 1; i < node.ChildCount(); i++ {
+		if node.Child(i).Kind() == "new" {
+			return nil, nil
+		}
+	}
+	// 接收者：`::` 之前最后一个具名子节点（可能是 identifier / field_access / this / super / 类型名）。
+	for i := sepIdx - 1; i >= 0; i-- {
+		if c := node.Child(i); c.IsNamed() {
+			receiver = c
+			break
+		}
+	}
+	// 名称：`::` 之后跳过 type_arguments/type_identifier 等泛型前缀，取第一个具名节点。
+	for i := sepIdx + 1; i < node.ChildCount(); i++ {
+		c := node.Child(i)
+		switch c.Kind() {
+		case "type_arguments", "type_identifier", "scoped_type_identifier":
+			continue
+		}
+		if c.IsNamed() {
+			name = c
+			break
+		}
+	}
+	if receiver == nil || name == nil {
+		return nil, nil
+	}
+	return receiver, name
 }
 
 // methodRefCtorType 提取构造引用 `Type::new` 的接收者类型节点。

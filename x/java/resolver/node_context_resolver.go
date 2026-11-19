@@ -82,9 +82,15 @@ func (r *NodeContextResolver) findCoreChain(node coreast.Node) coreast.Node {
 					curr = p
 					continue
 				}
-				// 构造引用 Type::new：tree-sitter 无 name 字段，接收者 identifier 必须
-				// 爬升到 method_reference，否则 segmenter 收到裸 identifier 而丢失 `::new` 语义。
-				if p.Kind() == "method_reference" && isCtorRefNode(p) {
+				// 方法引用：tree-sitter 的 method_reference 也没有 name 字段，
+				// 必须爬升到 method_reference，否则 segmenter 收到裸 identifier
+				// （如 b::getSomeField 的 getSomeField）会把它当作同名变量/字段，
+				// 产出 target 为 VARIABLE/FIELD 的伪 CALL。
+				// 仅对 `::` 之后的 name 爬升；`::` 之前的接收者 identifier（如
+				// events::add 的 events）是普通变量引用，爬升会丢失其 USE 关系。
+				// 接收者 identifier 的匹配由 extractor 的 isMethodRefObjectIdent 拦截，
+				// 这里统一爬升不会重复产出。
+				if p.Kind() == "method_reference" && !isMethodRefReceiverIdent(curr) {
 					curr = p
 					continue
 				}
@@ -196,6 +202,32 @@ func (r *NodeContextResolver) resolveForCast(node coreast.Node) ContextResult {
 		return ContextResult{ExpressNode: node, ContextNode: r.findOuterBoundary(node)}
 	}
 	return ContextResult{ExpressNode: node, ContextNode: r.findOuterBoundary(node)}
+}
+
+// isMethodRefReceiverIdent 判断 identifier 是否为方法引用 `receiver::name` 的接收者
+// （`::` 之前的第一个具名子节点）。接收者是普通变量/类型引用，不应爬升为方法引用整体。
+func isMethodRefReceiverIdent(node coreast.Node) bool {
+	p := node.Parent()
+	if p == nil || p.Kind() != "method_reference" {
+		return false
+	}
+	// 构造引用 `Type::new`：接收者即构造器目标，必须爬升到 method_reference
+	// 才能走构造器消解（保留实参推断）。
+	for i := 0; i < p.ChildCount(); i++ {
+		if p.Child(i).Kind() == "new" {
+			return false
+		}
+	}
+	for i := 0; i < p.ChildCount(); i++ {
+		c := p.Child(i)
+		if c.Kind() == "::" {
+			return false
+		}
+		if c.IsNamed() {
+			return c.StartByte() == node.StartByte() && c.EndByte() == node.EndByte()
+		}
+	}
+	return false
 }
 
 // isCtorRefNode 判断 method_reference 是否为构造引用 `Type::new`

@@ -200,6 +200,9 @@ func ResolveInheritanceParent(gc core.GlobalContext, fc core.FileContext, elem *
 	return PreciseResolve(gc, fc, name)
 }
 
+// IsTypeKind 判断元素是否为类型类（Class/Interface/Enum/KAnnotation/AnonymousClass）。
+func IsTypeKind(k model.ElementKind) bool { return isTypeKind(k) }
+
 // isTypeKind 判断元素是否为类型类（可作为点分嵌套名拆分的有效外层）。
 func isTypeKind(k model.ElementKind) bool {
 	switch k {

@@ -132,7 +132,7 @@ func (cr *ChainResolver) resolveHead(head ExpressionHead, relType model.Dependen
 				return anon
 			}
 		}
-		typeElem := cr.resolveTypeFromNameAt(head.ASTNode, head.Name)
+		typeElem := cr.resolveTypeStrictAt(head.ASTNode, head.Name)
 		// 独立构造调用（无后续段）：解析到真实构造器元素，QN = 类QN.类名(参数类型列表)。
 		// 否则会退化为类 QN（再被 enricher 补成 "类QN()"），与 collector 产出的构造器
 		// 元素 QN 对不上，导致关系目标悬空。
@@ -143,7 +143,7 @@ func (cr *ChainResolver) resolveHead(head ExpressionHead, relType model.Dependen
 		return typeElem
 
 	case HeadCastExpr:
-		return cr.resolveTypeFromNameAt(head.ASTNode, head.CastType)
+		return cr.resolveTypeStrictAt(head.ASTNode, head.CastType)
 
 	case HeadImplicitMethod:
 		// 无接收者的隐式方法调用（this.method()）。
@@ -170,12 +170,12 @@ func (cr *ChainResolver) resolveHead(head ExpressionHead, relType model.Dependen
 		return cr.resolveIdent(head)
 
 	case HeadType:
-		return cr.resolveTypeFromNameAt(head.ASTNode, head.Name)
+		return cr.resolveTypeStrictAt(head.ASTNode, head.Name)
 
 	case HeadClassLit:
 		// Xxx.class 头部：解析为类型元素本身。带后续段时由 ResolveChain 覆盖为
 		// java.lang.Class 容器（成员解析），纯 class 引用保持类型元素。
-		return cr.resolveTypeFromNameAt(head.ASTNode, head.Name)
+		return cr.resolveTypeStrictAt(head.ASTNode, head.Name)
 
 	case HeadCtorInvoke:
 		return cr.resolveCtorInvoke(head, argCount, inferredTypes)
@@ -220,34 +220,39 @@ func (cr *ChainResolver) resolveSegment(curr *model.CodeElement, seg ExpressionS
 	// 实例变量/字段接收者：先按声明类型解析成员，再回退到变量自身 QN。
 	// 例：user.getName() 中 curr=Variable(user)，声明类型 User -> 在 User 上查 getName。
 	if curr.Kind == model.Variable || curr.Kind == model.Field {
-		if container := cr.receiverContainer(curr, seg.ASTNode); container != nil {
-			switch seg.Kind {
-			case SegmentMethod:
-				if resolved := mr.ResolveMethod(container, seg.Name, argCount, inferredTypes, false); resolved != nil {
-					cr.propagateGenericElement(resolved)
-					return resolved
-				}
-				// C-3 #95：接收者字段/变量类型为单类型参数容器 C<X>（如 Supplier<X>）上的
-				// get 型方法（如 .get()）语义上返回类型参数 X。将 X 作为外部方法返回类型写入，
-				// 使后续段（.getArgumentsForConstraint()）的 methodReturnContainer 能在 X 上继续
-				// 解析，而非断链为 Supplier.get.getArgumentsForConstraint() 外部裸名。
-				// 仅依赖源码内类型文本的泛型实参，不建外部类型签名映射表。
-				// 收窄条件（spring 全量 100 文件验证）：仅「get 开头方法 + 单类型参数容器」
-				// 才传播——List<X>.stream()/Map<K,V>.values()/Set<X>.iterator() 等包装型
-				// 方法返回非 X，若误传播会把后续段错误解析到 X 上（泛型实参污染）。
-				if elemType := cr.varGenericElem(curr); elemType != "" &&
-					strings.HasPrefix(seg.Name, "get") && cr.singleTypeArg(curr) {
-					ext := model.NewExternalElement(model.Method, seg.Name, cr.gc.BuildQualifiedName(container.QualifiedName, seg.Name))
-					ext.GetMores()[constants.MethodReturnType] = elemType
-					return ext
-				}
-				// 外部类型接收者：ResolveMethod 无成员定义，改用接收者类型 QN 构造外部方法符号。
-				// 例：exchange.getRequest() -> org.springframework.web.server.ServerWebExchange.getRequest()，
-				// 而非 ...lambda$1.exchange.getRequest()（变量 QN 污染）。
-				return model.NewExternalElement(model.Method, seg.Name, cr.gc.BuildQualifiedName(container.QualifiedName, seg.Name))
-			case SegmentField:
-				if resolved := mr.ResolveField(container, seg.Name, false); resolved != nil {
-					return resolved
+		// 方法引用且声明类型不可知（lambda 形参 inferred / var）：无法确定成员，
+		// 交由底部 SegmentMethod 分支走「词法外层 + 短名」兜底，
+		// 避免在此按外部类型构造 `inferred.getGroup()` 伪符号。
+		if !(seg.IsMethodRef && cr.receiverTypeUnknown(curr)) {
+			if container := cr.receiverContainer(curr, seg.ASTNode); container != nil {
+				switch seg.Kind {
+				case SegmentMethod:
+					if resolved := mr.ResolveMethod(container, seg.Name, argCount, inferredTypes, false); resolved != nil {
+						cr.propagateGenericElement(resolved)
+						return resolved
+					}
+					// C-3 #95：接收者字段/变量类型为单类型参数容器 C<X>（如 Supplier<X>）上的
+					// get 型方法（如 .get()）语义上返回类型参数 X。将 X 作为外部方法返回类型写入，
+					// 使后续段（.getArgumentsForConstraint()）的 methodReturnContainer 能在 X 上继续
+					// 解析，而非断链为 Supplier.get.getArgumentsForConstraint() 外部裸名。
+					// 仅依赖源码内类型文本的泛型实参，不建外部类型签名映射表。
+					// 收窄条件（spring 全量 100 文件验证）：仅「get 开头方法 + 单类型参数容器」
+					// 才传播——List<X>.stream()/Map<K,V>.values()/Set<X>.iterator() 等包装型
+					// 方法返回非 X，若误传播会把后续段错误解析到 X 上（泛型实参污染）。
+					if elemType := cr.varGenericElem(curr); elemType != "" &&
+						strings.HasPrefix(seg.Name, "get") && cr.singleTypeArg(curr) {
+						ext := model.NewExternalElement(model.Method, seg.Name, cr.gc.BuildQualifiedName(container.QualifiedName, seg.Name))
+						ext.GetMores()[constants.MethodReturnType] = elemType
+						return ext
+					}
+					// 外部类型接收者：ResolveMethod 无成员定义，改用接收者类型 QN 构造外部方法符号。
+					// 例：exchange.getRequest() -> org.springframework.web.server.ServerWebExchange.getRequest()，
+					// 而非 ...lambda$1.exchange.getRequest()（变量 QN 污染）。
+					return model.NewExternalElement(model.Method, seg.Name, cr.gc.BuildQualifiedName(container.QualifiedName, seg.Name))
+				case SegmentField:
+					if resolved := mr.ResolveField(container, seg.Name, false); resolved != nil {
+						return resolved
+					}
 				}
 			}
 		}
@@ -272,8 +277,19 @@ func (cr *ChainResolver) resolveSegment(curr *model.CodeElement, seg ExpressionS
 	case SegmentMethod:
 		// 方法调用：curr 为类型且处于静态上下文（类型名/静态链）时按静态解析，
 		// 否则（new 表达式/变量/cast 后调用等实例接收者）按实例解析。
-		isStatic := !cr.instanceCtx && (curr.Kind == model.Class || curr.Kind == model.Interface || curr.Kind == model.Enum)
+		// 方法引用 `Type::method` 是非绑定引用：接收者类型上的静态/实例方法都合法
+		//（如 `MergedAnnotation::isPresent` 引用接口的实例方法），不走静态过滤。
+		isStatic := !seg.IsMethodRef && !cr.instanceCtx &&
+			(curr.Kind == model.Class || curr.Kind == model.Interface || curr.Kind == model.Enum)
 		resolved := mr.ResolveMethod(curr, seg.Name, argCount, inferredTypes, isStatic)
+		if resolved == nil && seg.IsMethodRef && !curr.IsFormExternal {
+			// 方法引用目标不在接收者类型上时，回退到词法外层类（含当前类）查找同名方法。
+			// 例：`AnnoFilter::matches` 的 matches 定义在外层类 C8FullProbe 上。
+			// 仅限源码类型接收者：外部类型（如 Guava CacheBuilder）成员不在符号表内，
+			// 回退外层类会把 `CacheBuilder.newBuilder()::build` 错配到本类的同名方法。
+			resolved = cr.resolveMethodRefInEnclosing(seg, argCount, inferredTypes,
+				(curr.Kind == model.Variable || curr.Kind == model.Field) && cr.receiverTypeUnknown(curr))
+		}
 		if resolved == nil {
 			// 兜底：构造外部方法符号。
 			return model.NewExternalElement(model.Method, seg.Name, cr.gc.BuildQualifiedName(curr.QualifiedName, seg.Name))
@@ -295,6 +311,48 @@ func (cr *ChainResolver) resolveSegment(curr *model.CodeElement, seg ExpressionS
 		return cr.resolveTypeFromName(cr.gc.BuildQualifiedName(curr.QualifiedName, seg.Name))
 	}
 	return nil
+}
+
+// resolveMethodRefInEnclosing 在方法引用所在类的词法外层链上查找同名方法。
+// 用于 `AnnoFilter::matches` 这类接收者类型上不存在、但定义在外层类上的方法引用
+// （matches 定义于 C8FullProbe，引用点也在 C8FullProbe 内）。
+func (cr *ChainResolver) resolveMethodRefInEnclosing(seg ExpressionSegment, argCount int, inferredTypes []string, allowShortName bool) *model.CodeElement {
+	cls := cr.currentClass(seg.ASTNode)
+	if cls == nil {
+		return nil
+	}
+	mr := NewMemberResolver(cr.gc, cr.fc)
+	for outer := cls; outer != nil; outer = cr.outerClassOf(outer) {
+		if resolved := mr.ResolveMethod(outer, seg.Name, argCount, inferredTypes, false); resolved != nil {
+			return resolved
+		}
+	}
+	// 接收者类型不可知（如 lambda 形参 `input::getGroup`，声明类型为 inferred）时，
+	// 按方法名做短名检索兜底，只接受源码 Method。旧实现（不拆方法引用）正是靠
+	// resolveIdent 的类型名兜底命中同名方法，此处保持等价语义。
+	// 仅限类型未知的接收者：已知类型（含外部类型）上查不到成员即应断链，
+	// 否则 `annotations::add` 会错配到无关的源码 add 方法。
+	if allowShortName {
+		for _, def := range helper.PreciseResolve(cr.gc, cr.fc, seg.Name) {
+			if def.Element.Kind == model.Method && !def.Element.IsFormExternal {
+				return def.Element
+			}
+		}
+	}
+	return nil
+}
+
+// receiverTypeUnknown 判断变量/字段的声明类型是否不可知（lambda 形参 inferred / 空）。
+func (cr *ChainResolver) receiverTypeUnknown(elem *model.CodeElement) bool {
+	if elem == nil || elem.Extra == nil {
+		return false
+	}
+	t, _ := elem.Extra.Mores[constants.VariableTypeWithQN].(string)
+	if t == "" {
+		t, _ = elem.Extra.Mores[constants.FieldRawType].(string)
+	}
+	t = helper.Clean(t)
+	return t == "" || t == "inferred" || t == "var"
 }
 
 // resolveConstructor 在目标类型及其父类链上查找构造器元素（含重载消解）。
@@ -350,7 +408,7 @@ func (cr *ChainResolver) resolveCtorInvoke(head ExpressionHead, argCount int, in
 		}
 	default:
 		// TypeName(...) -> 按类型名解析（可能是同文件/同包/import 类型）。
-		targetType = cr.resolveTypeFromNameAt(head.ASTNode, ref)
+		targetType = cr.resolveTypeStrictAt(head.ASTNode, ref)
 		if targetType == nil || !isTypeKind(targetType.Kind) {
 			return nil
 		}
@@ -473,7 +531,20 @@ func (cr *ChainResolver) receiverContainer(elem *model.CodeElement, node coreast
 		return nil
 	}
 
-	container := cr.resolveTypeFromNameAt(node, typeQN)
+	container := cr.resolveTypeStrictAt(node, typeQN)
+	// 声明类型可能只在「声明该变量/字段的文件」可见（如父类文件内定义的嵌套类型），
+	// 使用点所在文件既无 import 也无定义，按使用点解析会退化成外部裸名，
+	// 后续成员段全部断裂（`httpClient.events.clear()` 退化为 target=httpClient）。
+	// 此时改用元素自身 Path 对应的 FileContext 再解析一次。
+	if (container == nil || container.IsFormExternal) && elem.Path != "" {
+		if declFC, ok := cr.gc.FileContext(elem.Path); ok && declFC != cr.fc {
+			if resolved := helper.PreciseResolve(cr.gc, declFC, typeQN); len(resolved) > 0 {
+				if isTypeKind(resolved[0].Element.Kind) {
+					container = resolved[0].Element
+				}
+			}
+		}
+	}
 	if container == nil || !isTypeKind(container.Kind) {
 		return nil
 	}
@@ -553,11 +624,79 @@ func (cr *ChainResolver) methodReturnContainer(elem *model.CodeElement, node cor
 		return nil
 	}
 
-	container := cr.resolveTypeFromNameAt(node, retQN)
+	container := cr.resolveTypeStrictAt(node, retQN)
 	if container == nil || !isTypeKind(container.Kind) {
 		return nil
 	}
 	return container
+}
+
+// resolveTypeStrictAt 在类型位置解析类型名，只接受类型类命中。
+// 与 resolveTypeFromNameAt 的区别：同名非类型定义（枚举常量/字段/变量遮蔽类型名，
+// 如 `enum CacheType { ConcurrentHashMap }` 内的 `new ConcurrentHashMap<>()`）不得作为
+// 类型结果返回，须按 import / 同包 / 全局 QN 重新解析，仍未命中则产外部类型符号。
+func (cr *ChainResolver) resolveTypeStrictAt(node coreast.Node, name string) *model.CodeElement {
+	// 已是完整 QN 的声明类型（如局部类参数 `...Test.method().Target`）直接命中：
+	// helper.Clean 会把 QN 在首个 "(" 处截断（方法 QN 自带参数列表），
+	// 先按原样精确查找可避免嵌套类的声明类型解析失败。
+	if name != "" {
+		if def, ok := cr.gc.FindByQualifiedName(name); ok && isTypeKind(def.Element.Kind) {
+			return def.Element
+		}
+	}
+	clean := helper.Clean(name)
+	if clean == "" {
+		return nil
+	}
+	// 基本类型产 PRIMITIVE 专用元素（保留类型语义）。
+	if helper.IsPrimitiveType(clean) {
+		return &model.CodeElement{Name: clean, QualifiedName: clean, Kind: model.Primitive, IsFormExternal: true}
+	}
+	// 先按符号表解析：单大写字母既可能是泛型类型变量，也可能是真实类名
+	//（如测试内的局部类 X），只有确实未命中时才按类型变量丢弃。
+	if elem := cr.resolveTypeFromNameAt(node, clean); elem != nil && isTypeKind(elem.Kind) {
+		return elem
+	}
+	if helper.IsTypeVariable(clean) {
+		return nil
+	}
+
+	// 单类型导入 / 通配符导入 / 同包 / 全局 QN 逐级重解析（仅接受类型类）。
+	if imps, ok := cr.fc.Imports()[clean]; ok {
+		for _, imp := range imps {
+			if imp.BoolAttr(constants.ImportAttrIsWildcard) {
+				basePath := strings.TrimSuffix(imp.RawImportPath, "*")
+				if def, ok := cr.gc.FindByQualifiedName(basePath + clean); ok && isTypeKind(def.Element.Kind) {
+					return def.Element
+				}
+				continue
+			}
+			if def, ok := cr.gc.FindByQualifiedName(imp.RawImportPath); ok && isTypeKind(def.Element.Kind) {
+				return def.Element
+			}
+		}
+	}
+	if pkgQN := cr.gc.BuildQualifiedName(helper.PackageNameOf(cr.fc), clean); pkgQN != clean {
+		if def, ok := cr.gc.FindByQualifiedName(pkgQN); ok && isTypeKind(def.Element.Kind) {
+			return def.Element
+		}
+	}
+	if def, ok := cr.gc.FindByQualifiedName(clean); ok && isTypeKind(def.Element.Kind) {
+		return def.Element
+	}
+
+	// 外部类型兜底：有 import 用 import 包前缀，否则归 <external>（与 ResolveType 口径一致）。
+	qn, pkg := clean, "<external>"
+	if imps, ok := cr.fc.Imports()[clean]; ok {
+		for _, imp := range imps {
+			if imp.BoolAttr(constants.ImportAttrIsWildcard) {
+				continue
+			}
+			qn, pkg = imp.RawImportPath, helper.PkgOf(imp.RawImportPath)
+			break
+		}
+	}
+	return &model.CodeElement{Name: clean, QualifiedName: qn, NamespaceQN: pkg, Kind: model.Class, IsFormExternal: true}
 }
 
 // resolveTypeFromName 将类型名解析为类型元素。
@@ -580,7 +719,12 @@ func (cr *ChainResolver) resolveTypeFromNameAt(node coreast.Node, name string) *
 	if node != nil && !strings.Contains(name, ".") {
 		if defs, ok := cr.fc.FindByShortName(name); ok {
 			if scoped := helper.ResolveInScope(cr.gc, cr.fc, node, defs); len(scoped) > 0 {
-				return scoped[0].Element
+				// 只接受类型类命中：同文件的枚举常量/字段/变量可能与被引用类型同名
+				// （如 enum CacheType { ConcurrentHashMap } 内 `new ConcurrentHashMap<>()`），
+				// 直接返回非类型会把类型引用错解析成同名成员。
+				if isTypeKind(scoped[0].Element.Kind) {
+					return scoped[0].Element
+				}
 			}
 		}
 	}

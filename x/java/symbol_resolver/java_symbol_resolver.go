@@ -61,6 +61,9 @@ func (r *SymbolResolver) ResolveType(gc core.GlobalContext, fc core.FileContext,
 		return nil
 	}
 
+	// 注意：此处不过滤非类型命中。resolveIdent 的方法引用兜底（this::foo / Type::foo）
+	// 依赖 ResolveType 返回同名 Method；类型位置的同名遮蔽过滤放在调用方
+	// （chain_resolver.resolveTypeFromNameAt / receiverContainer）。
 	if entries := helper.PreciseResolve(gc, fc, symbol); len(entries) > 0 {
 		return entries[0].Element
 	}
@@ -605,6 +608,12 @@ func (r *SymbolResolver) alignElementWithRelType(gc core.GlobalContext, fc core.
 				Kind:           model.Method,
 				IsFormExternal: elem.IsFormExternal,
 			}
+		case model.Variable, model.Field, model.EnumConstant:
+			// 链在方法段前断裂（接收者类型未知，如 lambda 形参 / var 局部变量），
+			// 回退 lastGood 得到的是接收者变量本身，不是被调用的方法。
+			// 返回 nil 交由 generateContextualFallback 构造外部方法符号，
+			// 避免产出 target 为 VARIABLE/FIELD/ENUM_CONSTANT 的伪 CALL。
+			return nil
 		}
 
 	case model.Use, model.Assign:

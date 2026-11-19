@@ -60,6 +60,10 @@ type ExpressionSegment struct {
 	Name    string
 	ASTNode coreast.Node
 	RawText string
+	// IsMethodRef 标记该段来自方法引用 `Type::method`（而非普通调用 `Type.method()`）。
+	// 方法引用是「非绑定方法引用」：接收者类型上的实例方法同样合法
+	//（如 `MergedAnnotation::isPresent`），不可按静态调用过滤。
+	IsMethodRef bool
 }
 
 // ExpressionChain 是拉平后的符号链：Head + Segments。
