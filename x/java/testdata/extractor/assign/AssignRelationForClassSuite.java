@@ -1,10 +1,10 @@
 package com.example.rel;
 
 public class AssignRelationForClassSuite {
-    // 字段声明初始化
-    // Source: com.example.rel.AssignRelationForClassSuite.count (FIELD)
-    // Target: com.example.rel.AssignRelationForClassSuite.count (FIELD)
-    // Mores: { "is_initializer": true, "target_name": "count", "value_expression": "0" }
+    // 字段声明初始化：Source 与 Target 同为字段自身（自环），
+    // 属纯噪声，不产 ASSIGN 关系（R6）。
+    // 此处不再有期望关系。
+    //
     private int count = 0;
 
     // 静态字段

@@ -274,6 +274,12 @@ func (e *Extractor) discoverActionRelations(fCtx core.FileContext, gc core.Globa
 				if at.RelType == "" || at.Target == nil {
 					continue
 				}
+				// 字段初始化器写入自身（`serialVersionUID = 1L`、`LOGGER = ...`）：
+				// Source 与 Target 是同一字段元素，作为依赖边是纯噪声（R6）。
+				// 语义上「字段初始化写入自身」成立，但不构成元素间依赖，不产出。
+				if at.RelType == model.Assign && sourceElem.QualifiedName == at.Target.QualifiedName {
+					continue
+				}
 
 				relObj := &model.DependencyRelation{
 					Type:     at.RelType,

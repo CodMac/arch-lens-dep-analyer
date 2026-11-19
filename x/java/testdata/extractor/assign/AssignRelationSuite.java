@@ -3,17 +3,17 @@ package com.example.rel;
 public class AssignRelationSuite {
 
     // 1. 字段声明初始化 (Field Initializer)
-    // Source: com.example.rel.AssignRelationSuite.count (FIELD)
-    // Target: com.example.rel.AssignRelationSuite.count (FIELD)
-    // Mores: {
-    //   "java.rel.raw_text": "count = 0",
-    //   "java.rel.context": "variable_declarator",
-    //   "java.rel.ast_kind": "variable_declarator",
-    //   "java.rel.assign.target_name": "count",
-    //   "java.rel.assign.is_initializer": true,
-    //   "java.rel.assign.operator": "=",
-    //   "java.rel.assign.value_expression": "0"
-    // }
+    // Source 与 Target 同为字段自身（自环），属纯噪声，
+    // 不产 ASSIGN 关系（R6）。此处不再声明期望关系。
+    // 说明：字段初始化 `count = 0` 的写入目标是字段本身，
+    // 不构成元素间依赖，故被提取器直接跳过；
+    // 字段的初始化值仍可通过字段元素的 raw_type 等元数据获取。
+    // 保留本注释块的行数，使后续用例的行号断言保持稳定。
+    //
+    //
+    //
+    //
+    //
     private int count = 0;
 
     private static String status;
