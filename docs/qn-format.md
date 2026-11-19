@@ -250,10 +250,15 @@ Builder 链式 setter 的参数类型同样**剥泛型实参、保留 `[]`/`...`
 | CALL | Method | 方法 QN（`类QN.方法(参数)`）或外部方法符号 |
 | CREATE | Class/Interface | 类型 QN（`new` 目标类） |
 | CAST | Class/Interface | 类型 QN（强转目标类型） |
-| USE | Variable/Field | 变量/字段 QN（`容器QN.名`） |
+| USE | Variable/Field/Class/Interface/Enum/Annotation | 变量/字段 QN（`容器QN.名`）；类字面量 `X.class` 时为类型 QN |
 | ASSIGN | Variable/Field | 变量/字段 QN |
 | THROW | Class | 异常类型 QN |
 | PARAMETER/RETURN/TYPE_ARG | Class/Interface | 类型 QN |
+
+> **USE 的双重语义**：普通标识符引用（`user`、`this.field`）的 Target 是 Variable/Field；
+> 类字面量 `X.class` 的 Target 是类型元素（Class/Interface/Enum/Annotation），
+> 其 `java.rel.ast_kind` 标记为 `class_literal`。两者都是真实的语义依赖，
+> 消费方若需区分「变量/字段引用」与「类型引用」，按 `ast_kind` 或 Target 的 Kind 过滤即可。
 
 **Target 的两种来源**：
 - **源码符号**（`IsFormSource=true`）：命中符号库中的定义，QN 与定义一致。

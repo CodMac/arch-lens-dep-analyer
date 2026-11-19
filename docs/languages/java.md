@@ -103,9 +103,14 @@ Java 的默认包是真实存在的 unnamed package，不是「无归属」。�
 
 > **构造调用（`new X(...)` / `this(...)` / `super(...)`）的 CALL 目标**解析为 collector 产出的真实构造器元素，QN 为 `类QN.类名(参数类型列表)`，并按实参个数/类型做重载消解（`new Outer.Inner("n")` → `Outer.Inner.Inner(String)`）。无法命中源码构造器时按 `类QN.类名` 兜底。
 | Cast | Class/Interface | 强转、instanceof |
-| Use | Variable/Field | 标识符引用（经黑白名单清洗） |
+| Use | Variable/Field/Class/Interface/Enum/Annotation | 标识符引用（经黑白名单清洗）；类字面量 `X.class` 时为类型 |
 | Assign | Variable/Field | 赋值、复合赋值、自增减、声明初始化 |
 | Capture | Variable/Field | 由 USE/ASSIGN 推导（`is_capture` 标记）的跨作用域捕获 |
+
+> **Use 的双重语义**：普通标识符引用（`user`、`this.field`）的 Target 是 Variable/Field；
+> 类字面量 `X.class`（`java.rel.ast_kind = class_literal`）的 Target 是类型元素
+> （Class/Interface/Enum/Annotation）。两者都是真实语义依赖；消费方若需区分
+> 「变量/字段引用」与「类型引用」，按 `ast_kind` 或 Target 的 Kind 过滤即可。
 
 > 动作解析的三段式机制见 [action-resolution.md](../action-resolution.md)。
 
