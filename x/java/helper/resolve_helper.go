@@ -86,6 +86,197 @@ func PreciseResolve(gc core.GlobalContext, fc core.FileContext, symbol string) [
 	return nil
 }
 
+// PreciseResolveType 与 PreciseResolve 检索顺序一致，但只接受类型类命中。
+// 类型位置（参数/返回/泛型实参/继承/强转等）上，同文件的枚举常量/字段/变量
+// 可能与被引用类型同名（如 `enum Type { ..., String }` 遮蔽 java.lang.String，
+// 或字段名与类型名同为 JApiCmpXmlRoot）。此时不得返回该非类型，须继续按
+// import / 同包 / 通配符 / 全局 QN 检索真正的类型。
+func PreciseResolveType(gc core.GlobalContext, fc core.FileContext, symbol string) []*core.DefinitionEntry {
+	// 短符号，文件内查找（仅类型）。
+	if defs, ok := fc.FindByShortName(symbol); ok {
+		if only := filterTypeDefs(defs); len(only) > 0 {
+			return only
+		}
+	}
+
+	// 单类型导入：即便 QN 未收录（外部库）也不得回退同包/裸全局查找。
+	if imps, ok := fc.Imports()[symbol]; ok {
+		found := false
+		for _, imp := range imps {
+			if imp.BoolAttr(constants.ImportAttrIsWildcard) {
+				continue
+			}
+			found = true
+			if def, defOK := gc.FindByQualifiedName(imp.RawImportPath); defOK && isTypeKind(def.Element.Kind) {
+				return []*core.DefinitionEntry{def}
+			}
+		}
+		if found {
+			return nil
+		}
+	}
+
+	// 短符号，包内查找。
+	pkgQN := gc.BuildQualifiedName(PackageNameOf(fc), symbol)
+	if def, ok := gc.FindByQualifiedName(pkgQN); ok && isTypeKind(def.Element.Kind) {
+		return []*core.DefinitionEntry{def}
+	}
+
+	// 通配符导入。
+	for _, imps := range fc.Imports() {
+		for _, imp := range imps {
+			if imp.BoolAttr(constants.ImportAttrIsWildcard) {
+				basePath := strings.TrimSuffix(imp.RawImportPath, "*")
+				if def, ok := gc.FindByQualifiedName(basePath + symbol); ok && isTypeKind(def.Element.Kind) {
+					return []*core.DefinitionEntry{def}
+				}
+			}
+		}
+	}
+
+	// 全局 QN。
+	if def, ok := gc.FindByQualifiedName(symbol); ok && isTypeKind(def.Element.Kind) {
+		return []*core.DefinitionEntry{def}
+	}
+
+	// 点分嵌套类型名。
+	if strings.Contains(symbol, ".") {
+		if def := resolveDottedNestedType(gc, fc, symbol); def != nil {
+			return []*core.DefinitionEntry{def}
+		}
+	}
+
+	return nil
+}
+
+// filterTypeDefs 过滤出类型类定义。
+func filterTypeDefs(defs []*core.DefinitionEntry) []*core.DefinitionEntry {
+	var out []*core.DefinitionEntry
+	for _, d := range defs {
+		if isTypeKind(d.Element.Kind) {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// resolveDottedNestedType 与 resolveDottedNested 一致，但外层与结果都必须是类型。
+func resolveDottedNestedType(gc core.GlobalContext, fc core.FileContext, symbol string) *core.DefinitionEntry {
+	for i := len(symbol) - 1; i > 0; i-- {
+		if symbol[i] != '.' {
+			continue
+		}
+		outer := symbol[:i]
+		suffix := symbol[i+1:]
+		outerDefs := PreciseResolveType(gc, fc, outer)
+		if len(outerDefs) == 0 {
+			continue
+		}
+		fullQN := outerDefs[0].Element.QualifiedName + "." + suffix
+		if def, ok := gc.FindByQualifiedName(fullQN); ok && isTypeKind(def.Element.Kind) {
+			return def
+		}
+	}
+	return nil
+}
+
+// ResolveTypeStrict 是类型位置的统一解析入口：只返回类型类元素。
+// 基本类型产 PRIMITIVE 元素；符号表未命中时产外部类型（有 import 用 import
+// 包前缀，否则归 <external>），与 ResolveType 的外部兜底口径一致。
+// 调用方需自行处理「泛型类型变量不产关系」的语义（见 IsDeclaredTypeParameter）。
+func ResolveTypeStrict(gc core.GlobalContext, fc core.FileContext, symbol string) *model.CodeElement {
+	symbol = Clean(symbol)
+	if symbol == "" || symbol == "?" {
+		return nil
+	}
+	if IsPrimitiveType(symbol) {
+		return &model.CodeElement{Name: symbol, QualifiedName: symbol, Kind: model.Primitive, IsFormExternal: true}
+	}
+	if defs := PreciseResolveType(gc, fc, symbol); len(defs) > 0 {
+		return defs[0].Element
+	}
+	// 单大写字母且未命中：视为泛型类型变量，不产外部类型依赖。
+	if IsTypeVariable(symbol) {
+		return nil
+	}
+
+	qn, pkg := symbol, "<external>"
+	if imps, ok := fc.Imports()[symbol]; ok {
+		for _, imp := range imps {
+			if imp.BoolAttr(constants.ImportAttrIsWildcard) {
+				continue
+			}
+			qn, pkg = imp.RawImportPath, PkgOf(imp.RawImportPath)
+			break
+		}
+	}
+	return &model.CodeElement{Name: symbol, QualifiedName: qn, NamespaceQN: pkg, Kind: model.Class, IsFormExternal: true}
+}
+
+// IsDeclaredTypeParameter 判断 name 是否为 ownerQN 词法链上已声明的类型参数
+// （类 `<ACCESS extends ...>` / 方法 `<E extends Number>`）。
+// 类型参数不是真实类型依赖，类型位置不应产关系；多字母类型参数（如 ACCESS）
+// 无法靠 IsTypeVariable 的「单大写字母」规则识别，需查声明。
+func IsDeclaredTypeParameter(gc core.GlobalContext, ownerQN, name string) bool {
+	if name == "" || ownerQN == "" {
+		return false
+	}
+	for scope := ownerQN; scope != ""; {
+		entry, ok := gc.FindByQualifiedName(scope)
+		if !ok {
+			break
+		}
+		if entry.Element.Extra != nil {
+			for _, key := range []string{constants.ClassTypeParameters, constants.MethodTypeParameters} {
+				if tp, ok := entry.Element.Extra.Mores[key].(string); ok && declaresTypeParameter(tp, name) {
+					return true
+				}
+			}
+		}
+		scope = entry.ParentQN
+	}
+	return false
+}
+
+// declaresTypeParameter 判断类型参数声明文本（如 `<ACCESS extends X, TARGET>`）是否含 name。
+func declaresTypeParameter(decl, name string) bool {
+	decl = strings.TrimSpace(decl)
+	if !strings.HasPrefix(decl, "<") || !strings.HasSuffix(decl, ">") {
+		return false
+	}
+	inner := decl[1 : len(decl)-1]
+	depth := 0
+	start := 0
+	for i, r := range inner {
+		switch r {
+		case '<':
+			depth++
+		case '>':
+			depth--
+		case ',':
+			if depth == 0 {
+				if typeParamName(inner[start:i]) == name {
+					return true
+				}
+				start = i + 1
+			}
+		}
+	}
+	return typeParamName(inner[start:]) == name
+}
+
+// typeParamName 从单个类型参数声明中取参数名（`ACCESS extends X` -> ACCESS）。
+func typeParamName(part string) string {
+	part = strings.TrimSpace(part)
+	if idx := strings.Index(part, "extends"); idx >= 0 {
+		part = strings.TrimSpace(part[:idx])
+	}
+	if idx := strings.IndexAny(part, " \t"); idx >= 0 {
+		part = part[:idx]
+	}
+	return part
+}
+
 // resolveDottedNested 解析点分嵌套类型名（Class.NestedInterface / A.B.C 多级嵌套）。
 // 从右向左尝试每个拆分点：拆为 outer + "." + suffix，先按标准检索解析 outer（短名/
 // import/包内/通配符/全局），再在 outer 解析 QN 下拼 suffix 查全局定义。

@@ -122,7 +122,11 @@ func (e *TypeArgExtractor) collectAllTypeArgs(rt string, source *model.CodeEleme
 
 	args := e.parseTypeArgs(rt)
 	for i, arg := range args {
-		target := ctx.Resolver.ResolveType(ctx.GC, ctx.FC, helper.Clean(arg), model.Class)
+		// 类型参数（如 <ACCESS extends ...> 的 ACCESS）不是真实类型依赖。
+		if helper.IsDeclaredTypeParameter(ctx.GC, source.QualifiedName, helper.Clean(arg)) {
+			continue
+		}
+		target := helper.ResolveTypeStrict(ctx.GC, ctx.FC, arg)
 		// 泛型变量（T/E/S）、通配符（?）解析为 nil，不产关系（非真实类型依赖）。
 		if target == nil {
 			continue
@@ -153,7 +157,7 @@ func (e *TypeArgExtractor) collectTypeParameterBounds(typeParams string, source 
 			if bound == "" || bound == "?" {
 				continue
 			}
-			target := ctx.Resolver.ResolveType(ctx.GC, ctx.FC, helper.Clean(bound), model.Class)
+			target := helper.ResolveTypeStrict(ctx.GC, ctx.FC, bound)
 			if target == nil {
 				continue
 			}

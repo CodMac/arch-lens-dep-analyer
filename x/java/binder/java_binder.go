@@ -102,15 +102,21 @@ func (b *Binder) resolveToQNScoped(gc core.GlobalContext, fCtx core.FileContext,
 		return ""
 	}
 
-	// 短名 + owner 作用域：沿词法嵌套链上溯查找。
+	// 类型参数（如 <ACCESS extends ...> 的 ACCESS）不是真实类型依赖：
+	// 保留原始文本，避免被同名的枚举常量/字段/类遮蔽（R3）。
+	if helper.IsDeclaredTypeParameter(gc, ownerQN, rawType) {
+		return rawType
+	}
+
+	// 短名 + owner 作用域：沿词法嵌套链上溯查找（仅接受类型类）。
 	// JLS §7.5.1：单类型导入优先级高于同包类型。若存在非通配符单类型导入，
 	// 跳过作用域上溯（其可能命中同包外层类，如 C-4 core.Parameter 遮蔽
-	// io.r2dbc.spi.Parameter），直接走 ResolveType 的 import 优先级。
+	// io.r2dbc.spi.Parameter），直接走严格类型解析的 import 优先级。
 	if !strings.Contains(rawType, ".") && ownerQN != "" && !hasSingleTypeImport(fCtx, rawType) {
 		owner := helper.GetOwnerClassQN(gc, &model.CodeElement{QualifiedName: ownerQN})
 		for scope := owner; scope != ""; {
 			scoped := scope + "." + rawType
-			if entry, ok := gc.FindByQualifiedName(scoped); ok {
+			if entry, ok := gc.FindByQualifiedName(scoped); ok && helper.IsTypeKind(entry.Element.Kind) {
 				return entry.Element.QualifiedName
 			}
 			parentEntry, ok := gc.FindByQualifiedName(scope)
@@ -121,7 +127,7 @@ func (b *Binder) resolveToQNScoped(gc core.GlobalContext, fCtx core.FileContext,
 		}
 	}
 
-	ele := b.resolver.ResolveType(gc, fCtx, rawType, model.Class)
+	ele := helper.ResolveTypeStrict(gc, fCtx, rawType)
 	if ele == nil {
 		return rawType // 泛型变量/通配符等非类型：保留原始文本，QN 绑定失败不致命
 	}

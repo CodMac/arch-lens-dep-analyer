@@ -110,14 +110,14 @@ func (e *Extractor) extractStructural(fCtx core.FileContext, gc core.GlobalConte
 		// --- 1. 处理 Class (Extend/Implement) ---
 		if elem.Kind == model.Class {
 			if sc, ok := elem.Extra.Mores[constants.ClassSuperClass].(string); ok && sc != "" {
-				target := e.resolver.ResolveType(gc, fCtx, helper.Clean(sc), model.Class)
+				target := helper.ResolveTypeStrict(gc, fCtx, sc)
 				if target != nil {
 					rels = append(rels, &model.DependencyRelation{Type: model.Extend, Source: elem, Target: target})
 				}
 			}
 			if impls, ok := elem.Extra.Mores[constants.ClassImplementedInterfaces].([]string); ok {
 				for _, implName := range impls {
-					target := e.resolver.ResolveType(gc, fCtx, helper.Clean(implName), model.Interface)
+					target := helper.ResolveTypeStrict(gc, fCtx, implName)
 					if target != nil {
 						rels = append(rels, &model.DependencyRelation{Type: model.Implement, Source: elem, Target: target})
 					}
@@ -126,7 +126,7 @@ func (e *Extractor) extractStructural(fCtx core.FileContext, gc core.GlobalConte
 		}
 		if elem.Kind == model.AnonymousClass {
 			if ac, ok := elem.Extra.Mores[constants.AnonymousClassType].(string); ok && ac != "" {
-				target := e.resolver.ResolveType(gc, fCtx, helper.Clean(ac), model.Class)
+				target := helper.ResolveTypeStrict(gc, fCtx, ac)
 				if target == nil {
 					continue
 				}
@@ -145,7 +145,7 @@ func (e *Extractor) extractStructural(fCtx core.FileContext, gc core.GlobalConte
 		if elem.Kind == model.Interface {
 			if impls, ok := elem.Extra.Mores[constants.InterfaceImplementedInterfaces].([]string); ok {
 				for _, implName := range impls {
-					target := e.resolver.ResolveType(gc, fCtx, helper.Clean(implName), model.Interface)
+					target := helper.ResolveTypeStrict(gc, fCtx, implName)
 					if target != nil {
 						rels = append(rels, &model.DependencyRelation{Type: model.Extend, Source: elem, Target: target})
 					}
@@ -155,7 +155,7 @@ func (e *Extractor) extractStructural(fCtx core.FileContext, gc core.GlobalConte
 
 		// --- 3. 处理注解 (Annotation) ---
 		for _, anno := range elem.Extra.Annotations {
-			target := e.resolver.ResolveType(gc, fCtx, helper.Clean(anno), model.KAnnotation)
+			target := helper.ResolveTypeStrict(gc, fCtx, anno)
 			if target != nil {
 				rels = append(rels, &model.DependencyRelation{
 					Type: model.Annotation, Source: elem, Target: target,
@@ -179,7 +179,7 @@ func (e *Extractor) extractStructural(fCtx core.FileContext, gc core.GlobalConte
 						}
 					}
 					if target == nil {
-						target = e.resolver.ResolveType(gc, fCtx, helper.Clean(typePart), model.Class)
+						target = helper.ResolveTypeStrict(gc, fCtx, typePart)
 					}
 					// 泛型变量参数（T data）解析为 nil，不产关系。
 					if target == nil {
@@ -214,7 +214,7 @@ func (e *Extractor) extractStructural(fCtx core.FileContext, gc core.GlobalConte
 			}
 			if ths, ok := elem.Extra.Mores[constants.MethodThrowsTypes].([]string); ok {
 				for _, ex := range ths {
-					target := e.resolver.ResolveType(gc, fCtx, helper.Clean(ex), model.Class)
+					target := helper.ResolveTypeStrict(gc, fCtx, ex)
 					if target == nil {
 						continue
 					}
@@ -627,7 +627,7 @@ func (e *Extractor) resolveTypeForElement(gc core.GlobalContext, fCtx core.FileC
 			}
 		}
 	}
-	return e.resolver.ResolveType(gc, fCtx, raw, model.Class)
+	return helper.ResolveTypeStrict(gc, fCtx, raw)
 }
 
 // extractTypeFromParam 从参数原始文本中提取类型部分（PARAMETER 关系用）。
