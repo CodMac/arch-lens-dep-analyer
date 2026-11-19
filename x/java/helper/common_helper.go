@@ -87,12 +87,101 @@ func ExtractParamType(p string) string {
 
 	var kept []string
 	for _, tok := range strings.Fields(typePart) {
-		if tok == "final" || strings.HasPrefix(tok, "@") {
+		if tok == "final" {
 			continue
 		}
 		kept = append(kept, tok)
 	}
-	return strings.TrimSpace(strings.Join(kept, " "))
+	// 剥离 type-use 注解（`byte @Nullable []` -> `byte[]`、
+	// `com.x.@Nullable Y` -> `com.x.Y`），避免泄漏进参数类型/QN（E1）。
+	return StripTypeUseAnnotations(strings.Join(kept, " "))
+}
+
+// StripTypeUseAnnotations 剥离类型文本中的 type-use 注解，保留底层类型与数组/变长后缀。
+//   - byte @Nullable []                  -> byte[]
+//   - com.google.protobuf.@Nullable X    -> com.google.protobuf.X
+//   - E @Nullable []                     -> E[]
+//   - @Nullable String                   -> String
+//
+// 注解可能出现在类型限定名中间（`com.google.protobuf.@Nullable MessageOrBuilder`）、
+// 数组维度上（`byte @Nullable []`）或类型前（`@Nullable String`），三种位置都要剥离，
+// 否则会泄漏进方法参数 QN（E1），破坏重载解析。
+func StripTypeUseAnnotations(t string) string {
+	var b strings.Builder
+	stripped := false
+	for i := 0; i < len(t); {
+		if t[i] != '@' {
+			b.WriteByte(t[i])
+			i++
+			continue
+		}
+		stripped = true
+		// 跳过 @ 与注解限定名（含点分）。
+		i++
+		for i < len(t) && (isIdentChar(t[i]) || t[i] == '.') {
+			i++
+		}
+		// 跳过注解实参（如 @JsonSubTypes({...})），按括号配对。
+		if i < len(t) && t[i] == '(' {
+			depth := 0
+			for ; i < len(t); i++ {
+				if t[i] == '(' {
+					depth++
+				} else if t[i] == ')' {
+					depth--
+					if depth == 0 {
+						i++
+						break
+					}
+				}
+			}
+		}
+	}
+	// 无注解时原样返回：参数文本中的空白（如 `Object... args` 的单个空格）
+	// 是既有 QN 契约的一部分，不应被归一化改写。
+	if !stripped {
+		return t
+	}
+	return normalizeTypeSpacing(b.String())
+}
+
+// isIdentChar 判断是否为 Java 标识符字符。
+func isIdentChar(c byte) bool {
+	return c == '_' || c == '$' ||
+		(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+}
+
+// normalizeTypeSpacing 归一化类型文本中的空白：`byte []` -> `byte[]`、
+// `a . b` -> `a.b`、`Map ,List` -> `Map,List`，并压缩连续空格。
+func normalizeTypeSpacing(t string) string {
+	var b strings.Builder
+	pendingSpace := false
+	last := byte(0)
+	prevLast := byte(0)
+	for i := 0; i < len(t); i++ {
+		c := t[i]
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			pendingSpace = true
+			continue
+		}
+		if pendingSpace && b.Len() > 0 {
+			switch {
+			case c == '[' || c == ']' || c == '.' || c == ',' || c == ')':
+				// 紧贴前一个字符，不写空格。
+			case last == '.' && prevLast != '.':
+				// 注解被剥离后残留的空格（`com.x.@A Y` -> `com.x. Y`）紧贴。
+				// 排除变长参数省略号（`Object... rest` 的第二个/第三个点）。
+			case last == '<' || last == '(':
+				// 泛型/括号后残留的空格同样紧贴。
+			default:
+				b.WriteByte(' ')
+			}
+		}
+		pendingSpace = false
+		b.WriteByte(c)
+		prevLast, last = last, c
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // StripGenericArgs 剥离类型文本中的泛型实参，保留其后的数组/变长后缀。

@@ -506,13 +506,15 @@ func (c *Collector) extractTypeString(node coreast.Node, src *[]byte) string {
 		return "inferred"
 	}
 	if tNode := node.ChildByFieldName("type"); tNode != nil {
-		return helper.GetNodeContent(tNode, *src)
+		// 剥离 type-use 注解：`byte @Nullable []` -> `byte[]`、
+		// `com.x.@Nullable Y` -> `com.x.Y`（E1）。
+		return helper.StripTypeUseAnnotations(helper.GetNodeContent(tNode, *src))
 	}
 	if node.Kind() == "spread_parameter" {
 		for i := 0; i < node.NamedChildCount(); i++ {
 			child := node.NamedChild(i)
 			if strings.Contains(child.Kind(), "type") {
-				return helper.GetNodeContent(child, *src) + "..."
+				return helper.StripTypeUseAnnotations(helper.GetNodeContent(child, *src)) + "..."
 			}
 		}
 	}

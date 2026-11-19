@@ -28,6 +28,18 @@ public class ParameterScopeTest {
     public void genericVarargsNested(List<Integer>... lists) {
     }
 
+    // type-use 注解（E1）：注解出现在类型前 / 限定名中间 / 数组维度上，
+    // 都必须剥离，不得泄漏进参数类型与 QN。
+    @interface Nullable {
+    }
+
+    public void typeUseAnnotated(byte @Nullable [] data, @Nullable String name,
+                                 java.util.@Nullable List<String> list, @Nullable Object... rest) {
+    }
+
+    public <E> void typeUseGeneric(E @Nullable [] buffer, long offset) {
+    }
+
     // 内部类中的方法参数
     class InnerWorker {
         void doWork(long duration) {

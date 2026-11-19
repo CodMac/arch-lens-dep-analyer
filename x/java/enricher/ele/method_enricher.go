@@ -80,7 +80,9 @@ func (c *MethodEnricher) extractParameterList(node coreast.Node, src *[]byte) []
 
 	var params []string
 	for i := 0; i < pNode.NamedChildCount(); i++ {
-		params = append(params, helper.GetNodeContent(pNode.NamedChild(i), *src))
+		// 剥离 type-use 注解（`byte @Nullable [] a` -> `byte [] a`），
+		// 否则注解会经 Binder 泄漏进参数 QN（E1），破坏重载解析。
+		params = append(params, helper.StripTypeUseAnnotations(helper.GetNodeContent(pNode.NamedChild(i), *src)))
 	}
 
 	return params

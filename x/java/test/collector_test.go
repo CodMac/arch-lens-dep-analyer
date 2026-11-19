@@ -399,6 +399,17 @@ func TestCollectorS3Member(t *testing.T) {
 	// 嵌套泛型变长：List<Integer>... -> List...
 	AssertDef(t, gc, "com.example.base.test.ParameterScopeTest.genericVarargsNested(List...)", model.Method)
 
+	// --- type-use 注解剥离（E1）：注解不得泄漏进参数类型与 QN ---
+	// 注解出现在数组维度上（byte @Nullable []）、类型前（@Nullable String）、
+	// 限定名中间（java.util.@Nullable List）、变长参数前（@Nullable Object...）。
+	AssertDef(t, gc, "com.example.base.test.ParameterScopeTest.typeUseAnnotated(byte[],String,java.util.List,Object...)", model.Method)
+	AssertMores(t, gc, "com.example.base.test.ParameterScopeTest.typeUseAnnotated(byte[],String,java.util.List,Object...)",
+		constants.MethodParameters, []string{"byte[] data", "String name", "java.util.List<String> list", "Object... rest"})
+	// 泛型类型变量 + 数组维度注解
+	AssertDef(t, gc, "com.example.base.test.ParameterScopeTest.typeUseGeneric(E[],long)", model.Method)
+	AssertMores(t, gc, "com.example.base.test.ParameterScopeTest.typeUseGeneric(E[],long)",
+		constants.MethodParameters, []string{"E[] buffer", "long offset"})
+
 	// 内部类方法参数
 	AssertDef(t, gc, "com.example.base.test.ParameterScopeTest.InnerWorker", model.Class)
 	AssertMores(t, gc, "com.example.base.test.ParameterScopeTest.InnerWorker", constants.ClassIsStatic, false)
