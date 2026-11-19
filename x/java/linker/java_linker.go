@@ -51,6 +51,12 @@ func (l *Linker) LinkHierarchy(gc core.GlobalContext) []*model.DependencyRelatio
 		// --- 2. 处理 File -> TopLevelElements ---
 		// 遍历该文件中的所有定义
 		for _, entry := range fCtx.Definitions() {
+			// FILE 元素自身 ParentQN 为空（见 Collector.initFileElem），会被下面的
+			// isTopLevel 判定误认为顶级元素，产出 File -> File 自环。文件节点不是
+			// 自身的子元素，直接跳过。
+			if entry.Element.Kind == model.File {
+				continue
+			}
 			// 逻辑：只有当一个元素的父级是包（或者是空的顶级元素）时，它才直接挂在文件节点下
 			// 这样可以避免方法、内部类也平铺在文件下
 			isTopLevel := entry.ParentQN == "" || entry.ParentQN == pkgName
